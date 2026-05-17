@@ -16,9 +16,9 @@ The registry instantiates the module class with a single argument: the `FlipperC
 1. Create a new package:
 
 ```bash
-mkdir -p src/flipper_mcp/modules/mymodule
-touch src/flipper_mcp/modules/mymodule/__init__.py
-touch src/flipper_mcp/modules/mymodule/module.py
+mkdir -p flipper_mcp/modules/mymodule
+touch flipper_mcp/modules/mymodule/__init__.py
+touch flipper_mcp/modules/mymodule/module.py
 ```
 
 2. Implement `FlipperModule`:

@@ -30,9 +30,12 @@ import sys
 import os
 from pathlib import Path
 
-# Add src to path
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
+# Add repo root to sys.path so `flipper_mcp` resolves when running this file
+# directly without having `pip install -e .` first. Safe to remove if you've
+# installed the package. Note: this file lives in examples/transports/, so
+# repo root is THREE levels up (file -> transports -> examples -> repo root).
+repo_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(repo_root))
 
 from flipper_mcp.core.transport.wifi import WiFiTransport
 from flipper_mcp.core.flipper_client import FlipperClient

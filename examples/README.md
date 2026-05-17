@@ -2,40 +2,23 @@
 
 This directory contains example scripts and modules demonstrating various features of the Flipper Zero MCP server.
 
-## Available Examples
+## Tutorial sequence (start here)
 
-### WiFi Music Player Example
+The numbered files are a 30-minute guided tour from first-contact to extending the server. Read them in order:
 
-**File**: `wifi_music_example.py`
+| # | File                                       | What it covers                                              |
+|---|--------------------------------------------|-------------------------------------------------------------|
+| 1 | `01_hello_flipper.md`                      | Your first 60 seconds — sanity check that everything works  |
+| 2 | `02_first_mission.js`                      | The smallest useful JS mission                              |
+| 3 | `03_mission_template.js`                   | Canonical template with `// FILL THIS IN` markers           |
+| 4 | `04_using_flipper_js_run.py`               | Host-side mission orchestration without going through Claude|
+| 5 | `05_button_navigation.md`                  | Driving menus with synthetic input                          |
+| 6 | `06_adding_a_new_tool.md`                  | Extending the MCP server with a new module                  |
+| 7 | `07_structured_logs.js`                    | Mission log conventions (key=value, required fields)        |
+| 8 | `08_for_your_own_AI.md`                    | Copy-paste prompts for onboarding your AI to CPK            |
+| 9 | `09_mjs_cheat_sheet.md`                    | Single-page mJS quick-reference card                        |
 
-Complete end-to-end example demonstrating wireless control of Flipper Zero using the WiFi Dev Board.
-
-**What it demonstrates:**
-- WiFi connection setup and configuration
-- Protobuf RPC over WiFi
-- FMF (Flipper Music Format) song creation
-- File operations over WiFi
-- Music Player module usage
-- Error handling and retry logic
-
-**Prerequisites:**
-- WiFi Dev Board connected to Flipper Zero
-- WiFi Dev Board configured and on network
-- SD card inserted in Flipper Zero
-
-**Usage:**
-```bash
-# Set WiFi Dev Board IP
-export FLIPPER_WIFI_HOST=192.168.1.100  # Your WiFi Dev Board IP
-export FLIPPER_WIFI_PORT=8080
-
-# Run example
-python3 examples/wifi_music_example.py
-```
-
-**See also:** `docs/wifi_dev_board.md` for complete WiFi setup guide
-
----
+## Other examples in this directory
 
 ### Minimal Module Example
 
@@ -43,7 +26,15 @@ python3 examples/wifi_music_example.py
 
 Template for creating custom modules.
 
-**See:** `docs/module_development.md` for module development guide
+**See:** `docs/module_development.md` for module development guide.
+
+### Transport-specific examples
+
+**Directory**: `transports/`
+
+Examples that exercise alternative transports (WiFi Dev Board, BLE). Likely not your first read — most CPK use goes through USB (the default).
+
+- `transports/wifi_music_example.py` — full end-to-end WiFi Dev Board demo.
 
 ---
 
@@ -56,7 +47,7 @@ Template for creating custom modules.
 pip install -e .
 
 # Run an example
-python3 examples/wifi_music_example.py
+python3 examples/transports/wifi_music_example.py
 ```
 
 ### Configuration
@@ -92,31 +83,26 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add repo root to path so `flipper_mcp` resolves (only needed if not pip-installed)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from flipper_mcp.core.flipper_client import FlipperClient
-from flipper_mcp.core.transport.wifi import WiFiTransport
-# or: from flipper_mcp.core.transport.usb import USBTransport
+from flipper_mcp.core.transport.usb import USBTransport
+# or: from flipper_mcp.core.transport.wifi import WiFiTransport
 
 async def main():
     """Main example logic."""
-    # Create transport
-    config = {"host": "192.168.1.100", "port": 8080}
-    transport = WiFiTransport(config)
-    
-    # Create client and connect
+    # USB auto-detects via VID:PID; pass {"port": "COM9"} to override.
+    transport = USBTransport(config={})
+
     client = FlipperClient(transport)
-    connected = await client.connect()
-    
-    if not connected:
-        print("Failed to connect")
+    if not await client.connect():
+        print(f"Failed to connect: {client.last_connection_error}")
         return 1
-    
+
     # Your code here
     # ...
-    
-    # Cleanup
+
     await client.disconnect()
     return 0
 
@@ -132,6 +118,7 @@ if __name__ == "__main__":
 - **WiFi Dev Board Guide**: `../docs/wifi_dev_board.md`
 - **Module Development**: `../docs/module_development.md`
 - **API Reference**: `../docs/api_reference.md`
+- **AI Contributors Guide**: `../docs/for_ai_contributors.md` — read this if you're an AI agent or you're onboarding one.
 
 ---
 

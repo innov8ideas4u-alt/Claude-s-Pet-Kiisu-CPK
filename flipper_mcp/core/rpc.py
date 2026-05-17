@@ -33,12 +33,16 @@ except ImportError:
 
 
 class FlipperRPC:
-    """
-    Basic RPC client for Flipper Zero.
-    
-    Implements a simplified RPC protocol for basic operations.
-    Note: Full protobuf RPC implementation would be more robust,
-    but this provides basic functionality for testing.
+    """User-facing RPC client for Flipper Zero.
+
+    Delegation pattern: `FlipperRPC` is the facade most callers should use.
+    It owns a `ProtobufRPC` instance (in `self.protobuf_rpc`, lazily
+    initialized) which implements the real binary RPC protocol. When the
+    protobuf layer is unavailable, `FlipperRPC` falls back to a CLI-shim
+    path so basic operations still work for testing.
+
+    Touch `ProtobufRPC` directly only for low-level work (e.g. implementing
+    a new RPC primitive). Everything else should go through `FlipperRPC`.
     """
     
     def __init__(self, transport: FlipperTransport):

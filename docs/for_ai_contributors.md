@@ -48,10 +48,40 @@ These are sourced in `docs/decisions/` but worth surfacing here:
 - **`gui_send_input` must emit the full PRESS→SHORT→RELEASE triplet.** A lone `SHORT` is silently absorbed by most app scenes. The `flipper_gui_send_input` MCP tool defaults to emitting the full triplet — only override with `single_event=True` for advanced cases.
 - **BACK is the universal cleanup verb.** Whether JS Runner shows a "Script done" success screen, an error dialog, or a stuck-running script — a single BACK press dismisses all three. No state-machine branching needed in mission helpers.
 - **`gui_send_input` does NOT wake the backlight.** RPC button presses bypass the power-management code that hardware buttons trigger. To wake the screen (for visible classroom demos), have your JS mission call `notification.success()` or `notification.error()` — these go through a different feedback path that does wake the display + plays audio.
-- **`storage.fsInfo()` is a confirmed broken binding on mntm-dev.** It crashes the calling script. Use the host-side `storage_info` MCP tool instead.
 - **`ERROR_APP_SYSTEM_LOCKED` is misleading.** It means "another app is running, which might be the lockscreen scene," not "system is locked." Use `flipper_desktop_is_locked` for the *real* lock state.
 - **`storage_write` returns "Write failed" on many successful long writes.** Known MCP-server-side bug in response parsing. Always verify writes by reading back.
 - **Large JS scripts (~1500+ chars) crash the JS engine and can drop USB-CDC.** Keep mission scripts under ~800 chars where possible. If you need more, split across multiple files.
+
+### mJS Quirks — Read Before Writing JS Missions
+
+Flipper's mJS is a *subset of a subset* of JavaScript. Upstream mJS (cesanta/mjs) is already a tiny embedded dialect; Flipper's fork is further restricted, and there is **no published spec** (OFW issue #3516). Most things you assume from web JS will surprise you. The rules below are the load-bearing ones — break any and your script aborts silently.
+
+Quick reference card at `examples/09_mjs_cheat_sheet.md`. KB deep-dive at `docs/KIISU_DEEP_KNOWLEDGE.md` §2.10.
+
+1. **No `Date` / `Date.now()` / `new Date()`.** Why: no `Date` constructor exists. Use `delay(ms)` for sleeps; have the *host* record start/end timestamps if you need elapsed-time.
+2. **No `try` / `catch`.** Why: mJS doesn't have exceptions. If a call throws, the script aborts immediately — the absence of a trailing `finished=true` line in your log is your only debugging signal.
+3. **No implicit number-to-string coercion.** Why: `"x=" + 42 + "\n"` throws. Always call `.toString()` explicitly: `"x=" + (42).toString() + "\n"`. Every existing mission in `missions/llmdr/missions/library.py` does this — read them.
+4. **No `Promise` / `async` / `await`.** Why: nothing async. For streaming / event-driven work, use the `event_loop` module (`require("event_loop")`) with subscribe + queue patterns. See KB §2.3.
+5. **No `setTimeout` / `setInterval`.** Why: same. Use `delay(ms)` for synchronous sleep — it's a *global*, not a `require()`.
+6. **No `==` / `!=`, only `===` / `!==`.** Why: strict-mode-only.
+7. **No `var`, only `let`.** Why: strict-mode-only.
+8. **No `for..of`, no arrow functions, no template strings, no classes, no regex.** Why: dialect restrictions. Use `for (let i = 0; ...)`, `function(){...}`, `"a " + x + " b"`, factory functions, and manual `indexOf`/`slice`.
+9. **Closures over mutable outer-scope vars are broken.** Why: mJS lexical scoping doesn't capture mutability the way you expect. Pass values explicitly through `event_loop` userArgs.
+10. **Strings are byte strings, not Unicode.** Why: multi-byte UTF-8 chars count as 2+ in `.length`. Avoid emoji in log keys/values.
+11. **No `Number.toFixed()` / no `Number` methods.** Why: no `Number` standard library. Use the `math` module's shim for `floor/sqrt/etc.`; for fixed-point format, manual string slicing.
+12. **Keep total script size under ~800 chars where you can.** Why: `~1500+ chars` reliably crashes the JS engine and can drop USB-CDC mid-run. If your mission needs more, split across files invoked back-to-back.
+
+The cesanta/mjs README documents *upstream* mJS. Flipper's fork is *more restricted*; the upstream README is necessary but not sufficient. When in doubt, test on the device or read an existing mission for the working pattern.
+
+### Don't use `storage.fsInfo()` from JS
+
+`storage.fsInfo()` is a JS binding that *looks* like it should return free/total bytes for a mounted volume. It is **broken on Momentum mntm-dev** — calling it aborts the calling script silently (no error in the log, no notification, just no `finished=true`).
+
+The canonical workaround:
+
+> Use the host-side `storage_info` MCP tool. Same data (total/free space for `/int` and `/ext`), accessible from Python or from Claude's tool calls. The JS binding is firmware-broken on mntm-dev — it aborts the calling script silently.
+
+That tool calls a different RPC path that the firmware *does* expose correctly. The reference mission at `missions/llmdr/missions/storage_health_check.py` does it the right way; copy that pattern.
 
 ### The validated launch + cleanup recipe
 
