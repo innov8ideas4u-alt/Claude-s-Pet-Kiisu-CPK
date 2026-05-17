@@ -7,6 +7,7 @@ Exposes the full Application-service RPC surface as MCP tools:
   flipper_app_exit          — ask the running app to exit cleanly
   flipper_app_get_error     — read the firmware's verbose error from the last failed app op
   flipper_app_lock_status   — check whether the desktop is locked
+  flipper_js_run            — launch a JS mission, wait, cleanup, return log (v0.5.0)
 
 Why this exists:
   - js_runner uses app_start/app_load_file as fallbacks inside a cascade; you can't
@@ -23,10 +24,15 @@ Risks (documented, not gated):
     classroom use case.
 """
 
-from typing import Any, List, Sequence
+import asyncio
+import time
+from posixpath import basename, dirname
+from typing import Any, List, Optional, Sequence
 from mcp.types import Tool, TextContent
 
 from ..base_module import FlipperModule
+
+JS_RUNNER_FAP_PATH = "/ext/apps/assets/js_app.fap"
 
 
 class AppLifecycleModule(FlipperModule):
@@ -38,7 +44,7 @@ class AppLifecycleModule(FlipperModule):
 
     @property
     def version(self) -> str:
-        return "0.4.0"
+        return "0.5.0"
 
     @property
     def description(self) -> str:
@@ -196,6 +202,52 @@ class AppLifecycleModule(FlipperModule):
                     "required": [],
                 },
             ),
+            Tool(
+                name="flipper_js_run",
+                description=(
+                    "Run a JS mission end-to-end with the validated launch + cleanup recipe in one call. "
+                    "Wraps the 5 manual tool calls a mission normally requires:\n"
+                    "  1. desktop_is_locked → desktop_unlock (only if locked)\n"
+                    f"  2. app_start({JS_RUNNER_FAP_PATH!r}, script_path)\n"
+                    "  3. wait <wait_seconds>\n"
+                    "  4. gui_send_input(BACK) — universal cleanup, dismisses success/error/stuck\n"
+                    "  5. (optional) storage_read the log file and include in the response\n"
+                    "\n"
+                    "Empirically validated against AmorPoee on mntm-dev. The recipe matches the Day-3 decision "
+                    "doc and docs/for_ai_contributors.md.\n"
+                    "\n"
+                    "If read_log=True and log_path is omitted, infers the log path from the script path "
+                    "(/ext/apps_data/mcp_missions/<stem>.js → /ext/apps_data/mcp_logs/<stem>.log).\n"
+                    "\n"
+                    "Does NOT retry on failure. If app_start fails, the firmware error is captured via "
+                    "app_get_error and included in the response. If desktop_unlock fails (e.g. PIN configured), "
+                    "returns immediately without launching."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "script_path": {
+                            "type": "string",
+                            "description": "Absolute path to the JS file on the Flipper SD card (e.g. '/ext/apps_data/mcp_missions/ping.js').",
+                        },
+                        "wait_seconds": {
+                            "type": "number",
+                            "description": "Seconds to wait between launch and cleanup. Default 5. Make this longer than your script's expected runtime + 1s of slack.",
+                            "default": 5,
+                        },
+                        "read_log": {
+                            "type": "boolean",
+                            "description": "If True, read back a log file after the script runs and include its content in the response. Default True.",
+                            "default": True,
+                        },
+                        "log_path": {
+                            "type": "string",
+                            "description": "Explicit log path. If omitted and read_log=True, inferred from script_path by remapping /mcp_missions/ → /mcp_logs/ and .js → .log.",
+                        },
+                    },
+                    "required": ["script_path"],
+                },
+            ),
         ]
 
     async def handle_tool_call(
@@ -226,6 +278,13 @@ class AppLifecycleModule(FlipperModule):
             return await self._desktop_is_locked()
         if tool_name == "flipper_desktop_unlock":
             return await self._desktop_unlock()
+        if tool_name == "flipper_js_run":
+            return await self._js_run(
+                script_path=args.get("script_path", "") or "",
+                wait_seconds=float(args.get("wait_seconds", 5) or 5),
+                read_log=bool(args.get("read_log", True)),
+                log_path=args.get("log_path") or None,
+            )
 
         return [TextContent(
             type="text",
@@ -417,3 +476,136 @@ class AppLifecycleModule(FlipperModule):
                 f"flipper_gui_send_input(UP, SHORT) as a fallback."
             ),
         )]
+
+    @staticmethod
+    def _infer_log_path(script_path: str) -> str:
+        """Map /ext/apps_data/mcp_missions/<stem>.js → /ext/apps_data/mcp_logs/<stem>.log.
+
+        Falls back to the script's own directory with .log extension if the path
+        doesn't follow the convention.
+        """
+        d = dirname(script_path)
+        b = basename(script_path)
+        stem = b[:-3] if b.endswith(".js") else b
+        if d.endswith("/mcp_missions"):
+            d = d[: -len("/mcp_missions")] + "/mcp_logs"
+        return f"{d}/{stem}.log"
+
+    async def _js_run(
+        self,
+        script_path: str,
+        wait_seconds: float,
+        read_log: bool,
+        log_path: Optional[str],
+    ) -> Sequence[TextContent]:
+        """Run the validated launch + cleanup recipe in one call.
+
+        Reference: docs/decisions/DAY3_DESKTOP_RPC_AND_POLISH.md, the validated
+        recipe section in docs/for_ai_contributors.md, and the Day 4 spec.
+        """
+        if not script_path:
+            return [TextContent(type="text", text="❌ flipper_js_run: 'script_path' is required")]
+        if self.flipper.rpc is None:
+            return [TextContent(type="text", text="❌ flipper_js_run: RPC not connected")]
+
+        started = time.monotonic()
+        warnings: List[str] = []
+
+        # Step 1: lock check + unlock if needed
+        try:
+            locked = await self.flipper.rpc.desktop_is_locked()
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"❌ flipper_js_run: desktop_is_locked raised {type(e).__name__}: {e}",
+            )]
+        if locked:
+            try:
+                unlock_result = await self.flipper.rpc.desktop_unlock()
+            except Exception as e:
+                return [TextContent(
+                    type="text",
+                    text=f"❌ flipper_js_run: desktop_unlock raised {type(e).__name__}: {e}",
+                )]
+            if not unlock_result.ok:
+                return [TextContent(
+                    type="text",
+                    text=(
+                        f"❌ flipper_js_run: desktop is locked and unlock failed "
+                        f"({unlock_result.status_name}). If a PIN is configured, unlock the device "
+                        f"physically before retrying."
+                    ),
+                )]
+
+        # Step 2: app_start the JS Runner FAP with the script as args
+        try:
+            start_result = await self.flipper.rpc.app_start(JS_RUNNER_FAP_PATH, script_path)
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"❌ flipper_js_run: app_start raised {type(e).__name__}: {e}",
+            )]
+        if not start_result.ok:
+            # Pull the firmware's verbose error text for the report
+            err_text = ""
+            try:
+                _code, err_text = await self.flipper.rpc.app_get_error()
+            except Exception:
+                pass
+            return [TextContent(
+                type="text",
+                text=(
+                    f"❌ flipper_js_run: app_start({script_path!r}) → {start_result.status_name} "
+                    f"(code {start_result.status_code})\n"
+                    f"Firmware error: {err_text!r}"
+                ),
+            )]
+
+        # Step 3: wait for the script to do its thing
+        await asyncio.sleep(max(0.0, wait_seconds))
+
+        # Step 4: BACK cleanup — universal verb, dismisses success/error/stuck
+        try:
+            back_result = await self.flipper.rpc.gui_send_input_full_press("BACK")
+            if not back_result.ok:
+                warnings.append(
+                    f"BACK cleanup returned non-OK: {back_result.status_name} "
+                    f"(code {back_result.status_code})"
+                )
+        except Exception as e:
+            warnings.append(f"BACK cleanup raised {type(e).__name__}: {e}")
+
+        # Step 5: optional log read
+        log_content: Optional[str] = None
+        resolved_log_path: Optional[str] = None
+        if read_log:
+            resolved_log_path = log_path or self._infer_log_path(script_path)
+            try:
+                log_content = await self.flipper.storage.read(resolved_log_path)
+            except Exception as e:
+                warnings.append(
+                    f"log read raised {type(e).__name__}: {e} (path {resolved_log_path!r})"
+                )
+
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+
+        # Build the response
+        lines = [
+            f"✅ flipper_js_run({script_path!r}) completed in {elapsed_ms}ms",
+        ]
+        if read_log and resolved_log_path:
+            if log_content:
+                preview = (
+                    log_content
+                    if len(log_content) <= 4000
+                    else log_content[:4000] + f"\n... [truncated, total {len(log_content)} chars]"
+                )
+                lines.append(f"\nLog ({resolved_log_path}):\n{preview}")
+            else:
+                lines.append(f"\nLog ({resolved_log_path}): (empty or unreadable)")
+        if warnings:
+            lines.append("\nWarnings:")
+            for w in warnings:
+                lines.append(f"  - {w}")
+
+        return [TextContent(type="text", text="\n".join(lines))]
