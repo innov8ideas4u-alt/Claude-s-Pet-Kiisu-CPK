@@ -1398,16 +1398,25 @@ class ProtobufRPC:
 
         Plain English: the Flipper's nanopb receive buffer is roughly 1 KB. If we
         ship a 2 KB JS mission as one big WriteRequest, the firmware silently
-        truncates it (or rejects it as oversized) and STILL acks the request.
-        That's the worst kind of bug for an LLM-driven flow: 'storage_write
-        succeeded' but the file on disk is half the bytes you asked for, the
-        next launch fails, and the failure looks like a JS bug.
+        truncates it. So we chunk into 512-byte payloads.
 
-        Fix: chunk into 512-byte payloads and stream them as a multi-message
-        sequence. Every chunk except the last carries has_next=True. The firmware
-        appends each chunk to the same open file handle and only ACKs once after
-        the final chunk lands. We use the same command_id on every chunk in the
-        sequence so the firmware's state machine knows it's all one transaction.
+        Firmware ACK semantics (see docs/KIISU_DEEP_KNOWLEDGE.md §5.2, source
+        rpc_storage.c `send_response = !request->has_next;`): the firmware sends
+        ZERO responses for intermediate chunks. It only emits one PB_Main with
+        CommandStatus after the final chunk (has_next=false) arrives.
+
+        Bug history (R5, fixed 2026-05-17): an earlier version of this function
+        believed every chunk got an ACK, and waited for one after each chunk.
+        Result: multi-chunk writes (>512 bytes) timed out waiting for chunk 1's
+        non-existent ACK, returned False, and the file on disk was truncated to
+        the bytes from just chunk 1 — the worst kind of "Write failed but actually
+        partially succeeded" bug. Empirically reproduced and traced against
+        AmorPoee on mntm-dev before this fix.
+
+        Correct pattern (mirrors the upstream Python reference client
+        flipperzero_protobuf_py/flipper_storage.py): fire all chunks back-to-back
+        with shared command_id, has_next=True on every chunk except the last, then
+        read exactly one ACK after the final chunk.
         """
         try:
             # Accept str or bytes for backwards compatibility - some call sites
@@ -1423,7 +1432,11 @@ class ProtobufRPC:
             offset = 0
             cmd_id = self._get_next_command_id()
             first_chunk = True
-            last_response: Optional[Any] = None
+            final_response: Optional[Any] = None
+
+            # Ensure RPC session is alive before we start streaming. Done once
+            # outside the loop so we don't re-probe mid-transaction.
+            await self._ensure_rpc_session_started()
 
             while True:
                 end = min(offset + CHUNK_SIZE, total_len)
@@ -1441,39 +1454,28 @@ class ProtobufRPC:
                 req.file.CopyFrom(f)
                 main_request.storage_write_request.CopyFrom(req)
 
-                if first_chunk:
-                    # First chunk: use the full send-and-validate-receive helper.
-                    last_response = await self._send_rpc_message(main_request)
-                    first_chunk = False
-                    # Firmware acks every chunk with command_status. If the first
-                    # chunk failed, no point streaming the rest.
-                    if (
-                        not last_response
-                        or last_response.command_status != flipper_pb2.CommandStatus.OK
-                    ):
-                        return False
-                else:
-                    # Subsequent chunks: send raw, then read the per-chunk ack.
-                    # We're inside a multi-frame transaction so we can't go back
-                    # through _send_rpc_message (it would call _ensure_rpc_session
-                    # which is fine but the receive validation is per-frame).
-                    message_data = main_request.SerializeToString()
-                    framed = self._encode_varint(len(message_data)) + message_data
-                    await self.transport.send(framed)
-                    # Read the ack for this chunk; same command_id expected.
-                    last_response = await self._receive_main_message(timeout=2.5)
-                    if (
-                        not last_response
-                        or last_response.command_id != cmd_id
-                        or last_response.command_status != flipper_pb2.CommandStatus.OK
-                    ):
-                        return False
+                # Send every chunk the same way: serialize + frame + send raw.
+                # Do NOT wait for an ACK between chunks — firmware doesn't send
+                # any. The single ACK arrives only after the final chunk lands.
+                message_data = main_request.SerializeToString()
+                framed = self._encode_varint(len(message_data)) + message_data
+                await self.transport.send(framed)
 
                 if is_last:
-                    break
-                offset = end
+                    # Now (and only now) wait for the one ACK the firmware emits.
+                    # Allow generous time: long writes to /int can stall on
+                    # LittleFS GC; 5s headroom on top of the standard 2.5s read.
+                    final_response = await self._receive_main_message(timeout=5.0)
+                    if (
+                        not final_response
+                        or final_response.command_id != cmd_id
+                        or final_response.command_status != flipper_pb2.CommandStatus.OK
+                    ):
+                        return False
+                    return True
 
-            return True
+                offset = end
+                first_chunk = False
         except Exception as _e:  # silent_except_logged
             if self.debug:
                 print(f"[silent-except @ protobuf_rpc.py:storage_write] {type(_e).__name__}: {_e}", file=sys.stderr)
