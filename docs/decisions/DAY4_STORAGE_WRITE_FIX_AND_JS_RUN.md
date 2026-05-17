@@ -88,9 +88,15 @@ Reproduced bug before fixing, using the running flipper-mcp's `storage_write` ag
 
 - ✅ Code review against KB §5.2 and rpc_storage.c source quoted there
 - ✅ Unit-style smoke test (imports, class instantiation, registry)
-- ⏸️ **Live end-to-end validation deferred** — Claude Desktop is also running and competing for COM9. Standalone test script saved at `D:\Dev\scratch\day4_validate_r5_fix.py`; run after Desktop closes.
+- ✅ **Live end-to-end validation COMPLETE** (post-cook, Day 4 session continuation, ran against AmorPoee on COM9 via the live MCP `storage_write` tool):
 
-The fix matches the upstream reference client and the firmware source. Confidence is high but live validation is the gold standard and should happen before relying on this for production missions.
+| Size | Tool result | Roundtripped intact? |
+|---|---|---|
+| 109 chars | "Wrote 109 chars" | ✅ yes |
+| 594 chars (previously failed) | "Wrote 594 chars" | ✅ yes, end-marker present at tail |
+| 3721 chars (~7 chunks, well past 512-byte boundary) | "Wrote 3721 chars" | ✅ yes, `_end_marker_xyz` present at tail |
+
+The fix matches the upstream reference client and the firmware source. **Confidence: confirmed.**
 
 ### Files changed
 
@@ -148,7 +154,11 @@ The recipe is 5 manual tool calls today. Every mission script Victor writes (and
 
 - ✅ Code review
 - ✅ Smoke test: tool registered, schema validated, `_infer_log_path` unit tests pass for 4 path shapes
-- ⏸️ **Live end-to-end validation deferred** (same Desktop-vs-cc COM9 contention as R5)
+- ✅ **Live end-to-end validation COMPLETE** (post-cook, Day 4 session continuation, ran against AmorPoee on COM9 via the live MCP `flipper_js_run` tool):
+  - `flipper_js_run("/ext/apps_data/mcp_missions/ping.js")` → ✅ completed in 20040ms; log returned: `mission=ping`, `runtime=mJS`, `ok=true`, `finished=true`. Device returned to clean unlocked state after.
+  - `flipper_js_run("/ext/apps_data/mcp_missions/probe_big.js", wait_seconds=4)` → ✅ 2705-char script ran cleanly, all 40 lines + `finished=true` present in returned log. No mJS crash, no USB-CDC drop.
+
+**R6 (large-script crash) is subsumed by R5.** cc's hypothesis confirmed: the "mJS parser crash on ~1500+ char scripts" was downstream of R5's truncation. With R5 fixed, large scripts land intact and execute normally.
 
 Live test sequence (run after Desktop closes):
 
@@ -178,9 +188,9 @@ Future migration steps to complete the CPK takeover:
 
 ## What's still open
 
-- **R6 — large JS scripts (~1500+ chars) crash mJS and drop USB-CDC.** Predicted by Phase 1 to be a downstream consequence of R5 (truncated scripts → parse errors → handler crash). With R5 fixed, scripts should reach the device intact and R6 should evaporate. Next test: push a 2000-char JS script and run it.
-- **R7 — orphan flipper-mcp processes.** During this session I killed 4 orphans Victor's harness had spawned. The root cause (the harness's spawn-on-disconnect logic, not anything in CPK) hasn't been addressed yet.
-- **Live validation of both R5 and `flipper_js_run`** — pending Desktop being closed.
+- **R6 — RESOLVED (subsumed by R5).** Confirmed live: a 2705-char script ran end-to-end via `flipper_js_run` with no parse crash and no USB-CDC drop. cc's hypothesis was correct — the "mJS parser crash" was downstream of R5's truncation, not an independent firmware bug.
+- **R7 — orphan flipper-mcp processes.** cc terminated cleanly this session (no orphans). The root cause appears related to the harness's spawn-on-disconnect logic, not anything in CPK; deferring to future investigation if the pattern recurs.
+- **CPK venv migration** — the editable install band-aid works, but the clean fix (a dedicated `D:\Dev\Projects\Claude-s-Pet-Kiisu-CPK\.venv\` with its own `pip install -e .`) is still pending. Low priority; current setup is functionally correct.
 
 ---
 
