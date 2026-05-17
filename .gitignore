@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+build/
+dist/
+develop-eggs/
+downloads/
+.installed.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Project-specific
+*.log
+.tmp_proto/
+.cache/
+
+# Local mission logs (these belong on the SD card, not in git)
+mission_logs/
+
+# Sensitive
+.env
+*.pem
+*.key
+gittoken.txt
