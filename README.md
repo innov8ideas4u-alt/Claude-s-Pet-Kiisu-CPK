@@ -100,8 +100,9 @@ For deeper architecture see **[`docs/architecture.md`](./docs/architecture.md)**
 
 - 🚧 BLE transport — protocol-validated (see [`experiments/ble_probe/`](./experiments/ble_probe/)), needs final wire-up
 - 🚧 NFC capture mission with auto-save via synthetic input — the "Claude takes a card scan for you" flow
-- 🚧 Mission helper that wraps the full validated launch/cleanup recipe into one call
-- 🚧 Storage_write false-failure bug fix (response parser issue)
+- 🚧 **Active-protocol mission category** (red-team / authorized-testing missions) — Sub-GHz replay, NFC clone, IR replay, RFID brute, BadUSB. All gated to owned-hardware / CTF-lab / explicit-authorization-only use. Catalog sketched at [`innov8ideas4u-alt/LLMDR_redteam`](https://github.com/innov8ideas4u-alt/LLMDR_redteam); first missions will land in `missions/redteam/` as they're implemented.
+- 🚧 Fix for `storage_info` MCP tool — currently returns SD card stats for `/int` requests (F2 from Day 7 live-fire findings)
+- 🚧 Investigation of `require("gpio")` failure on `mntm-dev` (F1)
 
 See **[ROADMAP.md](./ROADMAP.md)** for what's planned.
 

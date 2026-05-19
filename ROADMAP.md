@@ -13,6 +13,7 @@ CPK is alpha. This roadmap is the project's best current guess at what's next �
 
 - **BLE transport finalization** — protocol probed and validated in `experiments/ble_probe/`; needs final integration into the transport layer so missions can run untethered.
 - **Sub-GHz frequency analyzer mission** — proven pattern (we already have `freq_analyzer_5f_*.js` scripts on test devices); needs to land as a first-class mission in `missions/`.
+- **First active-protocol (red-team) missions** — `missions/redteam/` directory introduced with the first implemented mission (likely `nfc_clone_owned` — read your own MIFARE card, write to a blank you own). All red-team missions gated to owned-hardware, CTF-lab, or written-authorization use only; each carries explicit `target_class` and `dual_confirm` flags. Catalog source: [`innov8ideas4u-alt/LLMDR_redteam`](https://github.com/innov8ideas4u-alt/LLMDR_redteam).
 - **RTL-SDR integration** — Victor has a Nooelec NESDR working with `rtl_433`. CPK could use the RTL-SDR as a secondary receiver to validate signals the Flipper claims to have captured.
 - **The seven §16 corrections for `cardputeradv-LLM-control`** — sister project; applying cc's recon findings as a clean commit.
 
@@ -32,7 +33,7 @@ CPK is alpha. This roadmap is the project's best current guess at what's next �
 
 ## What we're NOT doing
 
-- **Adversarial / offensive features.** No jamming. No unauthorized access tooling. The Flipper community is divided on this; CPK's stance is education and defense only. If your use case requires offensive capability, fork — under MIT you're allowed, and we won't stop you — but it won't land in upstream CPK.
+- **Unauthorized-target active-protocol missions.** Active-protocol capability (replay, clone, brute, BadUSB) lands in `missions/redteam/` but every such mission carries `target_class` and `dual_confirm` flags and is gated to: hardware the operator owns, CTF/lab environments, or written-authorization penetration testing. Jamming, denial-of-service, blanket attacks on third-party infrastructure, and anything that operates against an unconsenting target are out of scope. The Flipper community is divided on this; CPK's stance is education, defensive research, and *authorized* offensive testing.
 - **Replicating stock Flipper apps.** CPK isn't a UI replacement. The Flipper's UI is fine when a human is using it. CPK's value is *autonomous operation*, not "Flipper but on a screen."
 - **Supporting every firmware fork.** Tested on Momentum. May work on others. We'll accept PRs that improve cross-firmware compatibility, but Momentum is the primary target.
 
