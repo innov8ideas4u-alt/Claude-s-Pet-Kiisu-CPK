@@ -6,54 +6,56 @@
 
 ---
 
-**Last updated:** 2026-05-27 (Day 9 session close)
+**Last updated:** 2026-05-27 (Day 9 session close — Phase 2 shipped at 17/18)
 
 ---
 
 ## 🎯 Currently in flight (active work)
 
-### 1. CPK Companion FAP — Phase 2 implementation (skeleton + PING/META/RESET/ERROR)
+### 1. CPK Companion FAP — Phase 2.5 (fix the one halt + validate chunking)
 
-**Status:** Phase 1 spec at v5, SHIPPABLE. Ready for autonomous cook.
+**Status:** Phase 2 shipped at 17/18 tests passing. One known halt: `test_stale_transaction`. Two small items + one tiny spec patch carry forward.
 
-**Spec location:** `D:\Dev\Projects\Claude-s-Pet-Kiisu-CPK\docs\decisions\DAY8_FAP_PHASE1_SPEC.md`
+**Three concrete deliverables:**
 
-**What Phase 2 produces:**
-- `cfc/` FAP source tree at CPK repo root (parallel to `flipper_mcp/`)
-- `cfc/cfc.c` implementing the unified callback flow per §6.3
-- `cfc/application.fam` with the minimum manifest per §8
-- `cfc/lib/cmp/cmp.{c,h}` vendored from camgunz/cmp (tag resolved at fetch time per §13.1)
-- `flipper_mcp/modules/cfc/module.py` exposing `flipper_cfc_call(op_code, payload)`
-- `tests/cfc_phase2/conftest.py` + 15 test files per §12.1
-- `docs/decisions/DAY9_PHASE2_COOK_LOG.md` capturing build decisions and Q-IMPL-5/6/7 resolutions
+**A. Resolve `test_stale_transaction` halt.**
+- Symptom: After FAP correctly sends BUSY for a foreign-txn fragment during ASSEMBLING, the *original* transaction's resume fragment receives ERROR (0xFF) instead of PING success.
+- Hypothesis (per cook log §10): FAP's `rpc_system_app_exchange_data()` mallocs a Main with uninitialized `command_id` → host's stale-frame matching (in `_send_rpc_message`) discards the wrong frame.
+- Plan A: Instrument FAP-side `cfc_send_*` paths to log the outbound Main `command_id` before sending. Confirm or refute the uninit hypothesis.
+- Plan B (if A confirms): either (1) submit Momentum patch to zero the Main in `rpc_system_app_exchange_data`, or (2) relax host-side command_id matching specifically for `app_data_exchange` responses (treat them as broadcasts per spec H8).
+- **Estimated wall clock:** ~2 hours (1 hour investigation, 1 hour fix + verify test passes).
 
-**Why it matters:** This is the empirical validation that CFC's architecture (Path A, AppDataExchange) actually works on real hardware. Once Phase 2 ships, Phase 3 (NFC vertical slice) becomes a tractable extension instead of a research project.
+**B. End-to-end chunking validation (Phase 2.5 per spec §9).**
+- Send a >884-byte PING echo, verify fragmentation roundtrip works in both directions.
+- Catches msgpack encode-decode mismatches between cmp (C) and msgpack-python before Phase 3.
+- Test: `tests/cfc_phase2/test_chunked_ping_roundtrip.py` — send 2KB nested msgpack via PING, assert byte-identical echo.
+- **Estimated wall clock:** ~1 hour.
 
-**Next concrete action:** Open new chat, fire `cc cook` referencing the v5 spec. The spec is autonomous-cook-ready — all preconditions, stop conditions, and rollback steps are in place.
+**C. Spec §6.4 patch — `bool` → `void`.**
+- Spec §6.4 implies `rpc_system_app_exchange_data()` returns `bool`. Actual `rpc_app.h:220` declares it `void`. Update §6.4 to reflect reality. No fallback "if !sent" path because the firmware doesn't tell you.
+- **Estimated wall clock:** ~5 minutes.
 
-**Estimated wall clock:** 3-4 hours for cook + verification. Spec's §13.2 caps at 2 hours per cook attempt + 10 rebuilds.
+**Next concrete action:** Open new chat, fire `cc cook` for Phase 2.5 with the three items above. Same cook discipline as Phase 2.
 
 ---
 
-## 🟡 Queued (next, after Phase 2 ships)
+## 🟡 Queued (next, after Phase 2.5 ships)
 
-### 2. Phase 2.5 — Chunked outbound validation
-
-After Phase 2 PING/META work, validate end-to-end chunking: send a >884-byte PING echo, verify the FAP correctly fragments outbound and the host correctly reassembles. Catches any encoding mismatches before Phase 3 hits them.
-
-**Estimated wall clock:** ~1 hour (mostly test writing; chunking code already exists in §6.4 of spec).
-
-### 3. Phase 3 — Host-listener architecture + NFC vertical slice
+### 2. Phase 3 — Host-listener architecture + NFC vertical slice
 
 Implement `flipper_cfc_listen` MCP tool for unsolicited frames, add `FuriThread` worker pattern on FAP side, then build first NFC opcode (NFC_SUBSCRIBE_CAPTURE). Resolves F4 (`require("nfc")` failing on mntm-dev) by replacing it with `cfc.nfc_capture()`.
 
 **Estimated wall clock:** ~6-8 hours across multiple sessions.
 
-### 4. Phase 4 — SubGHz / IR / GPIO
+### 3. Phase 4 — SubGHz / IR / GPIO
 
 Each is a short cook informed by the NotebookLM corpus and the patterns Phase 3 established.
 
 **Estimated wall clock:** ~4-6 hours across multiple sessions.
+
+### 4. Push Day 9 commits to GitHub
+
+Three commits sitting locally on `main`: `1d5dcca`, `c1f74a8`, `35a9332`. Push when Victor's ready. Not blocking anything.
 
 ---
 
@@ -61,15 +63,15 @@ Each is a short cook informed by the NotebookLM corpus and the patterns Phase 3 
 
 ### Fix F2: `storage_info` returns SD card stats for `/int`
 
-Quick win, ~30 min. Bug in `flipper_mcp/modules/storage/module.py` — `path` arg not passed through.
+Quick win, ~30 min. Bug in `flipper_mcp/modules/storage/module.py` — `path` arg not passed through. Park until Phase 2.5 ships.
 
 ### Investigate F1 + F4: `require("gpio")` and `require("nfc")` failures
 
 **Subsumed by CFC Phase 3+.** If gpio.read_all and nfc.capture land in the CFC FAP, we don't need the JS bindings to work. Park indefinitely.
 
-### NFC button-press capture mission (the deferred Day 8 work)
+### Mitigate R7: orphan `flipper_mcp.cli.main` processes
 
-**Subsumed by CFC Phase 3.** Park.
+Six stale processes held COM9 during Phase 2 cook. Worth a small helper script: `python -m flipper_mcp.tools.kill_stale` that finds and kills orphan instances. Or auto-detect at startup and warn. ~1 hour. Park.
 
 ### First red-team mission: `nfc_clone_owned`
 
@@ -91,21 +93,29 @@ The editable install works. Hygiene-only fix. Pick up when something breaks.
 
 ## Working principles for items in flight
 
-- **Vision before research, research before design, design before build.** Phase ordering matters. We've now completed: vision (Day 8 DAY8_FAP_VISION.md) → research (Day 9 NotebookLM Q1-Q7 + recon) → design (Day 9 spec v5). Build is next.
-- **Each phase produces a decision doc.** Phase 2 produces `DAY9_PHASE2_COOK_LOG.md`.
+- **Vision → research → design → build.** Phase 1 (research+design) and Phase 2 (build) shipped via this discipline. Phase 2.5 + Phase 3 follow the same template.
+- **Each phase produces a decision/cook doc.** Phase 1 produced spec v5.1, Phase 2 produced DAY9_PHASE2_COOK_LOG.md. Phase 2.5 will produce DAY9_PHASE2_5_COOK_LOG.md (or similar).
 - **Live-fire validation is mandatory.** No "smoke tests are enough." Real device, real RPC frames, real log lines.
 - **Commit per phase, not per feature.** Each phase commit captures one coherent unit of work.
-- **Adversarial review before any multi-session implementation cook.** v5 of the Phase 1 spec went through 4 review passes. Sherpa caught the architectural async/sync mismatch in v1 that would have wasted a Phase 2 session if missed.
+- **Adversarial review before any multi-session implementation cook.** For Phase 3 (the bigger lift), run a Sherpa review pass on the host-listener spec before coding.
 
 ---
 
-## Day 9 highlights
+## Day 9 highlights (full session)
 
-- **NotebookLM corpus bundled and uploaded.** 3 notebooks, 70 sources, ~3.8 MB total. Bundler at `notebooklm/cfc/_meta/concat_for_notebooklm.py` handles future re-bundles.
-- **Abacus's Day 9 drafts audited and abandoned.** They invented a non-functional standalone RPC service. Moved to `docs/_abandoned/` with explanation.
-- **Architecture decisively locked.** Path A (FAP + AppDataExchange) confirmed; Path B (.fal) ruled out. Decision basis: NotebookLM Q4 (out-of-tree .fal can't reach furi_hal_*).
-- **Spec iterated v1 → v5 via Sherpa adversarial review.** 12 critique runs total. Each pass surfaced smaller, more empirical issues. v5 declared shippable when remaining concerns required live-hardware validation.
-- **Hermes+NotebookLM recon completed.** Documented: `notebooklm-py` (Playwright-based unofficial API, ~5,600 stars) + Hermes skill installs that wire it into agent workflows. Park as future option; current "Victor as API" works.
+**Phase 1 work (morning/midday):**
+- NotebookLM corpus bundled and uploaded (3 notebooks, 70 sources)
+- Abacus's overshoot drafts audited and abandoned to docs/_abandoned/
+- Spec v1 → v5.1 via 4 Sherpa adversarial review passes (12 critique runs)
+- Architecture locked: Path A only
+
+**Phase 2 work (afternoon/evening):**
+- Precondition discovery: external `flipperzero-protobuf` PyPI broken → spec v5.1 surgical fix to use CPK's internal protobuf_gen
+- Cook executed: ~25 min wall-clock, 1 rebuild, 17/18 tests passing
+- Q-IMPL-5/6/7 all resolved with concrete answers
+- Critical undocumented finding: firmware rewrites `app_start` args to `"RPC %08lX"` carrying hex pointer to `RpcAppSystem`
+
+**Three commits on main, ready to push when Victor wants.**
 
 ---
 
