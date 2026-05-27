@@ -1,8 +1,8 @@
-# DAY 8/9 — CFC Phase 1 Spec: Architecture & Wire Protocol (v5 — SHIPPABLE)
+# DAY 8/9 — CFC Phase 1 Spec: Architecture & Wire Protocol (v5.1 — SHIPPABLE)
 
-**Status:** v5 — addresses adversarial review v4 findings (Sherpa run 20260527-033056). Adversarial review converged: 4 passes × 3 reviewers = 12 critique runs, zero structural issues found. Remaining items require empirical validation during Phase 2 cook.
+**Status:** v5.1 — surgical fixes from Phase 2 precondition discovery. The external `flipperzero-protobuf` PyPI package is broken (stale numpy pin); CFC uses CPK's internal protobuf code instead. v5 architecture and wire protocol unchanged.
 **Authors:** Victor + Claude Desktop (Day 9)
-**Supersedes:** v4 (11 surgical fixes: F25-F35)
+**Supersedes:** v5 (3 surgical fixes for host-side import path; architecture and protocol unchanged)
 **Anchored by:** `notebooklm/cfc/_meta/RECON_LOG.md` Findings A-I + NotebookLM Q1-Q7 answers (Day 9)
 
 ---
@@ -111,7 +111,9 @@ Each command/response is a msgpack map. **Response maps MUST include a `status` 
 
 **C library for FAP side: `cmp`** — single-header msgpack implementation. Source: `https://github.com/camgunz/cmp`. **Fetch step in §13.1 uses `git ls-remote --tags` to discover the correct tag name first** (tag naming convention not pinned — could be `v20`, `v2.0`, or `20`; the cook resolves at runtime). License: MIT.
 
-**Python library for host side: `msgpack`** — pinned in `flipper_mcp/requirements.txt` at `msgpack==1.0.7` or later.
+**Python library for host side: `msgpack`** — pinned in `flipper_mcp/requirements.txt` at `msgpack>=1.0.7`.
+
+**v5.1 NOTE:** The previous reference to `flipperzero-protobuf>=0.1.5` is REMOVED. That PyPI package is broken (numpy pin issue), and CFC uses CPK's existing internal protobuf code at `flipper_mcp.core.protobuf_gen` instead — see §7.1 for the verified transport API.
 
 ## 5. Opcode space (v1)
 
@@ -215,18 +217,51 @@ NFC, Sub-GHz, IR, and GPIO operations that wait on hardware events CANNOT use th
 flipper_cfc_call(op_code: int, payload: dict, timeout_s: float = 30.0) -> dict
 ```
 
-Internally:
+**CORRECTED in v5.1 (Phase 2 precondition discovery):** CFC does NOT use the external `flipperzero-protobuf` PyPI package. That package is stale (pinned to `numpy==1.22.3` which won't build on modern Python). **CFC uses CPK's internal protobuf code at `flipper_mcp.core.protobuf_gen` and the existing transport in `flipper_mcp.core.protobuf_rpc`.** This is cleaner — no external dependency, no version pin issues, transport already battle-tested by every CPK MCP tool.
+
+**Verified facts about the existing transport (Phase 2 precondition):**
+- `flipper_mcp.core.protobuf_gen.flipper_pb2.Main` is the envelope class
+- `Main.app_data_exchange_request` is the field used **in BOTH directions** — name is historical; field carries `DataExchangeRequest` (single `data: bytes` field) regardless of direction
+- `flipper_mcp.core.protobuf_gen.application_pb2.DataExchangeRequest` is the message type
+- `flipper_mcp.core.protobuf_rpc.FlipperRPC._send_rpc_message(main_message) -> Optional[Main]` is the canonical send+await primitive (already handles command_id matching, stale-frame discarding, transport varint framing)
+- `@_with_wire_lock` decorator (at `protobuf_rpc.py:39`) provides the transport mutex — every CFC wire method MUST use it
+- `_get_next_command_id()` provides thread-safe monotonic command_id allocation
+
+**Implementation pattern (model after existing `app_start` at `protobuf_rpc.py:470`):**
+
+```python
+# Conceptual shape — Phase 2 cook writes the real code
+from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
+
+@_with_wire_lock
+async def _cfc_send_one_frame(self, frame_bytes: bytes) -> Optional[bytes]:
+    """Send one CFC-framed payload as a single app_data_exchange envelope.
+    Returns response bytes from app_data_exchange_request.data, or None on failure."""
+    main_request = flipper_pb2.Main()
+    main_request.command_id = self._get_next_command_id()
+    main_request.has_next = False
+    req = application_pb2.DataExchangeRequest()
+    req.data = frame_bytes  # CFC's 16-byte header + msgpack payload
+    main_request.app_data_exchange_request.CopyFrom(req)
+    resp = await self._send_rpc_message(main_request)
+    if resp and resp.command_status == flipper_pb2.CommandStatus.OK \
+       and resp.HasField("app_data_exchange_request"):
+        return resp.app_data_exchange_request.data
+    return None
+```
+
+The `flipper_cfc_call(op_code, payload, timeout_s)` MCP-facing function wraps this primitive:
+
 1. msgpack-encode payload
 2. Validate `len(payload_bytes) <= 8192` (matches FAP-side cap)
 3. Fragment into ≤884-byte chunks, build CFC frame headers (every fragment carries the same `payload_length` = total assembled length, per §4.2)
-4. For each frame: call `rpc_app_data_exchange_send(frame_bytes)` from `flipperzero_protobuf.flipper_app` (pinned in `requirements.txt`)
-5. Block on `rpc_app_data_exchange_recv()` with refreshed timeout per H9
-6. Re-assemble incoming fragments matching outbound `transaction_id`
-7. msgpack-decode response, return dict
+4. For each frame: call `_cfc_send_one_frame(frame_bytes)`; collect returned response bytes
+5. Re-assemble incoming fragments matching outbound `transaction_id` (CFC layer, separate from RPC command_id)
+6. msgpack-decode the assembled response, return dict
 
 If response is ERROR opcode (0xFF), raise `CfcRemoteError(code, message)`.
 
-**Important (NEW v5):** The RPC-layer `rpc_system_app_confirm(true)` happens transparently inside the `flipperzero_protobuf` transport. Host application code (this module) sees only application-layer frames (the ERROR frame, the response frame, etc.). The confirm is NOT a separate "event" that needs handling at this layer.
+**On framing layers:** The RPC-layer `rpc_system_app_confirm(true)` happens transparently inside the firmware/transport. Host application code sees only application-layer frames. The transport's command_id matching is at the RPC layer; CFC's transaction_id matching is at the application layer. Independent concerns — `_send_rpc_message` handles RPC correctness, CFC's module handles CFC reassembly.
 
 ### 7.2 Concurrency model
 
@@ -385,8 +420,10 @@ The cook implements `cfc_client` fixture and `_send_raw_frame` helper in `tests/
 - `ufbt --version` returns a version string (else halt: install ufbt manually)
 - `python -c "import PIL"` succeeds (else ONE attempt: `pip install Pillow`, halt if still missing)
 - `python -c "import msgpack"` succeeds (else ONE attempt: `pip install msgpack`, halt)
-- `python -c "from flipperzero_protobuf.flipper_app import rpc_app_data_exchange_send, rpc_app_data_exchange_recv"` succeeds (else halt: "install flipperzero-protobuf>=0.1.5 and verify submodule exposure")
+- `python -c "from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2; flipper_pb2.Main().app_data_exchange_request; application_pb2.DataExchangeRequest()"` succeeds (validates CPK's internal protobuf code exposes the AppDataExchange path — confirmed during v5.1 spec correction)
 - `git --version` returns a version string
+
+**NOTE (v5.1):** The previous precondition checking for `flipperzero_protobuf.flipper_app` import has been REMOVED. That external library is broken on PyPI (numpy pin issue). CFC uses CPK's internal protobuf code instead — see §7.1.
 
 **Hardware:**
 - `flipper_connection_health` returns `last_error: null` (else halt)
