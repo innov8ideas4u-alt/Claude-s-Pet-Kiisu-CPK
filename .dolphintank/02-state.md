@@ -6,7 +6,7 @@
 
 ---
 
-**Last updated:** 2026-05-27 (Day 9 session close — Phase 2 cook complete)
+**Last updated:** 2026-05-27 (Day 10 session close — Phase 2.5 SHIPPED at 27/27)
 **Updated by:** Victor + Claude Desktop
 **Confidence:** HIGH — values verified during this session
 
@@ -14,11 +14,13 @@
 
 ## Repository state
 
-- **Default branch on GitHub:** `main` at commit `35a9332` (Phase 2 shipped; not pushed to GitHub yet)
+- **Default branch on GitHub:** `main` at commit `6bf1d32` (Phase 2.5 shipped, pushed to GitHub)
 - **Active experiment branch:** none
 - **Stargazers:** 2
-- **Working tree (Day 9 close):** CLEAN. Three Day 9 commits on main, ready to push when Victor wants.
-- **Day 9 commits on main:**
+- **Working tree (Day 10 close):** CLEAN. Phase 2.5 commit pushed to origin/main.
+- **Day 10 commit on main (pushed):**
+  - `6bf1d32` Phase 2.5: CFC multi-fragment outbound + wire-layer hardening
+- **Day 9 commits on main (already pushed):**
   - `35a9332` Phase 2 CFC skeleton ships at 17/18 — architecture VALIDATED
   - `c1f74a8` Day 9 v5.1: CFC spec corrected after Phase 2 precondition discovery
   - `1d5dcca` Day 9: Phase 1 CFC spec shipped (v5) + NotebookLM corpus + decisions
@@ -31,8 +33,8 @@
 - **Firmware:** Momentum `mntm-dev`
 - **Transport:** USB on COM9
 - **Auto-lock:** 30 minutes (manually configured)
-- **Connection health (last checked Day 9):** ✅ connected, RPC responsive, used heavily during Phase 2 cook for live-fire tests
-- **CFC FAP deployed on SD card** at `/ext/apps/Tools/cfc.fap` (Phase 2 build). Persists across reboots. Safe to leave installed.
+- **Connection health (last checked Day 10):** ✅ connected, RPC responsive, used heavily during Phase 2.5 cook for live-fire tests including 10× test_stale_transaction loop
+- **CFC FAP deployed on SD card** at `/ext/apps/Tools/cfc.fap` (Phase 2.5 v8.3 build, 15,932 bytes — multi-fragment outbound enabled). Persists across reboots. Safe to leave installed.
 
 ---
 
@@ -70,11 +72,11 @@ Unchanged from Day 8 (CFC Phase 3 will subsume F1 and F4):
 
 ---
 
-## CFC (CPK Companion FAP) project state — UPDATED Day 9 close
+## CFC (CPK Companion FAP) project state — UPDATED Day 10 close
 
 ### Phase 1: SHIPPED ✅
 
-- **Spec:** `docs/decisions/DAY8_FAP_PHASE1_SPEC.md` v5.1
+- **Spec:** `docs/decisions/DAY8_FAP_PHASE1_SPEC.md` v5.1 (§6.4 corrected to `void` in Phase 2.5)
 - **Architecture:** Path A (single .fap, FlipperAppType.EXTERNAL, AppDataExchange)
 - **Wire protocol:** 16-byte CFC header + msgpack payload, 884 bytes/frame, 8KB transaction cap
 - **NotebookLM corpus:** 3 notebooks, 70 sources at `notebooklm/cfc/_upload/`
@@ -83,38 +85,34 @@ Unchanged from Day 8 (CFC Phase 3 will subsume F1 and F4):
 ### Phase 2: SHIPPED at 17/18 ✅
 
 - **Cook log:** `docs/decisions/DAY9_PHASE2_COOK_LOG.md`
-- **FAP source:** `cfc/cfc.c` (590 lines, builds clean with 0 warnings)
+- **FAP source:** `cfc/cfc.c` (was 590 lines after Phase 2; ~650 lines after Phase 2.5 v8.3 multi-fragment outbound)
 - **Host module:** `flipper_mcp/modules/cfc/module.py`
-- **Tests:** 18 test files at `tests/cfc_phase2/` — **17 passing, 1 halted**
-- **Deployed:** `/ext/apps/Tools/cfc.fap` on AmorPoee SD card
-- **Cook stats:** ~25 min wall-clock, 1/10 ufbt rebuilds, test suite 4:35 / 5:00
+- **Tests:** 18 test files at `tests/cfc_phase2/` — **17 passing, 1 halted at end of Phase 2** (closed in Phase 2.5)
 
-**Q-IMPL findings (resolved at cook time):**
-- **Q-IMPL-5:** ✅ `rpc_system_app_exchange_data()` IS safe to call from within the RPC callback — architecture validated by 17 passing tests
-- **Q-IMPL-6:** Furi APIs confirmed — `furi_delay_ms()`, `furi_ms_to_ticks()`, `FURI_LOG_E/I/D(TAG, fmt, ...)` macros
-- **Q-IMPL-7:** `int32_t cfc_app_main(void* p)` — and CRITICAL: firmware rewrites `app_start("cfc", "RPC")` args to `"RPC %08lX"` containing hex pointer to `RpcAppSystem`. FAP must parse this hex string to get its RPC handle. See cook log §4 and `rpc_service_all.txt:783-787`.
+### Phase 2.5: SHIPPED at 27/27 ✅ (Day 10, commit `6bf1d32`)
 
-**One halt — `test_stale_transaction` failure (Phase 2.5 investigation):**
-- BUSY-during-ASSEMBLING is detected correctly (sub-assertion 1 ✅)
-- But the original transaction's resume fragment receives ERROR instead of PING
-- Hypothesis: FAP's `rpc_system_app_exchange_data` malloc'd Main has uninitialized command_id causing host-side stale-frame collision
-- Fix-attempt budget exhausted per spec §13.2 → halted cleanly
+- **Design doc:** `docs/decisions/DAY10_PHASE2_5_DESIGN.md` v8.4 (1464 lines)
+- **Cook stats:** 4 attempts, 6 halts (all caught correctly), ~60 min wall-clock total
+- **Test results:** 27/27 full suite (253s), test_stale_transaction 10/10 deterministic (~13.5s each)
+- **Review pipeline:** 8 rounds — Sherpa ×2, Gemini ×2, NotebookLM ×3, Arena.ai ×2 (random model pool)
 
-**Known spec discrepancy (correction deferred to Phase 2.5):**
-- Spec §6.4 implies `rpc_system_app_exchange_data()` returns `bool`
-- Actual header `rpc_app.h:220` declares it `void`
-- Phase 2 didn't hit this (single-fragment outbound only); Phase 2.5 chunking will
+**What shipped:**
+- **Host-side route-by-tag drain pattern** in `_cfc_send_one_frame` matching qFlipper's canonical implementation. 5 known frame types in allowlist: `app_data_exchange_request` (CFC data), `empty` (sync RPC ack), `app_state_response`, `gui_screen_frame`, `desktop_status`. Unknown content tags raise `CfcProtocolDesyncError`.
+- **New `_send_main_raw` method** on `ProtobufRPC` — bypasses strict command_id matcher for CFC's drain loop.
+- **New `cfc_recv_response_assembled` helper** — takes first fragment, reads remaining fragments, returns reassembled payload. Reusable for Phase 3 integration tests.
+- **FAP-side multi-fragment outbound** per spec §6.4: new `cfc_send_response_multi` fragments payloads up to 8KB into 884-byte chunks with inter-frame `furi_delay_ms(1)` yield. PING handler refactored to use heap-allocated output buffer.
+- **`MOMENTUM_RPC_EXCHANGE_DATA_FIXED=False` constant** + one-shot import warning. Forward-declaration for Phase 3 strict-matching gate; not consulted in Phase 2.5 (workaround unconditional).
+- **5 new test files:** `test_chunked_ping_roundtrip`, `test_broadcast_path_mock`, `test_cfc_timeout_returns_none`, `test_non_cfc_frame_raises_desync`, `test_async_event_consumed_during_drain` (parametrized ×4).
+- **Spec §6.4 corrected:** `bool` → `void` return type.
 
-### Phase 2.5: NEXT
-
-Two items, both small and well-scoped:
-1. Investigate `test_stale_transaction` command_id collision (instrument FAP to log outbound Main command_id; consider relaxing host-side command_id matching for app_data_exchange responses)
-2. End-to-end chunking validation (>884 byte response roundtrip)
-3. Spec §6.4 patch (`bool` → `void`)
+**Major discoveries during Phase 2.5 (folded into doc):**
+- `rpc_system_app_send_state_response` has the same uninit-malloc bug as `rpc_system_app_exchange_data` (NotebookLM Round 2 Q5). Momentum PR drafted at `D:\Dev\scratch\day10_momentum_pr_draft.md` patches both — deferred, not submitted.
+- The Flipper RPC dispatcher emits a per-request `empty` Main as a sync ack for EVERY host RPC request. Invisibly absorbed by `_send_rpc_message`'s strict matcher in all existing flipper-mcp tools; exposed for the first time when CFC bypassed strict matching. Added to Q6 allowlist as a 5th frame type.
+- The PING handler had a hardcoded 884-byte stack-buffer ceiling — Phase 2 never reached this code path because the wire-layer desync blocked fragment-2 assembly. Phase 2.5's wire fix exposed it; v8.3 lifted it via multi-fragment outbound.
 
 ### Phase 3: QUEUED
 
-NFC vertical slice + host-listener architecture for async opcodes. See spec §6.5.
+NFC vertical slice + host-listener architecture for async opcodes. See spec §6.5 and DAY10 design doc §6 for forward-compat notes. The route-by-tag pattern and `cfc_recv_response_assembled` helper are both reusable for Phase 3 integration tests.
 
 ---
 
@@ -122,7 +120,7 @@ NFC vertical slice + host-listener architecture for async opcodes. See spec §6.
 
 - **R5 (storage_write false-failure):** ✅ FIXED Day 4, re-validated Day 7
 - **R6 (large script crash):** ✅ SUBSUMED by R5
-- **R7 (orphan flipper-mcp processes):** ⚠️ **Re-observed Day 9 Phase 2 cook** — six stale `flipper_mcp.cli.main` processes were holding COM9 when cook tried to deploy via ufbt. Resolved with `Stop-Process`. Worth a longer-term mitigation: maybe a "kill-stale-flipper-mcp-processes" helper script, or auto-detect and warn in flipper-mcp startup.
+- **R7 (orphan flipper-mcp processes):** ⚠️ **Re-observed Day 9 + Day 10 cooks** — Day 9: six stale `flipper_mcp.cli.main` processes were holding COM9. Day 10: orphan python.exe (likely pyserial reader thread) held COM9 after deploy script; physical USB unplug/replug freed it cleanly within ~5 seconds. Pattern confirmed across two cooks. Mitigation candidates: helper script `python -m flipper_mcp.tools.kill_stale`, or auto-detect at MCP startup. **Operational learning:** when COM9 hangs ≥30 sec, unplug/replug is faster than process-hunting.
 
 ---
 
@@ -140,5 +138,5 @@ NFC vertical slice + host-listener architecture for async opcodes. See spec §6.
 ## Current AI session context
 
 - **Plan:** Pro plan
-- **Last session goal achieved:** Phase 1 + Phase 2 both shipped. Architecture validated empirically. 17/18 tests pass on real hardware.
-- **Next session goal:** Phase 2.5 — fix `test_stale_transaction`, validate chunking, then move to Phase 3 (NFC vertical slice). OR push the three Day 9 commits to GitHub if not done.
+- **Last session goal achieved:** Phase 2.5 SHIPPED at 27/27. Multi-fragment outbound working end-to-end. test_stale_transaction passes deterministically 10/10. Commit `6bf1d32` pushed to origin/main.
+- **Next session goal:** Phase 3 — NFC vertical slice + host-listener architecture. OR pick a side-task (Momentum PR submission, F2 fix, R7 mitigation script).
