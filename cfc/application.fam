@@ -1,0 +1,19 @@
+App(
+    appid="cfc",
+    name="CPK Companion",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="cfc_app_main",
+    stack_size=4 * 1024,
+    fap_category="Tools",
+    fap_description="CPK Companion FAP - Claude-driven RF reconnaissance helper",
+    fap_version="0.1",
+    fap_icon="cfc_10px.png",
+    requires=[],
+    sources=["cfc.c"],
+    fap_private_libs=[
+        Lib(
+            name="cmp",
+            cflags=["-Wno-error", "-Wno-error=unused-parameter"],
+        ),
+    ],
+)

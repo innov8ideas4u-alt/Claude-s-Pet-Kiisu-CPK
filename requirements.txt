@@ -3,6 +3,7 @@ mcp>=0.9.0
 pyserial>=3.5
 protobuf>=4.25.0
 pyyaml>=6.0
+msgpack>=1.0.7  # CFC wire payload encoding (Phase 2)
 
 # Development dependencies
 pytest>=7.4.0
