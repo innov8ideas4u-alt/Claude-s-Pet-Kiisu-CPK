@@ -6,10 +6,12 @@ import time
 import msgpack
 
 from flipper_mcp.modules.cfc.module import (
+    CFC_HEADER_SIZE,
     CFC_MAX_FRAGMENT_PAYLOAD,
     ERR_BUSY,
     OP_PING,
     OP_RESET,
+    cfc_recv_response_assembled,  # v8.4 addition
     cfc_send_raw_frame,
     flipper_cfc_call,
     pack_cfc_frame,
@@ -65,8 +67,19 @@ def test_stale_transaction(cfc_client, decode_resp):
         payload_length=payload_length,
         fragment_data=chunk_b,
     )
-    raw_done = asyncio.run(cfc_send_raw_frame(cfc_client, frag2_txn1))
-    op_d, _txn_d, body_d = decode_resp(raw_done)
+    # v8.4: PING completions can now be multi-fragment (Phase 2.5 §6.4).
+    # cfc_send_raw_frame returns only fragment 0; assemble the rest via the
+    # new helper before decoding.
+    raw_done_frag0 = asyncio.run(cfc_send_raw_frame(cfc_client, frag2_txn1))
+    assembled_payload = asyncio.run(
+        cfc_recv_response_assembled(cfc_client, raw_done_frag0)
+    )
+    # decode_resp expects header + payload bytes (header parsed, payload
+    # msgpack-decoded). Synthesize that shape from frag0's header + assembled
+    # payload.
+    op_d, _txn_d, body_d = decode_resp(
+        raw_done_frag0[:CFC_HEADER_SIZE] + assembled_payload
+    )
     assert op_d == OP_PING, f"expected PING response for txn1, got 0x{op_d:02x}"
     assert body_d.get("status") == "ok"
     assert body_d.get("echo") == "Y" * 950

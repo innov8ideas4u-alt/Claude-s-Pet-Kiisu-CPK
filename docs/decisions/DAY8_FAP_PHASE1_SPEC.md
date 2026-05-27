@@ -186,14 +186,18 @@ Every DataExchange callback executes this sequence **entirely within the callbac
 
 ### 6.4 Sending fragmented responses (Phase 2.5+)
 
+Per `rpc_app.h:220`, `rpc_system_app_exchange_data()` returns `void`. The FAP
+cannot synchronously detect transport-level failures. If a send fails (e.g.,
+host disconnected mid-transaction), the next host-side request times out at the
+Python layer; there is no callback or return value for the FAP to inspect.
+Backpressure / failure-detection require Phase 3's listener architecture.
+
 ```c
 size_t total_frags = (response_length + 883) / 884;
 for (size_t i = 0; i < total_frags; i++) {
     build_frame(i, total_frags, transaction_id, op_code, slice);
-    bool sent = rpc_system_app_exchange_data(rpc_app, frame, frame_size);
-    if (!sent) {
-        return ERROR_TRANSPORT;  // host hits its 30s timeout
-    }
+    rpc_system_app_exchange_data(rpc_app, frame, frame_size);
+    // No return value to inspect — see note above re: void return.
     // Inter-frame yield: use whichever Furi delay primitive mntm-dev exposes
     // (likely furi_delay_us(100) or furi_delay_ms(1)). Cook resolves at build time.
 }

@@ -193,6 +193,58 @@ static void cfc_send_response_frame(
     rpc_system_app_exchange_data(cfc->rpc_app, buf, CFC_HEADER_SIZE + payload_len);
 }
 
+/**
+ * Send a response that may exceed CFC_MAX_FRAGMENT_PAYLOAD (884 bytes)
+ * by fragmenting into multiple frames per spec §6.4. Each fragment carries
+ * the same op_code, transaction_id, and total payload_length; only
+ * frag_idx changes across frames.
+ *
+ * Caller owns the payload buffer; this function does not free it.
+ * Inter-frame furi_delay_ms(1) yield per spec §6.4 — gives the firmware
+ * RPC scheduler breathing room between fragments.
+ *
+ * No return value: rpc_system_app_exchange_data is void per
+ * docs/decisions/DAY8_FAP_PHASE1_SPEC.md §6.4. Transport-level failures
+ * are detected host-side via timeout.
+ */
+static void cfc_send_response_multi(
+    CfcContext* cfc,
+    uint8_t op_code,
+    uint32_t transaction_id,
+    const uint8_t* payload,
+    size_t payload_len) {
+    if(payload_len > CFC_MAX_TRANSACTION) {
+        FURI_LOG_E(TAG, "send_multi: payload %zu > CFC_MAX_TRANSACTION; dropping", payload_len);
+        return;
+    }
+
+    // Single-fragment fast path: avoid the loop + delay when not needed.
+    if(payload_len <= CFC_MAX_FRAGMENT_PAYLOAD) {
+        cfc_send_response_frame(cfc, op_code, transaction_id, payload, payload_len);
+        return;
+    }
+
+    uint32_t total_frags = (payload_len + CFC_MAX_FRAGMENT_PAYLOAD - 1) / CFC_MAX_FRAGMENT_PAYLOAD;
+    uint8_t buf[CFC_HEADER_SIZE + CFC_MAX_FRAGMENT_PAYLOAD];
+
+    for(uint32_t frag_idx = 0; frag_idx < total_frags; frag_idx++) {
+        size_t offset = frag_idx * CFC_MAX_FRAGMENT_PAYLOAD;
+        size_t this_frag_len = (payload_len - offset > CFC_MAX_FRAGMENT_PAYLOAD)
+                                   ? CFC_MAX_FRAGMENT_PAYLOAD
+                                   : (payload_len - offset);
+
+        cfc_write_header(buf, op_code, transaction_id, frag_idx, total_frags, (uint32_t)payload_len);
+        memcpy(buf + CFC_HEADER_SIZE, payload + offset, this_frag_len);
+        rpc_system_app_exchange_data(cfc->rpc_app, buf, CFC_HEADER_SIZE + this_frag_len);
+
+        // Inter-frame yield per spec §6.4. Gives the RPC scheduler time
+        // to drain its outbound queue before we push the next fragment.
+        if(frag_idx + 1 < total_frags) {
+            furi_delay_ms(1);
+        }
+    }
+}
+
 static void cfc_send_error(CfcContext* cfc, uint32_t transaction_id, int code, const char* message) {
     uint8_t payload[64];
     CfcWriteBuf wb = {.data = payload, .pos = 0, .cap = sizeof(payload)};
@@ -272,36 +324,53 @@ static void cfc_handle_ping(CfcContext* cfc, uint32_t txn, const uint8_t* msgpac
         }
     }
 
-    /* Build response: {status: "ok", echo: <verbatim>} (or {status: "ok"} if no echo key) */
-    uint8_t response[CFC_MAX_FRAGMENT_PAYLOAD];
-    CfcWriteBuf wb = {.data = response, .pos = 0, .cap = sizeof(response)};
+    /* Build response: {status: "ok", echo: <verbatim>} (or {status: "ok"} if no echo key).
+     * v8.3: allocate output buffer on heap, sized for inbound echo + msgpack map overhead.
+     * Map overhead: fixmap(1B) + "status"(7B) + "ok"(3B) + "echo"(5B) + str-prefix(≤5B) = ~21B.
+     * Pad to 64B for safety. */
+    size_t echo_len = found_echo ? (echo_end - echo_start) : 0;
+    size_t out_capacity = echo_len + 64;
+    if(out_capacity > CFC_MAX_TRANSACTION) {
+        cfc_send_error(cfc, txn, CFC_ERR_BAD_PAYLOAD, "ping echo exceeds CFC_MAX_TRANSACTION");
+        return;
+    }
+
+    uint8_t* response = malloc(out_capacity);
+    if(!response) {
+        cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, "ping malloc failed");
+        return;
+    }
+
+    CfcWriteBuf wb = {.data = response, .pos = 0, .cap = out_capacity};
     cmp_ctx_t out;
     cmp_init(&out, &wb, NULL, NULL, cfc_cmp_writer);
 
     uint32_t out_size = found_echo ? 2 : 1;
     if(!cmp_write_map(&out, out_size)) {
+        free(response);
         cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, "ping enc map");
         return;
     }
     if(!cmp_write_str(&out, "status", 6) || !cmp_write_str(&out, "ok", 2)) {
+        free(response);
         cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, "ping enc status");
         return;
     }
     if(found_echo) {
         if(!cmp_write_str(&out, "echo", 4)) {
+            free(response);
             cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, "ping enc echo key");
             return;
         }
+        // Direct memcpy of the verbatim msgpack-encoded echo value.
+        // Buffer already sized to fit; no overflow check needed.
         size_t verbatim_len = echo_end - echo_start;
-        if(wb.pos + verbatim_len > wb.cap) {
-            cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, "ping echo too large");
-            return;
-        }
         memcpy(wb.data + wb.pos, msgpack + echo_start, verbatim_len);
         wb.pos += verbatim_len;
     }
 
-    cfc_send_response_frame(cfc, CFC_OP_PING, txn, response, wb.pos);
+    cfc_send_response_multi(cfc, CFC_OP_PING, txn, response, wb.pos);
+    free(response);
 }
 
 static void cfc_handle_meta_capabilities(CfcContext* cfc, uint32_t txn) {

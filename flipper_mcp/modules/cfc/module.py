@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import logging
 import struct
 import threading
 import time
@@ -24,6 +25,8 @@ import msgpack
 
 from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
 
+_log = logging.getLogger(__name__)
+
 # --- Protocol constants (spec §4) ---
 
 CFC_MAGIC: int = 0x4346
@@ -31,6 +34,34 @@ CFC_VERSION: int = 0x01
 CFC_HEADER_SIZE: int = 16
 CFC_MAX_FRAGMENT_PAYLOAD: int = 884
 CFC_MAX_TRANSACTION: int = 8192
+
+# Set to True once Momentum (or any firmware fork CPK supports) merges the fix
+# for rpc_system_app_exchange_data uninitialized PB_Main. When True, the host
+# will use strict command_id matching for app_data_exchange frames (recommended:
+# command_id == 0 routes to broadcast handler, matching id routes to reply,
+# else drop).
+#
+# Current state (2026-05-27): Momentum mntm-dev unfixed. Set to False so
+# _cfc_send_one_frame accepts any command_id on inbound app_data_exchange.
+#
+# Sunset gate: see docs/decisions/DAY10_PHASE2_5_DESIGN.md §3.
+#
+# Phase 2.5: NOT CONSULTED by _cfc_send_one_frame. The constant exists as
+# forward-declaration so Phase 3+ can gate strict-match behind it. Flipping
+# this to True in Phase 2.5 has NO behavioral effect — the workaround path
+# is unconditional. (v8 addition per Arena Model A.)
+MOMENTUM_RPC_EXCHANGE_DATA_FIXED: bool = False
+
+# Gemini v3 finding #3: prevent the workaround from becoming forgotten legacy
+# code. Emit a one-shot warning at module import if the workaround is active,
+# so every CPK boot reminds the operator that the upstream fix is still pending.
+if not MOMENTUM_RPC_EXCHANGE_DATA_FIXED:
+    _log.warning(
+        "CFC workaround active: accepting any command_id on inbound "
+        "app_data_exchange frames. This is a bridge for the Momentum "
+        "rpc_system_app_exchange_data uninitialized-malloc bug. "
+        "See docs/decisions/DAY10_PHASE2_5_DESIGN.md §3 for sunset conditions."
+    )
 
 OP_PING: int = 0x00
 OP_META_CAPABILITIES: int = 0x01
@@ -129,22 +160,42 @@ def _get_protobuf_rpc(client: Any) -> Any:
 # --- Wire-level primitive: send one CFC-framed envelope, receive one envelope's bytes ---
 
 
+class CfcProtocolDesyncError(Exception):
+    """Raised when CFC observes wire state that should be impossible under
+    the wire-lock invariant. Indicates the RPC session is corrupted and
+    must be torn down for a clean reconnect.
+
+    This is intentionally fatal. Callers should NOT catch and ignore this —
+    it means another tool's response leaked into CFC's drain window despite
+    the wire lock being held, which is a state-machine corruption that
+    cannot be safely recovered from in-place.
+    """
+
+
 async def _cfc_send_one_frame(
     client: Any,
     frame_bytes: bytes,
     wait_for_response: bool = True,
     followup_timeout: float = 2.5,
 ) -> Optional[bytes]:
-    """Send one CFC frame in a single app_data_exchange envelope. Return response bytes or None.
+    """Send one CFC frame; receive at most one app_data_exchange response.
 
     Holds the ProtobufRPC ``_wire_lock`` for the duration of the send+receive.
 
-    Set ``wait_for_response=False`` for non-final-fragment sends where the FAP
-    is expected to NOT send back any application-layer response; the host then
-    only waits for the RPC confirm (cheap, ~ms) and returns immediately.
+    Route-by-tag drain (v6/v8.2 design): inbound frames are routed by their
+    ``which_content`` tag. ``app_data_exchange_request`` returns its payload
+    bytes. The Q6 closed set of asynchronous event frames
+    (``app_state_response``, ``gui_screen_frame``, ``desktop_status``) and
+    the per-request synchronous RPC ack frame (``empty``, command_id matches
+    our outbound request — previously absorbed by _send_rpc_message's strict
+    matcher) are consumed silently and the drain continues. Any other content
+    tag during CFC's drain window means the wire-lock invariant was violated
+    and is raised as ``CfcProtocolDesyncError`` so callers can tear down the
+    RPC session for a clean reconnect.
     """
     rpc = _get_protobuf_rpc(client)
     async with rpc._wire_lock:
+        # Build outbound Main
         main_request = flipper_pb2.Main()
         main_request.command_id = rpc._get_next_command_id()
         main_request.has_next = False
@@ -152,21 +203,89 @@ async def _cfc_send_one_frame(
         req.data = frame_bytes
         main_request.app_data_exchange_request.CopyFrom(req)
 
-        resp = await rpc._send_rpc_message(main_request)
-        if resp is None:
+        # Send raw (bypass strict matcher)
+        ok = await rpc._send_main_raw(main_request)
+        if not ok:
             return None
-        if resp.HasField("app_data_exchange_request") and resp.app_data_exchange_request.data:
-            return bytes(resp.app_data_exchange_request.data)
 
         if not wait_for_response:
             return None
 
-        followup = await rpc._receive_main_message(timeout=followup_timeout)
-        if followup is None:
-            return None
-        if followup.HasField("app_data_exchange_request") and followup.app_data_exchange_request.data:
-            return bytes(followup.app_data_exchange_request.data)
-        return None
+        # Drain inbound: accept app_data_exchange regardless of command_id
+        # (workaround for Momentum bug — see §3 sunset). Non-CFC frames are
+        # protocol desync (wire lock should prevent them) and raise loudly.
+        deadline = time.monotonic() + followup_timeout
+        PER_READ_TIMEOUT = 0.5
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None  # legitimate timeout — no frame arrived in window
+            this_timeout = min(PER_READ_TIMEOUT, remaining)
+            resp = await rpc._receive_main_message(timeout=this_timeout)
+            if resp is None:
+                continue  # transport returned nothing; keep waiting
+
+            # v6/v8.2: route-by-tag pattern (matches qFlipper's canonical
+            # implementation per NotebookLM Round 3 Q8). Check which_content
+            # tag FIRST. CFC's data frame returns. Known asynchronous event
+            # frames (per Round 3 Q6 — closed set of 4) and the per-request
+            # synchronous RPC ack frame (`empty`, command_id matches our
+            # outbound request — v8.2 addition) are consumed and the drain
+            # continues. Truly unknown content raises desync.
+            if resp.HasField("app_data_exchange_request"):
+                # v5 fix preserved: decouple type-check from payload-check.
+                # Empty bytes (b"") is falsy in Python; structure alone
+                # determines CFC-ness, an empty payload is still a valid
+                # CFC frame.
+                payload_bytes = resp.app_data_exchange_request.data
+                return bytes(payload_bytes) if payload_bytes else b""
+
+            if resp.HasField("empty"):
+                # Synchronous RPC ack-reply from the Flipper RPC dispatcher.
+                # Every request gets one of these with command_id matching
+                # the request, when the registered handler has no specific
+                # reply payload. Previously absorbed by _send_rpc_message's
+                # strict matcher; visible here because _send_main_raw bypasses
+                # matching. (v8.2 addition per cook attempt #1 empirical
+                # finding — Q6 enumeration missed sync-reply category.)
+                continue
+
+            if resp.HasField("app_state_response"):
+                # APP_STARTED / APP_CLOSED event with garbage command_id
+                # (Momentum bug — see §3, mirrors the app_data_exchange
+                # one). Per Round 3 Q7, these arrive AFTER the app_start
+                # reply, so they naturally land here. Consume and continue
+                # draining — the host's real reply may follow.
+                continue
+
+            if resp.HasField("gui_screen_frame"):
+                # Screen streaming event. command_id is clean per Q6 but
+                # the frame is still asynchronous; consume and continue.
+                # NOTE: if GUI streaming is somehow active during CFC ops,
+                # screen-frame flooding could starve the CFC response within
+                # the followup_timeout budget. Per Arena Model A — acceptable
+                # risk for Phase 2.5 (GUI streaming and CFC don't normally
+                # coexist). Phase 3 may need a frame-budget guard here.
+                continue
+
+            if resp.HasField("desktop_status"):
+                # Desktop lock/unlock event. command_id is clean per Q6;
+                # consume and continue.
+                continue
+
+            # Truly unknown content tag during CFC drain. The wire lock
+            # should make non-event, non-CFC frames unreachable. If this
+            # fires, the wire-lock invariant was violated or the firmware
+            # is emitting a frame type that wasn't in the Q6/v8.2 allowlist —
+            # either way, surface as fatal protocol desync.
+            field = resp.WhichOneof('content')
+            raise CfcProtocolDesyncError(
+                f"unknown content tag during CFC drain (wire lock held): "
+                f"command_id={resp.command_id}, content_field={field}. "
+                f"RPC session must be torn down. If this is a legitimate "
+                f"new firmware event type, add it to the v8.2 allowlist."
+            )
 
 
 async def cfc_send_raw_frame(
@@ -176,6 +295,116 @@ async def cfc_send_raw_frame(
 ) -> Optional[bytes]:
     """Public negative-test helper: send already-built frame bytes (no checks)."""
     return await _cfc_send_one_frame(client, raw_bytes, wait_for_response=wait_for_response)
+
+
+async def cfc_recv_response_assembled(
+    client: Any,
+    first_fragment_bytes: bytes,
+    timeout_s: float = 10.0,
+) -> bytes:
+    """Take the first fragment of a CFC response and reassemble the full payload.
+
+    Use this when a test (or other low-level caller) has already received
+    fragment 0 via cfc_send_raw_frame or similar, and needs the complete
+    multi-fragment response assembled.
+
+    Returns the COMPLETE reassembled payload bytes (concatenation of all
+    fragments' payload sections, without per-fragment CFC headers). The
+    caller can then msgpack-decode the result.
+
+    For single-fragment responses (frag_total == 1), returns the fragment's
+    payload section unchanged — no additional reads.
+
+    Raises CfcProtocolError on header inconsistencies (txn mismatch between
+    fragments, payload_length mismatch, bad magic/version on follow-ups).
+    Raises CfcTimeoutError if assembly times out.
+    """
+    if first_fragment_bytes is None or len(first_fragment_bytes) < CFC_HEADER_SIZE:
+        raise CfcProtocolError(
+            f"first_fragment_bytes too short: {len(first_fragment_bytes) if first_fragment_bytes else 0}"
+        )
+
+    (magic, version, op, txn, frag_idx, frag_total, payload_length) = parse_cfc_header(
+        first_fragment_bytes
+    )
+    if magic != CFC_MAGIC or version != CFC_VERSION:
+        raise CfcProtocolError(f"bad magic/version: {magic:#x}/{version:#x}")
+    if frag_idx != 0:
+        raise CfcProtocolError(
+            f"first_fragment_bytes claims frag_idx={frag_idx}, expected 0"
+        )
+
+    # Collect fragment 0's payload section.
+    payload_parts: list[bytes] = [first_fragment_bytes[CFC_HEADER_SIZE:]]
+
+    # Single-fragment fast path: nothing more to receive.
+    if frag_total == 1:
+        return payload_parts[0]
+
+    # Multi-fragment: read remaining frag_total - 1 fragments off the wire.
+    deadline = time.monotonic() + timeout_s
+    rpc = _get_protobuf_rpc(client)
+    fragments_received = 1
+
+    while fragments_received < frag_total:
+        if time.monotonic() > deadline:
+            raise CfcTimeoutError(
+                f"reassembly timeout: got {fragments_received}/{frag_total} fragments"
+            )
+
+        async with rpc._wire_lock:
+            followup = await rpc._receive_main_message(timeout=2.5)
+
+        if followup is None:
+            raise CfcTimeoutError(
+                f"no fragment received: got {fragments_received}/{frag_total} so far"
+            )
+        if not followup.HasField("app_data_exchange_request"):
+            # An unexpected non-data Main arrived. Could be a stray async event;
+            # we don't try to be clever here — surface as protocol error and let
+            # the test diagnose. (The wire lock should prevent foreign frames,
+            # but defensive raise matches the §2.2 drain loop's discipline.)
+            content_field = followup.WhichOneof("content")
+            raise CfcProtocolError(
+                f"unexpected non-data-exchange Main during reassembly: "
+                f"content_field={content_field}"
+            )
+
+        resp_bytes = bytes(followup.app_data_exchange_request.data)
+        if len(resp_bytes) < CFC_HEADER_SIZE:
+            raise CfcProtocolError(f"reassembly fragment too short: {len(resp_bytes)}")
+
+        (f_magic, f_version, f_op, f_txn, f_idx, f_total, f_plen) = parse_cfc_header(
+            resp_bytes
+        )
+        if f_magic != CFC_MAGIC or f_version != CFC_VERSION:
+            raise CfcProtocolError(
+                f"reassembly bad magic/version: {f_magic:#x}/{f_version:#x}"
+            )
+        if f_txn != txn:
+            raise CfcProtocolError(
+                f"reassembly txn mismatch: got {f_txn}, expected {txn}"
+            )
+        if f_total != frag_total:
+            raise CfcProtocolError(
+                f"reassembly frag_total mismatch: got {f_total}, expected {frag_total}"
+            )
+        if f_plen != payload_length:
+            raise CfcProtocolError(
+                f"reassembly payload_length mismatch: got {f_plen}, expected {payload_length}"
+            )
+
+        payload_parts.append(resp_bytes[CFC_HEADER_SIZE:])
+        fragments_received += 1
+
+    assembled = b"".join(payload_parts)
+    # Sanity check: total bytes should equal payload_length from the header.
+    if len(assembled) != payload_length:
+        raise CfcProtocolError(
+            f"reassembly size mismatch: got {len(assembled)} bytes, "
+            f"header claimed {payload_length}"
+        )
+    return assembled
 
 
 # --- High-level call API ---

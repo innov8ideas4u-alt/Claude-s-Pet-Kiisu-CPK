@@ -362,8 +362,32 @@ class ProtobufRPC:
         if ok:
             self.command_id = max(self.command_id, 1)
     
+    async def _send_main_raw(self, main_message: Any) -> bool:
+        """
+        Serialize and send one Main protobuf message on the wire. Does NOT wait
+        for or match a response — the caller handles inbound frames separately.
+
+        Use this when the caller needs custom inbound-frame matching semantics
+        (e.g., CFC's app_data_exchange workaround). For ordinary synchronous
+        RPCs, use _send_rpc_message instead.
+
+        Returns True on successful wire send, False on transport failure.
+
+        Caller must hold rpc._wire_lock for the full send + receive sequence.
+        """
+        try:
+            await self._ensure_rpc_session_started()
+            message_data = main_message.SerializeToString()
+            message = self._encode_varint(len(message_data)) + message_data
+            await self.transport.send(message)
+            return True
+        except Exception as _e:
+            if self.debug:
+                print(f"[silent-except @ protobuf_rpc.py:_send_main_raw] {type(_e).__name__}: {_e}", file=sys.stderr)
+            return False
+
     async def _send_rpc_message(
-        self, 
+        self,
         main_message: Any  # flipper_pb2.Main
     ) -> Optional[Any]:  # Optional[flipper_pb2.Main]
         """
