@@ -1,0 +1,3088 @@
+# Bundle: 11_furi_hal_headers_all.txt
+# 29 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_bus.h ===
+
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "stm32wbxx.h"
+#include "stdbool.h"
+
+typedef enum {
+    FuriHalBusAHB1_GRP1,
+    FuriHalBusDMA1,
+    FuriHalBusDMA2,
+    FuriHalBusDMAMUX1,
+    FuriHalBusCRC,
+    FuriHalBusTSC,
+
+    FuriHalBusAHB2_GRP1,
+    FuriHalBusGPIOA,
+    FuriHalBusGPIOB,
+    FuriHalBusGPIOC,
+    FuriHalBusGPIOD,
+    FuriHalBusGPIOE,
+    FuriHalBusGPIOH,
+#if defined(ADC_SUPPORT_5_MSPS)
+    FuriHalBusADC,
+#endif
+    FuriHalBusAES1,
+
+    FuriHalBusAHB3_GRP1,
+    FuriHalBusQUADSPI,
+    FuriHalBusPKA,
+    FuriHalBusAES2,
+    FuriHalBusRNG,
+    FuriHalBusHSEM,
+    FuriHalBusIPCC,
+    FuriHalBusFLASH,
+
+    FuriHalBusAPB1_GRP1,
+    FuriHalBusTIM2,
+    FuriHalBusLCD,
+    FuriHalBusSPI2,
+    FuriHalBusI2C1,
+    FuriHalBusI2C3,
+    FuriHalBusCRS,
+    FuriHalBusUSB,
+    FuriHalBusLPTIM1,
+
+    FuriHalBusAPB1_GRP2,
+    FuriHalBusLPUART1,
+    FuriHalBusLPTIM2,
+
+    FuriHalBusAPB2_GRP1,
+#if defined(ADC_SUPPORT_2_5_MSPS)
+    FuriHalBusADC,
+#endif
+    FuriHalBusTIM1,
+    FuriHalBusSPI1,
+    FuriHalBusUSART1,
+    FuriHalBusTIM16,
+    FuriHalBusTIM17,
+    FuriHalBusSAI1,
+
+    FuriHalBusAPB3_GRP1,
+    FuriHalBusRF,
+
+    FuriHalBusMAX,
+} FuriHalBus;
+
+/** Early initialization */
+void furi_hal_bus_init_early(void);
+
+/** Early de-initialization */
+void furi_hal_bus_deinit_early(void);
+
+/**
+ * Enable a peripheral by turning the clocking on and deasserting the reset.
+ * @param [in] bus Peripheral to be enabled.
+ * @warning Peripheral must be in disabled state in order to be enabled.
+ */
+void furi_hal_bus_enable(FuriHalBus bus);
+
+/**
+ * Reset a peripheral by sequentially asserting and deasserting the reset.
+ * @param [in] bus Peripheral to be reset.
+ * @warning Peripheral must be in enabled state in order to be reset.
+ */
+void furi_hal_bus_reset(FuriHalBus bus);
+
+/**
+ * Disable a peripheral by turning the clocking off and asserting the reset.
+ * @param [in] bus Peripheral to be disabled.
+ * @warning Peripheral must be in enabled state in order to be disabled.
+ */
+void furi_hal_bus_disable(FuriHalBus bus);
+
+/** Check if peripheral is enabled
+ *
+ * @warning    FuriHalBusAPB3_GRP1 is a special group of shared peripherals, for
+ *             core1 its clock is always on and the only status we can report is
+ *             peripheral reset status. Check code and Reference Manual for
+ *             details.
+ *
+ * @param[in]  bus   The peripheral to check
+ *
+ * @return     true if enabled or always enabled, false otherwise
+ */
+bool furi_hal_bus_is_enabled(FuriHalBus bus);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_clock.h ===
+
+#pragma once
+
+#include <stm32wbxx_ll_rcc.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    FuriHalClockMcoLse,
+    FuriHalClockMcoSysclk,
+    FuriHalClockMcoMsi100k,
+    FuriHalClockMcoMsi200k,
+    FuriHalClockMcoMsi400k,
+    FuriHalClockMcoMsi800k,
+    FuriHalClockMcoMsi1m,
+    FuriHalClockMcoMsi2m,
+    FuriHalClockMcoMsi4m,
+    FuriHalClockMcoMsi8m,
+    FuriHalClockMcoMsi16m,
+    FuriHalClockMcoMsi24m,
+    FuriHalClockMcoMsi32m,
+    FuriHalClockMcoMsi48m,
+} FuriHalClockMcoSourceId;
+
+typedef enum {
+    FuriHalClockMcoDiv1 = LL_RCC_MCO1_DIV_1,
+    FuriHalClockMcoDiv2 = LL_RCC_MCO1_DIV_2,
+    FuriHalClockMcoDiv4 = LL_RCC_MCO1_DIV_4,
+    FuriHalClockMcoDiv8 = LL_RCC_MCO1_DIV_8,
+    FuriHalClockMcoDiv16 = LL_RCC_MCO1_DIV_16,
+} FuriHalClockMcoDivisorId;
+
+/** Early initialization */
+void furi_hal_clock_init_early(void);
+
+/** Early deinitialization */
+void furi_hal_clock_deinit_early(void);
+
+/** Initialize clocks */
+void furi_hal_clock_init(void);
+
+/** Switch clock from HSE to HSI */
+void furi_hal_clock_switch_hse2hsi(void);
+
+/** Switch clock from HSI to HSE */
+void furi_hal_clock_switch_hsi2hse(void);
+
+/** Switch clock from HSE to PLL
+ *
+ * @return     true if changed, false if failed or not possible at this moment
+ */
+bool furi_hal_clock_switch_hse2pll(void);
+
+/** Switch clock from PLL to HSE
+ *
+ * @return     true if changed, false if failed or not possible at this moment
+ */
+bool furi_hal_clock_switch_pll2hse(void);
+
+/** Stop SysTick counter without resetting */
+void furi_hal_clock_suspend_tick(void);
+
+/** Continue SysTick counter operation */
+void furi_hal_clock_resume_tick(void);
+
+/** Enable clock output on MCO pin
+ * 
+ * @param      source  MCO clock source
+ * @param      div     MCO clock division
+*/
+void furi_hal_clock_mco_enable(FuriHalClockMcoSourceId source, FuriHalClockMcoDivisorId div);
+
+/** Disable clock output on MCO pin */
+void furi_hal_clock_mco_disable(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_dma.h ===
+
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Early initialization */
+void furi_hal_dma_init_early(void);
+
+/** Early de-initialization */
+void furi_hal_dma_deinit_early(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_flash.h ===
+
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FURI_HAL_FLASH_OB_RAW_SIZE_BYTES 0x80
+#define FURI_HAL_FLASH_OB_SIZE_WORDS     (FURI_HAL_FLASH_OB_RAW_SIZE_BYTES / sizeof(uint32_t))
+#define FURI_HAL_FLASH_OB_TOTAL_VALUES   (FURI_HAL_FLASH_OB_SIZE_WORDS / 2)
+
+typedef union {
+    uint8_t bytes[FURI_HAL_FLASH_OB_RAW_SIZE_BYTES];
+    union {
+        struct {
+            uint32_t base;
+            uint32_t complementary_value;
+        } values;
+        uint64_t dword;
+    } obs[FURI_HAL_FLASH_OB_TOTAL_VALUES];
+} FuriHalFlashRawOptionByteData;
+
+_Static_assert(
+    sizeof(FuriHalFlashRawOptionByteData) == FURI_HAL_FLASH_OB_RAW_SIZE_BYTES,
+    "UpdateManifestOptionByteData size error");
+
+/** Init flash, applying necessary workarounds
+ */
+void furi_hal_flash_init(void);
+
+/** Get flash base address
+ *
+ * @return     pointer to flash base
+ */
+size_t furi_hal_flash_get_base(void);
+
+/** Get flash read block size
+ *
+ * @return     size in bytes
+ */
+size_t furi_hal_flash_get_read_block_size(void);
+
+/** Get flash write block size
+ *
+ * @return     size in bytes
+ */
+size_t furi_hal_flash_get_write_block_size(void);
+
+/** Get flash page size
+ *
+ * @return     size in bytes
+ */
+size_t furi_hal_flash_get_page_size(void);
+
+/** Get expected flash cycles count
+ *
+ * @return     count of erase-write operations
+ */
+size_t furi_hal_flash_get_cycles_count(void);
+
+/** Get free flash start address
+ *
+ * @return     pointer to free region start
+ */
+const void* furi_hal_flash_get_free_start_address(void);
+
+/** Get free flash end address
+ *
+ * @return     pointer to free region end
+ */
+const void* furi_hal_flash_get_free_end_address(void);
+
+/** Get first free page start address
+ *
+ * @return     first free page memory address
+ */
+size_t furi_hal_flash_get_free_page_start_address(void);
+
+/** Get free page count
+ *
+ * @return     free page count
+ */
+size_t furi_hal_flash_get_free_page_count(void);
+
+/** Erase Flash
+ *
+ * @warning    locking operation with critical section, stalls execution
+ *
+ * @param      page  The page to erase
+ */
+void furi_hal_flash_erase(uint8_t page);
+
+/** Write double word (64 bits)
+ *
+ * @warning locking operation with critical section, stalls execution
+ *
+ * @param      address  destination address, must be double word aligned.
+ * @param      data     data to write
+ */
+void furi_hal_flash_write_dword(size_t address, uint64_t data);
+
+/** Write aligned page data (up to page size)
+ *
+ * @warning locking operation with critical section, stalls execution
+ *
+ * @param      address  destination address, must be page aligned.
+ * @param      data     data to write
+ * @param      length   data length
+ */
+void furi_hal_flash_program_page(const uint8_t page, const uint8_t* data, uint16_t length);
+
+/** Get flash page number for address
+ *
+ * @return     page number, -1 for invalid address
+ */
+int16_t furi_hal_flash_get_page_number(size_t address);
+
+/** Writes OB word, using non-compl. index of register in Flash, OPTION_BYTE_BASE
+ *
+ * @warning locking operation with critical section, stalls execution
+ *
+ * @param      word_idx  OB word number
+ * @param      value    data to write
+ * @return     true if value was written, false for read-only word
+ */
+bool furi_hal_flash_ob_set_word(size_t word_idx, const uint32_t value);
+
+/** Forces a reload of OB data from flash to registers
+ *
+ * @warning Initializes system restart
+ *
+ */
+void furi_hal_flash_ob_apply(void);
+
+/** Get raw OB storage data
+ *
+ * @return     pointer to read-only data of OB (raw + complementary values)
+ */
+const FuriHalFlashRawOptionByteData* furi_hal_flash_ob_get_raw_ptr(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_gpio.h ===
+
+#pragma once
+#include "stdbool.h"
+#include <stm32wbxx_ll_gpio.h>
+#include <stm32wbxx_ll_system.h>
+#include <stm32wbxx_ll_exti.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Number of gpio on one port
+ */
+#define GPIO_NUMBER (16U)
+
+/**
+ * Interrupt callback prototype
+ */
+typedef void (*GpioExtiCallback)(void* ctx);
+
+/**
+ * Gpio interrupt type
+ */
+typedef struct {
+    GpioExtiCallback callback;
+    void* context;
+} GpioInterrupt;
+
+/**
+ * Gpio modes
+ */
+typedef enum {
+    GpioModeInput,
+    GpioModeOutputPushPull,
+    GpioModeOutputOpenDrain,
+    GpioModeAltFunctionPushPull,
+    GpioModeAltFunctionOpenDrain,
+    GpioModeAnalog,
+    GpioModeInterruptRise,
+    GpioModeInterruptFall,
+    GpioModeInterruptRiseFall,
+    GpioModeEventRise,
+    GpioModeEventFall,
+    GpioModeEventRiseFall,
+} GpioMode;
+
+/**
+ * Gpio pull modes
+ */
+typedef enum {
+    GpioPullNo,
+    GpioPullUp,
+    GpioPullDown,
+} GpioPull;
+
+/**
+ * Gpio speed modes
+ */
+typedef enum {
+    GpioSpeedLow,
+    GpioSpeedMedium,
+    GpioSpeedHigh,
+    GpioSpeedVeryHigh,
+} GpioSpeed;
+
+/**
+ * Gpio alternate functions
+ */
+typedef enum {
+    GpioAltFn0MCO = 0, /*!< MCO Alternate Function mapping */
+    GpioAltFn0LSCO = 0, /*!< LSCO Alternate Function mapping */
+    GpioAltFn0JTMS_SWDIO = 0, /*!< JTMS-SWDIO Alternate Function mapping */
+    GpioAltFn0JTCK_SWCLK = 0, /*!< JTCK-SWCLK Alternate Function mapping */
+    GpioAltFn0JTDI = 0, /*!< JTDI Alternate Function mapping */
+    GpioAltFn0RTC_OUT = 0, /*!< RCT_OUT Alternate Function mapping */
+    GpioAltFn0JTD_TRACE = 0, /*!< JTDO-TRACESWO Alternate Function mapping */
+    GpioAltFn0NJTRST = 0, /*!< NJTRST Alternate Function mapping */
+    GpioAltFn0RTC_REFIN = 0, /*!< RTC_REFIN Alternate Function mapping */
+    GpioAltFn0TRACED0 = 0, /*!< TRACED0 Alternate Function mapping */
+    GpioAltFn0TRACED1 = 0, /*!< TRACED1 Alternate Function mapping */
+    GpioAltFn0TRACED2 = 0, /*!< TRACED2 Alternate Function mapping */
+    GpioAltFn0TRACED3 = 0, /*!< TRACED3 Alternate Function mapping */
+    GpioAltFn0TRIG_INOUT = 0, /*!< TRIG_INOUT Alternate Function mapping */
+    GpioAltFn0TRACECK = 0, /*!< TRACECK Alternate Function mapping */
+    GpioAltFn0SYS = 0, /*!< System Function mapping */
+
+    GpioAltFn1TIM1 = 1, /*!< TIM1 Alternate Function mapping */
+    GpioAltFn1TIM2 = 1, /*!< TIM2 Alternate Function mapping */
+    GpioAltFn1LPTIM1 = 1, /*!< LPTIM1 Alternate Function mapping */
+
+    GpioAltFn2TIM2 = 2, /*!< TIM2 Alternate Function mapping */
+    GpioAltFn2TIM1 = 2, /*!< TIM1 Alternate Function mapping */
+
+    GpioAltFn3SAI1 = 3, /*!< SAI1_CK1 Alternate Function mapping */
+    GpioAltFn3SPI2 = 3, /*!< SPI2 Alternate Function mapping */
+    GpioAltFn3TIM1 = 3, /*!< TIM1 Alternate Function mapping */
+
+    GpioAltFn4I2C1 = 4, /*!< I2C1 Alternate Function mapping */
+    GpioAltFn4I2C3 = 4, /*!< I2C3 Alternate Function mapping */
+
+    GpioAltFn5SPI1 = 5, /*!< SPI1 Alternate Function mapping */
+    GpioAltFn5SPI2 = 5, /*!< SPI2 Alternate Function mapping */
+
+    GpioAltFn6MCO = 6, /*!< MCO Alternate Function mapping */
+    GpioAltFn6LSCO = 6, /*!< LSCO Alternate Function mapping */
+    GpioAltFn6RF_DTB0 = 6, /*!< RF_DTB0 Alternate Function mapping */
+    GpioAltFn6RF_DTB1 = 6, /*!< RF_DTB1 Alternate Function mapping */
+    GpioAltFn6RF_DTB2 = 6, /*!< RF_DTB2 Alternate Function mapping */
+    GpioAltFn6RF_DTB3 = 6, /*!< RF_DTB3 Alternate Function mapping */
+    GpioAltFn6RF_DTB4 = 6, /*!< RF_DTB4 Alternate Function mapping */
+    GpioAltFn6RF_DTB5 = 6, /*!< RF_DTB5 Alternate Function mapping */
+    GpioAltFn6RF_DTB6 = 6, /*!< RF_DTB6 Alternate Function mapping */
+    GpioAltFn6RF_DTB7 = 6, /*!< RF_DTB7 Alternate Function mapping */
+    GpioAltFn6RF_DTB8 = 6, /*!< RF_DTB8 Alternate Function mapping */
+    GpioAltFn6RF_DTB9 = 6, /*!< RF_DTB9 Alternate Function mapping */
+    GpioAltFn6RF_DTB10 = 6, /*!< RF_DTB10 Alternate Function mapping */
+    GpioAltFn6RF_DTB11 = 6, /*!< RF_DTB11 Alternate Function mapping */
+    GpioAltFn6RF_DTB12 = 6, /*!< RF_DTB12 Alternate Function mapping */
+    GpioAltFn6RF_DTB13 = 6, /*!< RF_DTB13 Alternate Function mapping */
+    GpioAltFn6RF_DTB14 = 6, /*!< RF_DTB14 Alternate Function mapping */
+    GpioAltFn6RF_DTB15 = 6, /*!< RF_DTB15 Alternate Function mapping */
+    GpioAltFn6RF_DTB16 = 6, /*!< RF_DTB16 Alternate Function mapping */
+    GpioAltFn6RF_DTB17 = 6, /*!< RF_DTB17 Alternate Function mapping */
+    GpioAltFn6RF_DTB18 = 6, /*!< RF_DTB18 Alternate Function mapping */
+    GpioAltFn6RF_MISO = 6, /*!< RF_MISO Alternate Function mapping */
+    GpioAltFn6RF_MOSI = 6, /*!< RF_MOSI Alternate Function mapping */
+    GpioAltFn6RF_SCK = 6, /*!< RF_SCK Alternate Function mapping */
+    GpioAltFn6RF_NSS = 6, /*!< RF_NSS Alternate Function mapping */
+
+    GpioAltFn7USART1 = 7, /*!< USART1 Alternate Function mapping */
+
+    GpioAltFn8LPUART1 = 8, /*!< LPUART1 Alternate Function mapping */
+    GpioAltFn8IR = 8, /*!< IR Alternate Function mapping */
+
+    GpioAltFn9TSC = 9, /*!< TSC Alternate Function mapping */
+
+    GpioAltFn10QUADSPI = 10, /*!< QUADSPI Alternate Function mapping */
+    GpioAltFn10USB = 10, /*!< USB Alternate Function mapping */
+
+    GpioAltFn11LCD = 11, /*!< LCD Alternate Function mapping */
+
+    GpioAltFn12COMP1 = 12, /*!< COMP1 Alternate Function mapping */
+    GpioAltFn12COMP2 = 12, /*!< COMP2 Alternate Function mapping */
+    GpioAltFn12TIM1 = 12, /*!< TIM1 Alternate Function mapping */
+
+    GpioAltFn13SAI1 = 13, /*!< SAI1 Alternate Function mapping */
+
+    GpioAltFn14TIM2 = 14, /*!< TIM2 Alternate Function mapping */
+    GpioAltFn14TIM16 = 14, /*!< TIM16 Alternate Function mapping */
+    GpioAltFn14TIM17 = 14, /*!< TIM17 Alternate Function mapping */
+    GpioAltFn14LPTIM2 = 14, /*!< LPTIM2 Alternate Function mapping */
+
+    GpioAltFn15EVENTOUT = 15, /*!< EVENTOUT Alternate Function mapping */
+
+    GpioAltFnUnused = 16, /*!< just dummy value */
+} GpioAltFn;
+
+/**
+ * Gpio structure
+ */
+typedef struct {
+    GPIO_TypeDef* port;
+    uint16_t pin;
+} GpioPin;
+
+/**
+ * GPIO initialization function, simple version
+ * @param gpio  GpioPin
+ * @param mode  GpioMode
+ */
+void furi_hal_gpio_init_simple(const GpioPin* gpio, const GpioMode mode);
+
+/**
+ * GPIO initialization function, normal version
+ * @param gpio  GpioPin
+ * @param mode  GpioMode
+ * @param pull  GpioPull
+ * @param speed GpioSpeed
+ */
+void furi_hal_gpio_init(
+    const GpioPin* gpio,
+    const GpioMode mode,
+    const GpioPull pull,
+    const GpioSpeed speed);
+
+/**
+ * GPIO initialization function, extended version
+ * @param gpio  GpioPin
+ * @param mode  GpioMode
+ * @param pull  GpioPull
+ * @param speed GpioSpeed
+ * @param alt_fn GpioAltFn
+ */
+void furi_hal_gpio_init_ex(
+    const GpioPin* gpio,
+    const GpioMode mode,
+    const GpioPull pull,
+    const GpioSpeed speed,
+    const GpioAltFn alt_fn);
+
+/**
+ * Add and enable interrupt
+ * @param gpio GpioPin
+ * @param cb   GpioExtiCallback
+ * @param ctx  context for callback
+ */
+void furi_hal_gpio_add_int_callback(const GpioPin* gpio, GpioExtiCallback cb, void* ctx);
+
+/**
+ * Enable interrupt
+ * @param gpio GpioPin
+ */
+void furi_hal_gpio_enable_int_callback(const GpioPin* gpio);
+
+/**
+ * Disable interrupt
+ * @param gpio GpioPin
+ */
+void furi_hal_gpio_disable_int_callback(const GpioPin* gpio);
+
+/**
+ * Remove interrupt
+ * @param gpio GpioPin
+ */
+void furi_hal_gpio_remove_int_callback(const GpioPin* gpio);
+
+/**
+ * GPIO write pin
+ * @param gpio  GpioPin
+ * @param state true / false
+ */
+static inline void furi_hal_gpio_write(const GpioPin* gpio, const bool state) {
+    // writing to BSSR is an atomic operation
+    if(state == true) {
+        gpio->port->BSRR = gpio->pin;
+    } else {
+        gpio->port->BSRR = (uint32_t)gpio->pin << GPIO_NUMBER;
+    }
+}
+
+/**
+ * GPIO read pin
+ * @param port GPIO port
+ * @param pin pin mask
+ * @return true / false
+ */
+static inline void
+    furi_hal_gpio_write_port_pin(GPIO_TypeDef* port, uint16_t pin, const bool state) {
+    // writing to BSSR is an atomic operation
+    if(state == true) {
+        port->BSRR = pin;
+    } else {
+        port->BSRR = pin << GPIO_NUMBER;
+    }
+}
+
+/**
+ * GPIO read pin
+ * @param gpio GpioPin
+ * @return true / false
+ */
+static inline bool furi_hal_gpio_read(const GpioPin* gpio) {
+    if((gpio->port->IDR & gpio->pin) != 0x00U) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+/**
+ * GPIO read pin
+ * @param port GPIO port
+ * @param pin pin mask
+ * @return true / false
+ */
+static inline bool furi_hal_gpio_read_port_pin(GPIO_TypeDef* port, uint16_t pin) {
+    if((port->IDR & pin) != 0x00U) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_i2c_config.h ===
+
+#pragma once
+
+#include <furi_hal_i2c_types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Internal(power) i2c bus, I2C1, under reset when not used */
+extern FuriHalI2cBus furi_hal_i2c_bus_power;
+
+/** External i2c bus, I2C3, under reset when not used */
+extern FuriHalI2cBus furi_hal_i2c_bus_external;
+
+/** Handle for internal(power) i2c bus
+ * Bus: furi_hal_i2c_bus_external
+ * Pins: PA9(SCL) / PA10(SDA), float on release
+ * Params: 400khz
+ */
+extern const FuriHalI2cBusHandle furi_hal_i2c_handle_power;
+
+/** Handle for external i2c bus
+ * Bus: furi_hal_i2c_bus_external
+ * Pins: PC0(SCL) / PC1(SDA), float on release
+ * Params: 100khz
+ */
+extern const FuriHalI2cBusHandle furi_hal_i2c_handle_external;
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_i2c_types.h ===
+
+#pragma once
+
+#include <stm32wbxx_ll_i2c.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct FuriHalI2cBus FuriHalI2cBus;
+typedef struct FuriHalI2cBusHandle FuriHalI2cBusHandle;
+
+/** FuriHal i2c bus states */
+typedef enum {
+    FuriHalI2cBusEventInit, /**< Bus initialization event, called on system start */
+    FuriHalI2cBusEventDeinit, /**< Bus deinitialization event, called on system stop */
+    FuriHalI2cBusEventLock, /**< Bus lock event, called before activation */
+    FuriHalI2cBusEventUnlock, /**< Bus unlock event, called after deactivation */
+    FuriHalI2cBusEventActivate, /**< Bus activation event, called before handle activation */
+    FuriHalI2cBusEventDeactivate, /**< Bus deactivation event, called after handle deactivation  */
+} FuriHalI2cBusEvent;
+
+/** FuriHal i2c bus event callback */
+typedef void (*FuriHalI2cBusEventCallback)(FuriHalI2cBus* bus, FuriHalI2cBusEvent event);
+
+/** FuriHal i2c bus */
+struct FuriHalI2cBus {
+    I2C_TypeDef* i2c;
+    const FuriHalI2cBusHandle* current_handle;
+    FuriHalI2cBusEventCallback callback;
+};
+
+/** FuriHal i2c handle states */
+typedef enum {
+    FuriHalI2cBusHandleEventActivate, /**< Handle activate: connect gpio and apply bus config */
+    FuriHalI2cBusHandleEventDeactivate, /**< Handle deactivate: disconnect gpio and reset bus config */
+} FuriHalI2cBusHandleEvent;
+
+/** FuriHal i2c handle event callback */
+typedef void (*FuriHalI2cBusHandleEventCallback)(
+    const FuriHalI2cBusHandle* handle,
+    FuriHalI2cBusHandleEvent event);
+
+/** FuriHal i2c handle */
+struct FuriHalI2cBusHandle {
+    FuriHalI2cBus* bus;
+    FuriHalI2cBusHandleEventCallback callback;
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_ibutton.h ===
+
+/**
+ * @file furi_hal_ibutton.h
+ * iButton HAL API
+ */
+
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef void (*FuriHalIbuttonEmulateCallback)(void* context);
+
+/** Initialize */
+void furi_hal_ibutton_init(void);
+
+/**
+ * Start emulation timer
+ * @param period timer period
+ * @param callback timer callback
+ * @param context callback context
+ */
+void furi_hal_ibutton_emulate_start(
+    uint32_t period,
+    FuriHalIbuttonEmulateCallback callback,
+    void* context);
+
+/**
+ * Update emulation timer period
+ * @param period new timer period
+ */
+void furi_hal_ibutton_emulate_set_next(uint32_t period);
+
+/**
+ * Stop emulation timer
+ */
+void furi_hal_ibutton_emulate_stop(void);
+
+/**
+ * Set the pin to normal mode (open collector), and sets it to float
+ */
+void furi_hal_ibutton_pin_configure(void);
+
+/**
+ * Sets the pin to analog mode, and sets it to float
+ */
+void furi_hal_ibutton_pin_reset(void);
+
+/**
+ * iButton write pin
+ * @param state true / false
+ */
+void furi_hal_ibutton_pin_write(const bool state);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_idle_timer.h ===
+
+#pragma once
+
+#include <stm32wbxx_ll_lptim.h>
+#include <stm32wbxx_ll_rcc.h>
+#include <stm32wbxx_ll_bus.h>
+
+#include <furi_hal_bus.h>
+
+// Timer used for tickless idle
+#define FURI_HAL_IDLE_TIMER_MAX 0xFFFF
+#define FURI_HAL_IDLE_TIMER     LPTIM1
+#define FURI_HAL_IDLE_TIMER_IRQ LPTIM1_IRQn
+
+static inline void furi_hal_idle_timer_init() {
+    furi_hal_bus_enable(FuriHalBusLPTIM1);
+    // Configure clock source
+    LL_RCC_SetLPTIMClockSource(LL_RCC_LPTIM1_CLKSOURCE_LSE);
+    // There is a theoretical possibility that we need it
+    LL_APB1_GRP1_EnableClockSleep(LL_APB1_GRP1_PERIPH_LPTIM1);
+    // Set interrupt priority and enable them
+    NVIC_SetPriority(
+        FURI_HAL_IDLE_TIMER_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
+    NVIC_EnableIRQ(FURI_HAL_IDLE_TIMER_IRQ);
+}
+
+static inline void furi_hal_idle_timer_start(uint32_t count) {
+    count--;
+    // Enable timer
+    LL_LPTIM_Enable(FURI_HAL_IDLE_TIMER);
+    while(!LL_LPTIM_IsEnabled(FURI_HAL_IDLE_TIMER))
+        ;
+
+    // Enable compare match interrupt
+    LL_LPTIM_EnableIT_CMPM(FURI_HAL_IDLE_TIMER);
+
+    // Set compare, autoreload and start counter
+    // Include some marging to workaround ARRM behaviour
+    LL_LPTIM_SetCompare(FURI_HAL_IDLE_TIMER, count - 3);
+    LL_LPTIM_SetAutoReload(FURI_HAL_IDLE_TIMER, count);
+    LL_LPTIM_StartCounter(FURI_HAL_IDLE_TIMER, LL_LPTIM_OPERATING_MODE_ONESHOT);
+}
+
+static inline void furi_hal_idle_timer_reset() {
+    // Hard reset timer
+    // THE ONLY RELIABLE WAY to stop it according to errata
+    furi_hal_bus_reset(FuriHalBusLPTIM1);
+    // Prevent IRQ handler call
+    NVIC_ClearPendingIRQ(FURI_HAL_IDLE_TIMER_IRQ);
+}
+
+static inline uint32_t furi_hal_idle_timer_get_cnt() {
+    uint32_t counter = LL_LPTIM_GetCounter(FURI_HAL_IDLE_TIMER);
+    uint32_t counter_shadow = LL_LPTIM_GetCounter(FURI_HAL_IDLE_TIMER);
+    while(counter != counter_shadow) {
+        counter = counter_shadow;
+        counter_shadow = LL_LPTIM_GetCounter(FURI_HAL_IDLE_TIMER);
+    }
+    return counter;
+}
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_interrupt.h ===
+
+#pragma once
+
+#include <stm32wbxx_ll_tim.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Timer ISR */
+typedef void (*FuriHalInterruptISR)(void* context);
+
+typedef enum {
+    // TIM1, TIM16, TIM17
+    FuriHalInterruptIdTim1TrgComTim17,
+    FuriHalInterruptIdTim1Cc,
+    FuriHalInterruptIdTim1UpTim16,
+
+    // TIM2
+    FuriHalInterruptIdTIM2,
+
+    // DMA1
+    FuriHalInterruptIdDma1Ch1,
+    FuriHalInterruptIdDma1Ch2,
+    FuriHalInterruptIdDma1Ch3,
+    FuriHalInterruptIdDma1Ch4,
+    FuriHalInterruptIdDma1Ch5,
+    FuriHalInterruptIdDma1Ch6,
+    FuriHalInterruptIdDma1Ch7,
+
+    // DMA2
+    FuriHalInterruptIdDma2Ch1,
+    FuriHalInterruptIdDma2Ch2,
+    FuriHalInterruptIdDma2Ch3,
+    FuriHalInterruptIdDma2Ch4,
+    FuriHalInterruptIdDma2Ch5,
+    FuriHalInterruptIdDma2Ch6,
+    FuriHalInterruptIdDma2Ch7,
+
+    // RCC
+    FuriHalInterruptIdRcc,
+
+    // Comp
+    FuriHalInterruptIdCOMP,
+
+    // RTC
+    FuriHalInterruptIdRtcAlarm,
+
+    // HSEM
+    FuriHalInterruptIdHsem,
+
+    // LPTIMx
+    FuriHalInterruptIdLpTim1,
+    FuriHalInterruptIdLpTim2,
+
+    //UARTx
+    FuriHalInterruptIdUart1,
+
+    //LPUARTx
+    FuriHalInterruptIdLpUart1,
+
+    // Service value
+    FuriHalInterruptIdMax,
+} FuriHalInterruptId;
+
+typedef enum {
+    FuriHalInterruptPriorityLowest =
+        -3, /**< Lowest priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityLower =
+        -2, /**< Lower priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityLow =
+        -1, /**< Low priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityNormal =
+        0, /**< Normal(default) priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityHigh =
+        1, /**< High priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityHigher =
+        2, /**< Higher priority level, you can use ISR-safe OS primitives */
+    FuriHalInterruptPriorityHighest =
+        3, /**< Highest priority level, you can use ISR-safe OS primitives */
+
+    /* Special group, read docs first(ALL OF THEM: especially FreeRTOS configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY) */
+    FuriHalInterruptPriorityKamiSama =
+        6, /**< Forget about thread safety, you are god now. No one can prevent you from messing with OS critical section. You are not allowed to use any OS primitives, but who can stop you? Use this priority only for direct hardware interaction with LL HAL. */
+} FuriHalInterruptPriority;
+
+/** Initialize interrupt subsystem */
+void furi_hal_interrupt_init(void);
+
+/** Set ISR and enable interrupt with default priority
+ *
+ * @warning    Interrupt flags are not cleared automatically. You may want to
+ *             ensure that your peripheral status flags are cleared.
+ *
+ * @param      index    - interrupt ID
+ * @param      isr      - your interrupt service routine or use NULL to clear
+ * @param      context  - isr context
+ */
+void furi_hal_interrupt_set_isr(FuriHalInterruptId index, FuriHalInterruptISR isr, void* context);
+
+/** Set ISR and enable interrupt with custom priority
+ *
+ * @warning    Interrupt flags are not cleared automatically. You may want to
+ *             ensure that your peripheral status flags are cleared.
+ *
+ * @param      index     - interrupt ID
+ * @param      priority  - One of FuriHalInterruptPriority
+ * @param      isr       - your interrupt service routine or use NULL to clear
+ * @param      context   - isr context
+ */
+void furi_hal_interrupt_set_isr_ex(
+    FuriHalInterruptId index,
+    FuriHalInterruptPriority priority,
+    FuriHalInterruptISR isr,
+    void* context);
+
+/** Get interrupt name by exception number.
+ * Exception number can be obtained from IPSR register.
+ * 
+ * @param exception_number 
+ * @return const char* or NULL if interrupt name is not found
+ */
+const char* furi_hal_interrupt_get_name(uint8_t exception_number);
+
+/** Get total time(in CPU clocks) spent in ISR
+ *
+ * @return     total time in CPU clocks
+ */
+uint32_t furi_hal_interrupt_get_time_in_isr_total(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_nfc_i.h ===
+
+/**
+ * @file furi_hal_nfc_i.h
+ * @brief NFC HAL library (private definitions).
+ *
+ * This file is an implementation detail. It must not be included in
+ * any public API-related headers.
+ */
+#pragma once
+
+#include <furi.h>
+#include <furi_hal_nfc.h>
+#include <furi_hal_spi.h>
+
+#include <drivers/st25r3916.h>
+#include <drivers/st25r3916_reg.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** @brief Common frame delay time compensation for pollers. */
+#define FURI_HAL_NFC_POLLER_FDT_COMP_FC (-500)
+/** @brief Common frame wait time compensation for pollers. */
+#define FURI_HAL_NFC_POLLER_FWT_COMP_FC (FURI_HAL_NFC_POLLER_FDT_COMP_FC)
+
+/**
+ * @brief Enumeration containing bitmask values for NFC HAL internal events.
+ */
+typedef enum {
+    FuriHalNfcEventInternalTypeAbort = (1U << 0), /**< Abort waiting for hardware events. */
+    FuriHalNfcEventInternalTypeIrq = (1U << 1), /**< NFC hardware interrupt has occurred. */
+    FuriHalNfcEventInternalTypeTimerFwtExpired =
+        (1U << 2), /**< Frame wait time timeout has expired. */
+    FuriHalNfcEventInternalTypeTimerBlockTxExpired =
+        (1U << 3), /**< Transmission block timeout has expired. */
+    FuriHalNfcEventInternalTypeTransparentDataReceived =
+        (1U << 4), /**< Data was received in transparent mode. */
+} FuriHalNfcEventInternalType;
+
+/** @brief Special bitmask value of all internal events. */
+#define FURI_HAL_NFC_EVENT_INTERNAL_ALL                                   \
+    ((FuriHalNfcEventInternalTypeAbort | FuriHalNfcEventInternalTypeIrq | \
+      FuriHalNfcEventInternalTypeTimerFwtExpired |                        \
+      FuriHalNfcEventInternalTypeTimerBlockTxExpired |                    \
+      FuriHalNfcEventInternalTypeTransparentDataReceived))
+
+/**
+ * @brief NFC HAL internal event structure.
+ */
+typedef struct {
+    FuriThreadId thread; /**< Identifier of the thread that will be receiving events. */
+    void* context; /**< Pointer to the user-provided context (will be passed to the event callback). */
+} FuriHalNfcEventInternal;
+
+/**
+ * @brief NFC HAL global state structure.
+ */
+typedef struct {
+    FuriMutex* mutex; /**< Pointer to the mutex serving as global NFC HAL lock. */
+    FuriHalNfcMode mode; /**< Currently selected operating mode. */
+    FuriHalNfcTech tech; /**< Currently selected NFC technology. */
+} FuriHalNfc;
+
+/**
+ * @brief NFC HAL global state object declaration.
+ */
+extern FuriHalNfc furi_hal_nfc;
+
+/**
+ * @brief Initialise NFC HAL event system.
+ */
+void furi_hal_nfc_event_init(void);
+
+/**
+ * @brief Forcibly emit (a) particular internal event(s).
+ *
+ * @param[in] event bitmask of one or more events to be emitted.
+ */
+void furi_hal_nfc_event_set(FuriHalNfcEventInternalType event);
+
+/**
+ * @brief Initialise GPIO to generate an interrupt from the NFC hardware.
+ */
+void furi_hal_nfc_init_gpio_isr(void);
+
+/**
+ * @brief Disable interrupts from the NFC hardware.
+ */
+void furi_hal_nfc_deinit_gpio_isr(void);
+
+/**
+ * @brief Initialise all NFC timers.
+ */
+void furi_hal_nfc_timers_init(void);
+
+/**
+ * @brief Disable all NFC timers.
+ */
+void furi_hal_nfc_timers_deinit(void);
+
+/**
+ * @brief Get the interrupt bitmask from the NFC hardware.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @returns bitmask of zero or more occurred interrupts.
+ */
+uint32_t furi_hal_nfc_get_irq(const FuriHalSpiBusHandle* handle);
+
+/**
+ * @brief Wait until a specified type of interrupt occurs.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @param[in] mask bitmask of one or more interrupts to wait for.
+ * @param[in] timeout_ms maximum time to wait for an interrupt, in milliseconds.
+ * @returns true if specified interrupt(s) have occured within timeout, false otherwise.
+ */
+bool furi_hal_nfc_event_wait_for_specific_irq(
+    const FuriHalSpiBusHandle* handle,
+    uint32_t mask,
+    uint32_t timeout_ms);
+
+/**
+ * @brief Wait for any event to occur.
+ *
+ * This function is common to all technologies.
+ *
+ * @param[in] timeout_ms maximum time to wait for an event, in milliseconds.
+ * @returns bitmask of zero or more occurred events.
+ */
+FuriHalNfcEvent furi_hal_nfc_wait_event_common(uint32_t timeout_ms);
+
+/**
+ * @brief Start reception in listener mode.
+ *
+ * This function is common to all technologies.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+FuriHalNfcError furi_hal_nfc_common_listener_rx_start(const FuriHalSpiBusHandle* handle);
+
+/**
+ * @brief Transmit data using on-chip FIFO.
+ *
+ * This function is common to all technologies.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @param[in] tx_data pointer to a byte array containing the data to be transmitted.
+ * @param[in] tx_bits transmit data size, in bits.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+FuriHalNfcError furi_hal_nfc_common_fifo_tx(
+    const FuriHalSpiBusHandle* handle,
+    const uint8_t* tx_data,
+    size_t tx_bits);
+
+/**
+ * @brief Receive data using on-chip FIFO.
+ *
+ * This function is common to all technologies.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @param[out] rx_data pointer to a byte array to be filled with received data.
+ * @param[in] rx_data_size maximum received data size, in bytes.
+ * @param[out] rx_bits pointer to the variable to contain the received data size, in bits.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+FuriHalNfcError furi_hal_nfc_common_fifo_rx(
+    const FuriHalSpiBusHandle* handle,
+    uint8_t* rx_data,
+    size_t rx_data_size,
+    size_t* rx_bits);
+
+/**
+ * @brief Transmit data in poller mode.
+ *
+ * This function is common to all technologies.
+ *
+ * @param[in,out] handle pointer to the SPI handle associated with the NFC chip.
+ * @param[in] tx_data pointer to a byte array containing the data to be transmitted.
+ * @param[in] tx_bits transmit data size, in bits.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+FuriHalNfcError furi_hal_nfc_poller_tx_common(
+    const FuriHalSpiBusHandle* handle,
+    const uint8_t* tx_data,
+    size_t tx_bits);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_nfc_tech_i.h ===
+
+/**
+ * @file furi_hal_nfc_tech_i.h
+ * @brief NFC HAL technology-related private definitions.
+ *
+ * This file is an implementation detail. It must not be included in
+ * any public API-related headers.
+ *
+ * This file is to be changed in an unlikely event of adding support
+ * for a new NFC technology.
+ */
+#pragma once
+
+#include <furi_hal_nfc.h>
+#include <furi_hal_spi.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Configure the NFC chip for use with this technology.
+ *
+ * Used for init() and deinit() functions.
+ *
+ * @param[in,out] handle pointer to the NFC chip SPI handle.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+typedef FuriHalNfcError (*FuriHalNfcChipConfig)(const FuriHalSpiBusHandle* handle);
+
+/**
+ * @brief Transmit data using technology-specific framing and timings.
+ *
+ * @param[in,out] handle pointer to the NFC chip SPI handle.
+ * @param[in] tx_data pointer to a byte array containing the data to be transmitted.
+ * @param[in] tx_bits transmit data size, in bits.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+typedef FuriHalNfcError (
+    *FuriHalNfcTx)(const FuriHalSpiBusHandle* handle, const uint8_t* tx_data, size_t tx_bits);
+
+/**
+ * @brief Receive data using technology-specific framing and timings.
+ *
+ * @param[in,out] handle pointer to the NFC chip SPI handle.
+ * @param[out] rx_data pointer to a byte array to be filled with received data.
+ * @param[in] rx_data_size maximum received data length, in bytes.
+ * @param[out] rx_bits pointer to a variable to contain received data length, in bits.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+typedef FuriHalNfcError (*FuriHalNfcRx)(
+    const FuriHalSpiBusHandle* handle,
+    uint8_t* rx_data,
+    size_t rx_data_size,
+    size_t* rx_bits);
+
+/**
+ * @brief Wait for an event using technology-specific method.
+ *
+ * @param[in] timeout_ms maximum time to wait, in milliseconds.
+ * @return bitmask of occurred events.
+ */
+typedef FuriHalNfcEvent (*FuriHalNfcWaitEvent)(uint32_t timeout_ms);
+
+/**
+ * @brief Go to sleep in listener mode.
+ *
+ * Puts the passive target logic into Sleep (Halt) state.
+ *
+ * @param[in,out] handle pointer to the NFC chip SPI handle.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+typedef FuriHalNfcError (*FuriHalNfcSleep)(const FuriHalSpiBusHandle* handle);
+
+/**
+ * @brief Go to idle in listener mode.
+ *
+ * Puts the passive target logic into Sense (Idle) state.
+ *
+ * @param[in,out] handle pointer to the NFC chip SPI handle.
+ * @returns FuriHalNfcErrorNone on success, any other error code on failure.
+ */
+typedef FuriHalNfcError (*FuriHalNfcIdle)(const FuriHalSpiBusHandle* handle);
+
+/**
+ * @brief Technology-specific compenstaion values for pollers.
+ *
+ * Timing compensations are needed due to execution delays not accounted for
+ * in standards, they are usually found out experimentally.
+ *
+ * The compensation value will be subtracted from the respective timer running
+ * time, so positive values shorten timeouts, and negative ones make them longer.
+ */
+typedef struct {
+    int32_t fdt; /**< Frame delay time compensation, in carrier cycles. */
+    int32_t fwt; /**< Frame wait time compensaton, in carrier cycles. */
+} FuriHalNfcPollerCompensation;
+
+/**
+ * @brief Abstract technology-specific poller structure.
+ */
+typedef struct {
+    FuriHalNfcPollerCompensation compensation; /**< Compensation values in poller mode. */
+    FuriHalNfcChipConfig init; /**< Pointer to the init() function. */
+    FuriHalNfcChipConfig deinit; /**< Pointer to the deinit() function. */
+    FuriHalNfcWaitEvent wait_event; /**< Pointer to the wait_event() function. */
+    FuriHalNfcTx tx; /**< Pointer to the tx() function. */
+    FuriHalNfcRx rx; /**< Pointer to the rx() function. */
+} FuriHalNfcTechPollerBase;
+
+/**
+ * @brief Technology-specific compenstaion values for listeners.
+ *
+ * Same considerations apply as with FuriHalNfcPollerCompensation.
+ */
+typedef struct {
+    int32_t fdt; /**< Frame delay time compensation, in carrier cycles. */
+} FuriHalNfcListenerCompensation;
+
+/**
+ * @brief Abstract technology-specific listener structure.
+ *
+ * If the listener operating mode is not supported for a particular
+ * technology, fill this structure with zeroes.
+ */
+typedef struct {
+    FuriHalNfcListenerCompensation compensation; /**< Compensation values in listener mode. */
+    FuriHalNfcChipConfig init; /**< Pointer to the init() function. */
+    FuriHalNfcChipConfig deinit; /**< Pointer to the deinit() function. */
+    FuriHalNfcWaitEvent wait_event; /**< Pointer to the wait_event() function. */
+    FuriHalNfcTx tx; /**< Pointer to the tx() function. */
+    FuriHalNfcRx rx; /**< Pointer to the rx() function. */
+    FuriHalNfcSleep sleep; /**< Pointer to the sleep() function. */
+    FuriHalNfcIdle idle; /**< Pointer to the idle() function. */
+} FuriHalNfcTechListenerBase;
+
+/**
+ * @brief Abstract NFC technology definition structure.
+ *
+ * Each concrete technology implementation must fill this structure
+ * with its proper functions and constants.
+ */
+typedef struct {
+    FuriHalNfcTechPollerBase poller; /**< Structure containing the poller definition. */
+    FuriHalNfcTechListenerBase listener; /**< Structure containing the listener definition. */
+} FuriHalNfcTechBase;
+
+/** @brief Technology declaration for ISO14443 (Type A). */
+extern const FuriHalNfcTechBase furi_hal_nfc_iso14443a;
+/** @brief Technology declaration for ISO14443 (Type B). */
+extern const FuriHalNfcTechBase furi_hal_nfc_iso14443b;
+/** @brief Technology declaration for ISO15693. */
+extern const FuriHalNfcTechBase furi_hal_nfc_iso15693;
+/** @brief Technology declaration for FeliCa. */
+extern const FuriHalNfcTechBase furi_hal_nfc_felica;
+/* Declare new tehcnologies here. */
+
+/**
+ * @brief Array of pointers to every supported technology.
+ *
+ * This variable is defined in furi_hal_nfc.c. It will need to be modified
+ * in case when a new technology is to be added.
+ */
+extern const FuriHalNfcTechBase* const furi_hal_nfc_tech[];
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_os.h ===
+
+#pragma once
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Initialize OS helpers
+ * Configure and start tick timer
+ */
+void furi_hal_os_init(void);
+
+/* Advance OS tick counter
+ */
+void furi_hal_os_tick(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_pwm.h ===
+
+/**
+ * @file furi_hal_pwm.h
+ * PWM contol HAL
+ */
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    FuriHalPwmOutputIdNone,
+    FuriHalPwmOutputIdTim1PA7,
+    FuriHalPwmOutputIdLptim2PA4,
+} FuriHalPwmOutputId;
+
+/** Enable PWM channel and set parameters
+ * 
+ * @param[in]  channel  PWM channel (FuriHalPwmOutputId)
+ * @param[in]  freq  Frequency in Hz
+ * @param[in]  duty  Duty cycle value in %
+*/
+void furi_hal_pwm_start(FuriHalPwmOutputId channel, uint32_t freq, uint8_t duty);
+
+/** Disable PWM channel
+ * 
+ * @param[in]  channel  PWM channel (FuriHalPwmOutputId)
+*/
+void furi_hal_pwm_stop(FuriHalPwmOutputId channel);
+
+/** Set PWM channel parameters
+ * 
+ * @param[in]  channel  PWM channel (FuriHalPwmOutputId)
+ * @param[in]  freq  Frequency in Hz
+ * @param[in]  duty  Duty cycle value in %
+*/
+void furi_hal_pwm_set_params(FuriHalPwmOutputId channel, uint32_t freq, uint8_t duty);
+
+/** Is PWM channel running?
+ * 
+ * @param[in]  channel  PWM channel (FuriHalPwmOutputId)
+ * @return bool - true if running
+*/
+bool furi_hal_pwm_is_running(FuriHalPwmOutputId channel);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_region_i.h ===
+
+#pragma once
+
+#include <stdint.h>
+
+bool _furi_hal_region_is_frequency_allowed(uint32_t frequency);
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_resources.h ===
+
+#pragma once
+
+#include <furi.h>
+#include <furi_hal_adc.h>
+#include <furi_hal_pwm.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Input Related Constants */
+#define INPUT_DEBOUNCE_TICKS 4
+
+/* Input Keys */
+typedef enum {
+    InputKeyUp,
+    InputKeyDown,
+    InputKeyRight,
+    InputKeyLeft,
+    InputKeyOk,
+    InputKeyBack,
+    InputKeyMAX, /**< Special value */
+} InputKey;
+
+/* Light */
+typedef enum {
+    LightRed = (1 << 0),
+    LightGreen = (1 << 1),
+    LightBlue = (1 << 2),
+    LightBacklight = (1 << 3),
+} Light;
+
+typedef struct {
+    const GpioPin* gpio;
+    const InputKey key;
+    const bool inverted;
+    const char* name;
+} InputPin;
+
+typedef struct {
+    const GpioPin* pin;
+    const char* name;
+    const FuriHalAdcChannel channel;
+    const FuriHalPwmOutputId pwm_output;
+    const uint8_t number;
+    const bool debug;
+} GpioPinRecord;
+
+extern const InputPin input_pins[];
+extern const size_t input_pins_count;
+
+extern const GpioPinRecord gpio_pins[];
+extern const size_t gpio_pins_count;
+
+extern const GpioPin gpio_swdio;
+extern const GpioPin gpio_swclk;
+
+extern const GpioPin gpio_vibro;
+extern const GpioPin gpio_ibutton;
+
+extern const GpioPin gpio_cc1101_g0;
+extern const GpioPin gpio_rf_sw_0;
+
+extern const GpioPin gpio_subghz_cs;
+extern const GpioPin gpio_display_cs;
+extern const GpioPin gpio_display_rst_n;
+extern const GpioPin gpio_display_di;
+extern const GpioPin gpio_sdcard_cs;
+extern const GpioPin gpio_sdcard_cd;
+extern const GpioPin gpio_nfc_cs;
+
+extern const GpioPin gpio_button_up;
+extern const GpioPin gpio_button_down;
+extern const GpioPin gpio_button_right;
+extern const GpioPin gpio_button_left;
+extern const GpioPin gpio_button_ok;
+extern const GpioPin gpio_button_back;
+
+extern const GpioPin gpio_spi_d_miso;
+extern const GpioPin gpio_spi_d_mosi;
+extern const GpioPin gpio_spi_d_sck;
+extern const GpioPin gpio_spi_r_miso;
+extern const GpioPin gpio_spi_r_mosi;
+extern const GpioPin gpio_spi_r_sck;
+
+extern const GpioPin gpio_ext_pc0;
+extern const GpioPin gpio_ext_pc1;
+extern const GpioPin gpio_ext_pc3;
+extern const GpioPin gpio_ext_pb2;
+extern const GpioPin gpio_ext_pb3;
+extern const GpioPin gpio_ext_pa4;
+extern const GpioPin gpio_ext_pa6;
+extern const GpioPin gpio_ext_pa7;
+
+extern const GpioPin gpio_nfc_irq_rfid_pull;
+extern const GpioPin gpio_rfid_carrier_out;
+extern const GpioPin gpio_rfid_data_in;
+extern const GpioPin gpio_rfid_carrier;
+
+extern const GpioPin gpio_infrared_rx;
+extern const GpioPin gpio_infrared_tx;
+
+extern const GpioPin gpio_usart_tx;
+extern const GpioPin gpio_usart_rx;
+extern const GpioPin gpio_i2c_power_sda;
+extern const GpioPin gpio_i2c_power_scl;
+
+extern const GpioPin gpio_speaker;
+
+extern const GpioPin gpio_periph_power;
+
+extern const GpioPin gpio_usb_dm;
+extern const GpioPin gpio_usb_dp;
+
+#define BUTTON_BACK_GPIO_Port  GPIOC
+#define BUTTON_BACK_Pin        LL_GPIO_PIN_13
+#define BUTTON_DOWN_GPIO_Port  GPIOC
+#define BUTTON_DOWN_Pin        LL_GPIO_PIN_6
+#define BUTTON_LEFT_GPIO_Port  GPIOB
+#define BUTTON_LEFT_Pin        LL_GPIO_PIN_11
+#define BUTTON_OK_GPIO_Port    GPIOH
+#define BUTTON_OK_Pin          LL_GPIO_PIN_3
+#define BUTTON_RIGHT_GPIO_Port GPIOB
+#define BUTTON_RIGHT_Pin       LL_GPIO_PIN_12
+#define BUTTON_UP_GPIO_Port    GPIOB
+#define BUTTON_UP_Pin          LL_GPIO_PIN_10
+
+#define CC1101_CS_GPIO_Port GPIOD
+#define CC1101_CS_Pin       LL_GPIO_PIN_0
+#define CC1101_G0_GPIO_Port GPIOA
+#define CC1101_G0_Pin       LL_GPIO_PIN_1
+
+#define DISPLAY_CS_GPIO_Port  GPIOC
+#define DISPLAY_CS_Pin        LL_GPIO_PIN_11
+#define DISPLAY_DI_GPIO_Port  GPIOB
+#define DISPLAY_DI_Pin        LL_GPIO_PIN_1
+#define DISPLAY_RST_GPIO_Port GPIOB
+#define DISPLAY_RST_Pin       LL_GPIO_PIN_0
+
+#define IR_RX_GPIO_Port GPIOA
+#define IR_RX_Pin       LL_GPIO_PIN_0
+#define IR_TX_GPIO_Port GPIOB
+#define IR_TX_Pin       LL_GPIO_PIN_9
+
+#define NFC_CS_GPIO_Port GPIOE
+#define NFC_CS_Pin       LL_GPIO_PIN_4
+
+#define PA4_GPIO_Port GPIOA
+#define PA4_Pin       LL_GPIO_PIN_4
+#define PA6_GPIO_Port GPIOA
+#define PA6_Pin       LL_GPIO_PIN_6
+#define PA7_GPIO_Port GPIOA
+#define PA7_Pin       LL_GPIO_PIN_7
+#define PB2_GPIO_Port GPIOB
+#define PB2_Pin       LL_GPIO_PIN_2
+#define PB3_GPIO_Port GPIOB
+#define PB3_Pin       LL_GPIO_PIN_3
+#define PC0_GPIO_Port GPIOC
+#define PC0_Pin       LL_GPIO_PIN_0
+#define PC1_GPIO_Port GPIOC
+#define PC1_Pin       LL_GPIO_PIN_1
+#define PC3_GPIO_Port GPIOC
+#define PC3_Pin       LL_GPIO_PIN_3
+
+#define QUARTZ_32MHZ_IN_GPIO_Port  GPIOC
+#define QUARTZ_32MHZ_IN_Pin        LL_GPIO_PIN_14
+#define QUARTZ_32MHZ_OUT_GPIO_Port GPIOC
+#define QUARTZ_32MHZ_OUT_Pin       LL_GPIO_PIN_15
+
+#define RFID_OUT_GPIO_Port     GPIOB
+#define RFID_OUT_Pin           LL_GPIO_PIN_13
+#define RFID_PULL_GPIO_Port    GPIOA
+#define RFID_PULL_Pin          LL_GPIO_PIN_2
+#define RFID_RF_IN_GPIO_Port   GPIOC
+#define RFID_RF_IN_Pin         LL_GPIO_PIN_5
+#define RFID_CARRIER_GPIO_Port GPIOA
+#define RFID_CARRIER_Pin       LL_GPIO_PIN_15
+
+#define RF_SW_0_GPIO_Port GPIOC
+#define RF_SW_0_Pin       LL_GPIO_PIN_4
+
+#define SD_CD_GPIO_Port GPIOC
+#define SD_CD_Pin       LL_GPIO_PIN_10
+#define SD_CS_GPIO_Port GPIOC
+#define SD_CS_Pin       LL_GPIO_PIN_12
+
+#define SPEAKER_GPIO_Port GPIOB
+#define SPEAKER_Pin       LL_GPIO_PIN_8
+
+#define VIBRO_GPIO_Port GPIOA
+#define VIBRO_Pin       LL_GPIO_PIN_8
+
+#define iBTN_GPIO_Port GPIOB
+#define iBTN_Pin       LL_GPIO_PIN_14
+
+#define USART1_TX_Pin  LL_GPIO_PIN_6
+#define USART1_TX_Port GPIOB
+#define USART1_RX_Pin  LL_GPIO_PIN_7
+#define USART1_RX_Port GPIOB
+
+#define SPI_D_MISO_GPIO_Port GPIOC
+#define SPI_D_MISO_Pin       LL_GPIO_PIN_2
+#define SPI_D_MOSI_GPIO_Port GPIOB
+#define SPI_D_MOSI_Pin       LL_GPIO_PIN_15
+#define SPI_D_SCK_GPIO_Port  GPIOD
+#define SPI_D_SCK_Pin        LL_GPIO_PIN_1
+
+#define SPI_R_MISO_GPIO_Port GPIOB
+#define SPI_R_MISO_Pin       LL_GPIO_PIN_4
+#define SPI_R_MOSI_GPIO_Port GPIOB
+#define SPI_R_MOSI_Pin       LL_GPIO_PIN_5
+#define SPI_R_SCK_GPIO_Port  GPIOA
+#define SPI_R_SCK_Pin        LL_GPIO_PIN_5
+
+#define NFC_IRQ_Pin       RFID_PULL_Pin
+#define NFC_IRQ_GPIO_Port RFID_PULL_GPIO_Port
+
+void furi_hal_resources_init_early(void);
+
+void furi_hal_resources_deinit_early(void);
+
+void furi_hal_resources_init(void);
+
+/** Get a corresponding external connector pin number for a gpio
+ *
+ * @param      gpio  GpioPin
+ *
+ * @return     pin number or -1 if gpio is not on the external connector
+ */
+int32_t furi_hal_resources_get_ext_pin_number(const GpioPin* gpio);
+
+/**
+ * @brief Finds a pin by its name
+ * 
+ * @param name case-insensitive pin name to look for (e.g. `"Pc3"`, `"pA4"`)
+ * 
+ * @return a pointer to the corresponding `GpioPinRecord` if such a pin exists,
+ *         `NULL` otherwise.
+ */
+const GpioPinRecord* furi_hal_resources_pin_by_name(const char* name);
+
+/**
+ * @brief Finds a pin by its number
+ * 
+ * @param name pin number to look for (e.g. `7`, `4`)
+ * 
+ * @return a pointer to the corresponding `GpioPinRecord` if such a pin exists,
+ *         `NULL` otherwise.
+ */
+const GpioPinRecord* furi_hal_resources_pin_by_number(uint8_t number);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_rfid.h ===
+
+/**
+ * @file furi_hal_rfid.h
+ * RFID HAL API
+ */
+
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Initialize RFID subsystem
+ */
+void furi_hal_rfid_init(void);
+
+/** Config rfid pins to reset state
+ */
+void furi_hal_rfid_pins_reset(void);
+
+/** Release rfid pull pin
+ */
+void furi_hal_rfid_pin_pull_release(void);
+
+/** Pulldown rfid pull pin
+ */
+void furi_hal_rfid_pin_pull_pulldown(void);
+
+/** Start read timer
+ * @param      freq        timer frequency
+ * @param      duty_cycle  timer duty cycle, 0.0-1.0
+ */
+void furi_hal_rfid_tim_read_start(float freq, float duty_cycle);
+
+/** Pause read timer, to be able to continue later
+ */
+void furi_hal_rfid_tim_read_pause(void);
+
+/** Continue read timer
+ */
+void furi_hal_rfid_tim_read_continue(void);
+
+/** Stop read timer
+ */
+void furi_hal_rfid_tim_read_stop(void);
+
+typedef void (*FuriHalRfidReadCaptureCallback)(bool level, uint32_t duration, void* context);
+
+void furi_hal_rfid_tim_read_capture_start(FuriHalRfidReadCaptureCallback callback, void* context);
+
+void furi_hal_rfid_tim_read_capture_stop(void);
+
+typedef void (*FuriHalRfidDMACallback)(bool half, void* context);
+
+void furi_hal_rfid_tim_emulate_dma_start(
+    uint32_t* duration,
+    uint32_t* pulse,
+    size_t length,
+    FuriHalRfidDMACallback callback,
+    void* context);
+
+void furi_hal_rfid_tim_emulate_dma_stop(void);
+
+/** Set read timer period
+ *
+ * @param      period  overall duration
+ */
+void furi_hal_rfid_set_read_period(uint32_t period);
+
+/** Set read timer pulse
+ *
+ * @param      pulse  duration of high level
+ */
+void furi_hal_rfid_set_read_pulse(uint32_t pulse);
+
+/** Start/Enable comparator */
+void furi_hal_rfid_comp_start(void);
+
+/** Stop/Disable comparator */
+void furi_hal_rfid_comp_stop(void);
+
+typedef void (*FuriHalRfidCompCallback)(bool level, void* context);
+
+/** Set comparator callback */
+void furi_hal_rfid_comp_set_callback(FuriHalRfidCompCallback callback, void* context);
+
+/** Start/Enable Field Presence detect */
+void furi_hal_rfid_field_detect_start(void);
+
+/** Stop/Disable Field Presence detect */
+void furi_hal_rfid_field_detect_stop(void);
+
+/** Check Field Presence
+ *
+ * @param[out] frequency  pointer to frequency value to be set if filed detected
+ *
+ * @return     true if field is present, false if not
+ */
+bool furi_hal_rfid_field_is_present(uint32_t* frequency);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_rtc.h ===
+
+/**
+ * @file furi_hal_rtc.h
+ * Furi Hal RTC API
+ */
+
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#include <datetime/datetime.h>
+#include <core/common_defines.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    FuriHalRtcFlagDebug = (1 << 0),
+    FuriHalRtcFlagStorageFormatInternal = (1 << 1),
+    FuriHalRtcFlagLock = (1 << 2), // WITH PIN, on OFW also for keypad (removes option to do both)
+    FuriHalRtcFlagC2Update = (1 << 3),
+    FuriHalRtcFlagHandOrient = (1 << 4),
+    FuriHalRtcFlagLegacySleep = (1 << 5),
+    FuriHalRtcFlagStealthMode = (1 << 6),
+    FuriHalRtcFlagRandomFilename = (1 << 7),
+} FuriHalRtcFlag;
+
+typedef enum {
+    FuriHalRtcBootModeNormal = 0, /**< Normal boot mode, default value */
+    FuriHalRtcBootModeDfu, /**< Boot to DFU (MCU bootloader by ST) */
+    FuriHalRtcBootModePreUpdate, /**< Boot to Update, pre update */
+    FuriHalRtcBootModeUpdate, /**< Boot to Update, main */
+    FuriHalRtcBootModePostUpdate, /**< Boot to Update, post update */
+} FuriHalRtcBootMode;
+
+typedef enum {
+    FuriHalRtcHeapTrackModeNone = 0, /**< Disable allocation tracking */
+    FuriHalRtcHeapTrackModeMain, /**< Enable allocation tracking for main application thread */
+    FuriHalRtcHeapTrackModeTree, /**< Enable allocation tracking for main and children application threads */
+    FuriHalRtcHeapTrackModeAll, /**< Enable allocation tracking for all threads */
+} FuriHalRtcHeapTrackMode;
+
+typedef enum {
+    FuriHalRtcRegisterHeader, /**< RTC structure header */
+    FuriHalRtcRegisterSystem, /**< Various system bits */
+    FuriHalRtcRegisterVersion, /**< Pointer to Version */
+    FuriHalRtcRegisterLfsFingerprint FURI_DEPRECATED, /**< LFS geometry fingerprint */
+    FuriHalRtcRegisterFaultData, /**< Pointer to last fault message */
+    FuriHalRtcRegisterPinFails, /**< Failed PINs count */
+    /* Index of FS directory entry corresponding to FW update to be applied */
+    FuriHalRtcRegisterUpdateFolderFSIndex,
+    FuriHalRtcRegisterPinValue, /**< Encoded value of the currently set PIN */
+
+    FuriHalRtcRegisterMAX, /**< Service value, do not use */
+} FuriHalRtcRegister;
+
+typedef enum {
+    FuriHalRtcLocaleUnitsMetric = 0x0, /**< Metric measurement units */
+    FuriHalRtcLocaleUnitsImperial = 0x1, /**< Imperial measurement units */
+} FuriHalRtcLocaleUnits;
+
+typedef enum {
+    FuriHalRtcLocaleTimeFormat24h = 0x0, /**< 24-hour format */
+    FuriHalRtcLocaleTimeFormat12h = 0x1, /**< 12-hour format */
+} FuriHalRtcLocaleTimeFormat;
+
+typedef enum {
+    FuriHalRtcLocaleDateFormatDMY = 0x0, /**< Day/Month/Year */
+    FuriHalRtcLocaleDateFormatMDY = 0x1, /**< Month/Day/Year */
+    FuriHalRtcLocaleDateFormatYMD = 0x2, /**< Year/Month/Day */
+} FuriHalRtcLocaleDateFormat;
+
+typedef enum {
+    FuriHalRtcLogDeviceUsart = 0x0, /**< Default: USART */
+    FuriHalRtcLogDeviceLpuart = 0x1, /**< Default: LPUART */
+    FuriHalRtcLogDeviceReserved = 0x2, /**< Reserved for future use */
+    FuriHalRtcLogDeviceNone = 0x3, /**< None, disable serial logging */
+} FuriHalRtcLogDevice;
+
+typedef enum {
+    FuriHalRtcLogBaudRate230400 = 0x0, /**< 230400 baud */
+    FuriHalRtcLogBaudRate9600 = 0x1, /**< 9600 baud */
+    FuriHalRtcLogBaudRate38400 = 0x2, /**< 38400 baud */
+    FuriHalRtcLogBaudRate57600 = 0x3, /**< 57600 baud */
+    FuriHalRtcLogBaudRate115200 = 0x4, /**< 115200 baud */
+    FuriHalRtcLogBaudRate460800 = 0x5, /**< 460800 baud */
+    FuriHalRtcLogBaudRate921600 = 0x6, /**< 921600 baud */
+    FuriHalRtcLogBaudRate1843200 = 0x7, /**< 1843200 baud */
+} FuriHalRtcLogBaudRate;
+
+/** Early initialization */
+void furi_hal_rtc_init_early(void);
+
+/** Early de-initialization */
+void furi_hal_rtc_deinit_early(void);
+
+/** Initialize RTC subsystem */
+void furi_hal_rtc_init(void);
+
+/** Prepare system for shutdown
+ *
+ * This function must be called before system sent to transport mode(power off).
+ * FlipperZero implementation configures and enables ALARM output on pin PC13
+ * (Back button). This allows the system to wake-up charger from transport mode.
+ */
+void furi_hal_rtc_prepare_for_shutdown(void);
+
+/** Force sync shadow registers */
+void furi_hal_rtc_sync_shadow(void);
+
+/** Reset ALL RTC registers content */
+void furi_hal_rtc_reset_registers(void);
+
+/** Get RTC register content
+ *
+ * @param[in]  reg   The register identifier
+ *
+ * @return     content of the register
+ */
+uint32_t furi_hal_rtc_get_register(FuriHalRtcRegister reg);
+
+/** Set register content
+ *
+ * @param[in]  reg    The register identifier
+ * @param[in]  value  The value to store into register
+ */
+void furi_hal_rtc_set_register(FuriHalRtcRegister reg, uint32_t value);
+
+/** Set Log Level value
+ *
+ * @param[in]  level  The level to store
+ */
+void furi_hal_rtc_set_log_level(uint8_t level);
+
+/** Get Log Level value
+ *
+ * @return     The Log Level value
+ */
+uint8_t furi_hal_rtc_get_log_level(void);
+
+/** Set logging device
+ *
+ * @param[in]  device  The device
+ */
+void furi_hal_rtc_set_log_device(FuriHalRtcLogDevice device);
+
+/** Get logging device
+ *
+ * @return     The furi hal rtc log device.
+ */
+FuriHalRtcLogDevice furi_hal_rtc_get_log_device(void);
+
+/** Set logging baud rate
+ *
+ * @param[in]  baud_rate  The baud rate
+ */
+void furi_hal_rtc_set_log_baud_rate(FuriHalRtcLogBaudRate baud_rate);
+
+/** Get logging baud rate
+ *
+ * @return     The furi hal rtc log baud rate.
+ */
+FuriHalRtcLogBaudRate furi_hal_rtc_get_log_baud_rate(void);
+
+/** Set RTC Flag
+ *
+ * @param[in]  flag  The flag to set
+ */
+void furi_hal_rtc_set_flag(FuriHalRtcFlag flag);
+
+/** Reset RTC Flag
+ *
+ * @param[in]  flag  The flag to reset
+ */
+void furi_hal_rtc_reset_flag(FuriHalRtcFlag flag);
+
+/** Check if RTC Flag is set
+ *
+ * @param[in]  flag  The flag to check
+ *
+ * @return     true if set
+ */
+bool furi_hal_rtc_is_flag_set(FuriHalRtcFlag flag);
+
+/** Set RTC boot mode
+ *
+ * @param[in]  mode  The mode to set
+ */
+void furi_hal_rtc_set_boot_mode(FuriHalRtcBootMode mode);
+
+/** Get RTC boot mode
+ *
+ * @return     The RTC boot mode.
+ */
+FuriHalRtcBootMode furi_hal_rtc_get_boot_mode(void);
+
+/** Set Heap Track mode
+ *
+ * @param[in]  mode  The mode to set
+ */
+void furi_hal_rtc_set_heap_track_mode(FuriHalRtcHeapTrackMode mode);
+
+/** Get RTC Heap Track mode
+ *
+ * @return     The RTC heap track mode.
+ */
+FuriHalRtcHeapTrackMode furi_hal_rtc_get_heap_track_mode(void);
+
+/** Set locale units
+ *
+ * @param[in]  value  The RTC Locale Units
+ */
+void furi_hal_rtc_set_locale_units(FuriHalRtcLocaleUnits value);
+
+/** Get RTC Locale Units
+ *
+ * @return     The RTC Locale Units.
+ */
+FuriHalRtcLocaleUnits furi_hal_rtc_get_locale_units(void);
+
+/** Set RTC Locale Time Format
+ *
+ * @param[in]  value  The RTC Locale Time Format
+ */
+void furi_hal_rtc_set_locale_timeformat(FuriHalRtcLocaleTimeFormat value);
+
+/** Get RTC Locale Time Format
+ *
+ * @return     The RTC Locale Time Format.
+ */
+FuriHalRtcLocaleTimeFormat furi_hal_rtc_get_locale_timeformat(void);
+
+/** Set RTC Locale Date Format
+ *
+ * @param[in]  value  The RTC Locale Date Format
+ */
+void furi_hal_rtc_set_locale_dateformat(FuriHalRtcLocaleDateFormat value);
+
+/** Get RTC Locale Date Format
+ *
+ * @return     The RTC Locale Date Format
+ */
+FuriHalRtcLocaleDateFormat furi_hal_rtc_get_locale_dateformat(void);
+
+/** Set RTC Date Time
+ *
+ * @param      datetime  The date time to set
+ */
+void furi_hal_rtc_set_datetime(DateTime* datetime);
+
+/** Get RTC Date Time
+ *
+ * @param      datetime  The datetime
+ */
+void furi_hal_rtc_get_datetime(DateTime* datetime);
+
+/** Set alarm
+ *
+ * @param[in]  datetime  The date time to set or NULL if time change is not needed
+ * @param[in]  enabled   Indicates if alarm must be enabled or disabled
+ */
+void furi_hal_rtc_set_alarm(const DateTime* datetime, bool enabled);
+
+/** Get alarm
+ *
+ * @param      datetime  Pointer to DateTime object
+ *
+ * @return     true if alarm was set, false otherwise
+ */
+bool furi_hal_rtc_get_alarm(DateTime* datetime);
+
+/** Furi HAL RTC alarm callback signature */
+typedef void (*FuriHalRtcAlarmCallback)(void* context);
+
+/** Set alarm callback
+ *
+ * Use it to subscribe to alarm trigger event. Setting alarm callback is
+ * independent from setting alarm.
+ *
+ * @warning    Normally this callback will be delivered from the ISR, however we may
+ *             deliver it while this function is called. This happens when
+ *             the alarm has already triggered, but there was no ISR set.
+ *
+ * @param[in]  callback  The callback
+ * @param      context   The context
+ */
+void furi_hal_rtc_set_alarm_callback(FuriHalRtcAlarmCallback callback, void* context);
+
+/** Set RTC Fault Data
+ *
+ * @param[in]  value  The value
+ */
+void furi_hal_rtc_set_fault_data(uint32_t value);
+
+/** Get RTC Fault Data
+ *
+ * @return     RTC Fault Data value
+ */
+uint32_t furi_hal_rtc_get_fault_data(void);
+
+/** Set PIN Fails count
+ *
+ * @param[in]  value  The PIN Fails count
+ */
+void furi_hal_rtc_set_pin_fails(uint32_t value);
+
+/** Get PIN Fails count
+ *
+ * @return     PIN Fails Count
+ */
+uint32_t furi_hal_rtc_get_pin_fails(void);
+
+/** Set encoded PIN value
+ *
+ * @param[in] value new PIN code value to be set
+ */
+void furi_hal_rtc_set_pin_value(uint32_t value);
+
+/** Get the current PIN encoded value
+ *
+ */
+uint32_t furi_hal_rtc_get_pin_value(void);
+
+/** Get UNIX Timestamp
+ *
+ * @return     Unix Timestamp in seconds from UNIX epoch start
+ */
+uint32_t furi_hal_rtc_get_timestamp(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_serial.h ===
+
+/**
+ * @file furi_hal_serial.h
+ * 
+ * Serial HAL API
+ */
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "furi_hal_serial_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Initialize Serial
+ *
+ * Configures GPIO, configures and enables transceiver. Default framing settings
+ * are used: 8 data bits, no parity, 1 stop bit. Override them with
+ * `furi_hal_serial_configure_framing`.
+ *
+ * @param      handle  Serial handle
+ * @param      baud    baud rate
+ */
+void furi_hal_serial_init(FuriHalSerialHandle* handle, uint32_t baud);
+
+/** De-initialize Serial
+ *
+ * Configures GPIO to analog, clears callback and callback context, disables
+ * hardware
+ *
+ * @param      handle  Serial handle
+ */
+void furi_hal_serial_deinit(FuriHalSerialHandle* handle);
+
+/** Suspend operation
+ *
+ * Suspend hardware, settings and callbacks are preserved
+ *
+ * @param      handle  Serial handle
+ */
+void furi_hal_serial_suspend(FuriHalSerialHandle* handle);
+
+/** Resume operation
+ *
+ * Resumes hardware from suspended state
+ *
+ * @param      handle  Serial handle
+ */
+void furi_hal_serial_resume(FuriHalSerialHandle* handle);
+
+/**
+ * @brief Determine whether a certain baud rate is supported
+ *
+ * @param      handle  Serial handle
+ * @param      baud baud rate to be checked
+ * @returns    true if baud rate is supported, false otherwise.
+ */
+bool furi_hal_serial_is_baud_rate_supported(FuriHalSerialHandle* handle, uint32_t baud);
+
+/** Changes baud rate
+ *
+ * @param      handle  Serial handle
+ * @param      baud    baud rate
+ */
+void furi_hal_serial_set_br(FuriHalSerialHandle* handle, uint32_t baud);
+
+/**
+ * @brief Configures framing of a serial interface
+ * 
+ * @param      handle     Serial handle
+ * @param      data_bits  Data bits
+ * @param      parity     Parity
+ * @param      stop_bits  Stop bits
+ */
+void furi_hal_serial_configure_framing(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialDataBits data_bits,
+    FuriHalSerialParity parity,
+    FuriHalSerialStopBits stop_bits);
+
+/** Transmits data in semi-blocking mode
+ *
+ * Fills transmission pipe with data, returns as soon as all bytes from buffer
+ * are in the pipe.
+ *
+ * Real transmission will be completed later. Use
+ * `furi_hal_serial_tx_wait_complete` to wait for completion if you need it.
+ *
+ * @param      handle       Serial handle
+ * @param      buffer       data
+ * @param      buffer_size  data size (in bytes)
+ */
+void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* buffer, size_t buffer_size);
+
+/** Wait until transmission is completed
+ *
+ * Ensures that all data has been sent.
+ *
+ * @param      handle  Serial handle
+ */
+void furi_hal_serial_tx_wait_complete(FuriHalSerialHandle* handle);
+
+/** Serial RX events */
+typedef enum {
+    FuriHalSerialRxEventData = (1 << 0), /**< Data: new data available */
+    FuriHalSerialRxEventIdle = (1 << 1), /**< Idle: bus idle detected */
+    FuriHalSerialRxEventFrameError = (1 << 2), /**< Framing Error: incorrect frame detected */
+    FuriHalSerialRxEventNoiseError = (1 << 3), /**< Noise Error: noise on the line detected */
+    FuriHalSerialRxEventOverrunError = (1 << 4), /**< Overrun Error: no space for received data */
+    FuriHalSerialRxEventParityError = (1 << 5), /**< Parity Error: incorrect parity bit received */
+} FuriHalSerialRxEvent;
+
+/** Receive callback
+ *
+ * @warning    Callback will be called in interrupt context, ensure thread
+ *             safety on your side.
+ * @param      handle   Serial handle
+ * @param      event    FuriHalSerialRxEvent
+ * @param      context  Callback context provided earlier
+ */
+typedef void (*FuriHalSerialAsyncRxCallback)(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialRxEvent event,
+    void* context);
+
+/** Start and sets Serial Receive callback
+ *
+ * @warning    Callback will be called in interrupt context, ensure thread
+ *             safety on your side
+ *
+ * @param      handle         Serial handle
+ * @param      callback       callback pointer
+ * @param      context        callback context
+ * @param[in]  report_errors  report RX error
+ */
+void furi_hal_serial_async_rx_start(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialAsyncRxCallback callback,
+    void* context,
+    bool report_errors);
+
+/** Stop Serial Receive
+ *
+ * @param      handle    Serial handle
+ */
+void furi_hal_serial_async_rx_stop(FuriHalSerialHandle* handle);
+
+/** Check if there is data available for reading
+ *
+ * @warning    This function must be called only from the callback
+ *             FuriHalSerialAsyncRxCallback
+ *
+ * @param      handle    Serial handle
+ * @return     true if data is available for reading, false otherwise
+ */
+bool furi_hal_serial_async_rx_available(FuriHalSerialHandle* handle);
+
+/** Get data Serial receive
+ *
+ * @warning    This function must be called only from the callback
+ *             FuriHalSerialAsyncRxCallback
+ *
+ * @param      handle  Serial handle
+ *
+ * @return     data
+ */
+uint8_t furi_hal_serial_async_rx(FuriHalSerialHandle* handle);
+
+/* DMA based Serial API */
+
+#define FURI_HAL_SERIAL_DMA_BUFFER_SIZE (256u)
+
+/** Receive DMA callback
+ *
+ * @warning    DMA Callback will be called in interrupt context, ensure thread
+ *             safety on your side.
+ *
+ * @param      handle    Serial handle
+ * @param      event     FuriHalSerialDmaRxEvent
+ * @param      data_len  Received data
+ * @param      context   Callback context provided earlier
+ */
+typedef void (*FuriHalSerialDmaRxCallback)(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialRxEvent event,
+    size_t data_len,
+    void* context);
+
+/**
+ * @brief Enable an input/output direction
+ *
+ * Takes over the respective pin by reconfiguring it to
+ * the appropriate alternative function.
+ *
+ * @param     handle        Serial handle
+ * @param     direction     Direction to enable
+ */
+void furi_hal_serial_enable_direction(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialDirection direction);
+
+/**
+ * @brief Disable an input/output direction
+ *
+ * Releases the respective pin by reconfiguring it to
+ * initial state, making possible its use for other purposes.
+ *
+ * @param     handle        Serial handle
+ * @param     direction     Direction to disable
+ */
+void furi_hal_serial_disable_direction(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialDirection direction);
+
+/**
+ * @brief Get the GPIO pin associated with a serial
+ *
+ * @param     handle        Serial handle
+ * @param     direction     Direction to query
+ * @returns   pointer to the respective pin instance
+ */
+const GpioPin*
+    furi_hal_serial_get_gpio_pin(FuriHalSerialHandle* handle, FuriHalSerialDirection direction);
+
+/** Start and sets Serial event callback receive DMA
+ *
+ * @param      handle         Serial handle
+ * @param      callback       callback pointer
+ * @param      context        callback context
+ * @param[in]  report_errors  report RX error
+ */
+void furi_hal_serial_dma_rx_start(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialDmaRxCallback callback,
+    void* context,
+    bool report_errors);
+
+/** Stop Serial receive DMA
+ *
+ * @param      handle  Serial handle
+ */
+void furi_hal_serial_dma_rx_stop(FuriHalSerialHandle* handle);
+
+/** Get data Serial receive DMA
+ *
+ * @warning    This function must be called only from the callback
+ *             FuriHalSerialDmaRxCallback
+ *
+ * @param      handle  Serial handle
+ * @param      data    pointer to data buffer
+ * @param      len     get data size (in bytes)
+ *
+ * @return     size actual data receive (in bytes)
+ */
+size_t furi_hal_serial_dma_rx(FuriHalSerialHandle* handle, uint8_t* data, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_serial_control.h ===
+
+#pragma once
+
+#include "furi_hal_serial_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Initialize Serial Control */
+void furi_hal_serial_control_init(void);
+
+/** De-Initialize Serial Control */
+void furi_hal_serial_control_deinit(void);
+
+/** Suspend All Serial Interfaces
+ *
+ * @warning    this is internal method, can only be used in suppress tick
+ *             callback
+ */
+void furi_hal_serial_control_suspend(void);
+
+/** Resume All Serial Interfaces
+ *
+ * @warning    this is internal method, can only be used in suppress tick
+ *             callback
+ */
+void furi_hal_serial_control_resume(void);
+
+/** Acquire Serial Interface Handler
+ *
+ * @param[in]  serial_id  The serial transceiver identifier
+ *
+ * @return     The Serial Interface Handle or null if interfaces is in use
+ */
+FuriHalSerialHandle* furi_hal_serial_control_acquire(FuriHalSerialId serial_id);
+
+/** Release Serial Interface Handler
+ *
+ * @param      handle  The handle
+ */
+void furi_hal_serial_control_release(FuriHalSerialHandle* handle);
+
+/** Acquire Serial Interface Handler
+ *
+ * @param[in]  serial_id  The serial transceiver identifier
+ *
+ * @return     true if handle is acquired by someone
+ */
+bool furi_hal_serial_control_is_busy(FuriHalSerialId serial_id);
+
+/** Acquire Serial Interface Handler
+ *
+ * @param[in]  serial_id  The serial transceiver identifier. Use FuriHalSerialIdMax to disable logging.
+ * @param[in]  baud_rate  The baud rate
+ *
+ * @return     The Serial Interface Handle or null if interfaces is in use
+ */
+void furi_hal_serial_control_set_logging_config(FuriHalSerialId serial_id, uint32_t baud_rate);
+
+/**
+ * @brief Expansion module detection callback type.
+ *
+ * @param[in,out] context Pointer to the user-defined context object.
+ */
+typedef void (*FuriHalSerialControlExpansionCallback)(void* context);
+
+/**
+ * @brief Enable expansion module detection for a given serial interface.
+ *
+ * Passing NULL as the callback parameter disables external module detection.
+ *
+ * @param[in] serial_id Identifier of the serial interface to be used.
+ * @param[in] callback Pointer to the callback function to be called upon module detection.
+ * @param[in,out] context Pointer to the user-defined context object. Will be passed to the callback function.
+ */
+void furi_hal_serial_control_set_expansion_callback(
+    FuriHalSerialId serial_id,
+    FuriHalSerialControlExpansionCallback callback,
+    void* context);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_serial_types.h ===
+
+#pragma once
+
+#include <furi.h>
+
+/**
+ * UART channels
+ */
+typedef enum {
+    FuriHalSerialIdUsart,
+    FuriHalSerialIdLpuart,
+
+    FuriHalSerialIdMax,
+} FuriHalSerialId;
+
+typedef enum {
+    FuriHalSerialDirectionTx,
+    FuriHalSerialDirectionRx,
+
+    FuriHalSerialDirectionMax,
+} FuriHalSerialDirection;
+
+/**
+ * @brief Actual data bits, i.e. not including start/stop and parity bits
+ * @note 6 data bits are only permitted when parity is enabled
+ * @note 9 data bits are only permitted when parity is disabled
+ */
+typedef enum {
+    FuriHalSerialDataBits6,
+    FuriHalSerialDataBits7,
+    FuriHalSerialDataBits8,
+    FuriHalSerialDataBits9,
+
+    FuriHalSerialDataBitsMax,
+} FuriHalSerialDataBits;
+
+typedef enum {
+    FuriHalSerialParityNone,
+    FuriHalSerialParityEven,
+    FuriHalSerialParityOdd,
+
+    FuriHalSerialParityMax,
+} FuriHalSerialParity;
+
+/**
+ * @brief Stop bit length
+ * @note LPUART only supports whole stop bit lengths (i.e. 1 and 2, but not 0.5 and 1.5)
+ */
+typedef enum {
+    FuriHalSerialStopBits0_5,
+    FuriHalSerialStopBits1,
+    FuriHalSerialStopBits1_5,
+    FuriHalSerialStopBits2,
+
+    FuriHalSerialStopBits2Max,
+} FuriHalSerialStopBits;
+
+typedef struct FuriHalSerialHandle FuriHalSerialHandle;
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_serial_types_i.h ===
+
+#pragma once
+
+#include <furi_hal_serial_types.h>
+
+struct FuriHalSerialHandle {
+    FuriHalSerialId id;
+    bool in_use;
+};
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_spi_config.h ===
+
+#pragma once
+
+#include <furi_hal_spi_types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Preset for ST25R916 */
+extern const LL_SPI_InitTypeDef furi_hal_spi_preset_2edge_low_8m;
+
+/** Preset for CC1101 */
+extern const LL_SPI_InitTypeDef furi_hal_spi_preset_1edge_low_8m;
+
+/** Preset for ST7567 (Display) */
+extern const LL_SPI_InitTypeDef furi_hal_spi_preset_1edge_low_4m;
+
+/** Preset for SdCard in fast mode */
+extern const LL_SPI_InitTypeDef furi_hal_spi_preset_1edge_low_16m;
+
+/** Preset for SdCard in slow mode */
+extern const LL_SPI_InitTypeDef furi_hal_spi_preset_1edge_low_2m;
+
+/** Furi Hal Spi Bus R (Radio: CC1101, Nfc, External)*/
+extern FuriHalSpiBus furi_hal_spi_bus_r;
+
+/** Furi Hal Spi Bus D (Display, SdCard) */
+extern FuriHalSpiBus furi_hal_spi_bus_d;
+
+/** CC1101 on `furi_hal_spi_bus_r` */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_subghz;
+
+/** ST25R3916 on `furi_hal_spi_bus_r` */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_nfc;
+
+/** External on `furi_hal_spi_bus_r`
+ * Preset: `furi_hal_spi_preset_1edge_low_2m`
+ * 
+ * miso: pa6
+ * mosi: pa7
+ * sck: pb3
+ * cs:  pa4 (software controlled)
+ * 
+ * @warning not initialized by default, call `furi_hal_spi_bus_handle_init` to initialize
+ * Bus pins are floating on inactive state, CS high after initialization
+ * 
+ */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_external;
+
+/** External on `furi_hal_spi_bus_r`
+ * Preset: `furi_hal_spi_preset_1edge_low_2m`
+ * 
+ * miso: pa6
+ * mosi: pa7
+ * sck: pb3
+ * cs:  pc3 (software controlled)
+ * 
+ * @warning not initialized by default, call `furi_hal_spi_bus_handle_init` to initialize
+ * Bus pins are floating on inactive state, CS high after initialization
+ * 
+ */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_external_extra;
+
+/** ST7567(Display) on `furi_hal_spi_bus_d` */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_display;
+
+/** SdCard in fast mode on `furi_hal_spi_bus_d` */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_sd_fast;
+
+/** SdCard in slow mode on `furi_hal_spi_bus_d` */
+extern const FuriHalSpiBusHandle furi_hal_spi_bus_handle_sd_slow;
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_spi_types.h ===
+
+#pragma once
+
+#include <stdint.h>
+#include <stddef.h>
+
+#include <furi_hal_gpio.h>
+
+#include <stm32wbxx_ll_spi.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct FuriHalSpiBus FuriHalSpiBus;
+typedef struct FuriHalSpiBusHandle FuriHalSpiBusHandle;
+
+/** FuriHal spi bus states */
+typedef enum {
+    FuriHalSpiBusEventInit, /**< Bus initialization event, called on system start */
+    FuriHalSpiBusEventDeinit, /**< Bus deinitialization event, called on system stop */
+    FuriHalSpiBusEventLock, /**< Bus lock event, called before activation */
+    FuriHalSpiBusEventUnlock, /**< Bus unlock event, called after deactivation */
+    FuriHalSpiBusEventActivate, /**< Bus activation event, called before handle activation */
+    FuriHalSpiBusEventDeactivate, /**< Bus deactivation event, called after handle deactivation  */
+} FuriHalSpiBusEvent;
+
+/** FuriHal spi bus event callback */
+typedef void (*FuriHalSpiBusEventCallback)(FuriHalSpiBus* bus, FuriHalSpiBusEvent event);
+
+/** FuriHal spi bus */
+struct FuriHalSpiBus {
+    SPI_TypeDef* spi;
+    FuriHalSpiBusEventCallback callback;
+    const FuriHalSpiBusHandle* current_handle;
+};
+
+/** FuriHal spi handle states */
+typedef enum {
+    FuriHalSpiBusHandleEventInit, /**< Handle init, called on system start, initialize gpio for idle state */
+    FuriHalSpiBusHandleEventDeinit, /**< Handle deinit, called on system stop, deinitialize gpio for default state */
+    FuriHalSpiBusHandleEventActivate, /**< Handle activate: connect gpio and apply bus config */
+    FuriHalSpiBusHandleEventDeactivate, /**< Handle deactivate: disconnect gpio and reset bus config */
+} FuriHalSpiBusHandleEvent;
+
+/** FuriHal spi handle event callback */
+typedef void (*FuriHalSpiBusHandleEventCallback)(
+    const FuriHalSpiBusHandle* handle,
+    FuriHalSpiBusHandleEvent event);
+
+/** FuriHal spi handle */
+struct FuriHalSpiBusHandle {
+    FuriHalSpiBus* bus;
+    FuriHalSpiBusHandleEventCallback callback;
+    const GpioPin* miso;
+    const GpioPin* mosi;
+    const GpioPin* sck;
+    const GpioPin* cs;
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_subghz.h ===
+
+/**
+ * @file furi_hal_subghz.h
+ * SubGhz HAL API
+ */
+
+#pragma once
+
+#include <lib/subghz/devices/preset.h>
+#include <lib/subghz/devices/tx.h>
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <toolbox/level_duration.h>
+#include <furi_hal_gpio.h>
+// #include <furi_hal_spi_types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Various subghz defines */
+#define FURI_HAL_SUBGHZ_ASYNC_TX_BUFFER_FULL (256u)
+#define FURI_HAL_SUBGHZ_ASYNC_TX_BUFFER_HALF (FURI_HAL_SUBGHZ_ASYNC_TX_BUFFER_FULL / 2)
+#define FURI_HAL_SUBGHZ_ASYNC_TX_GUARD_TIME  (999u)
+
+/** Switchable Radio Paths */
+typedef enum {
+    FuriHalSubGhzPathIsolate, /**< Isolate Radio from antenna */
+    FuriHalSubGhzPath433, /**< Center Frequency: 433MHz. Path 1: SW1RF1-SW2RF2, LCLCL */
+    FuriHalSubGhzPath315, /**< Center Frequency: 315MHz. Path 2: SW1RF2-SW2RF1, LCLCLCL */
+    FuriHalSubGhzPath868, /**< Center Frequency: 868MHz. Path 3: SW1RF3-SW2RF3, LCLC */
+} FuriHalSubGhzPath;
+
+/* Mirror RX/TX async modulation signal to specified pin
+ *
+ * @warning    Configures pin to output mode. Make sure it is not connected
+ *             directly to power or ground.
+ *
+ * @param[in]  pin   pointer to the gpio pin structure or NULL to disable
+ */
+void furi_hal_subghz_set_async_mirror_pin(const GpioPin* pin);
+
+/** Get data GPIO
+ *
+ * @return     pointer to the gpio pin structure
+ */
+const GpioPin* furi_hal_subghz_get_data_gpio(void);
+
+/** Initialize and switch to power save mode Used by internal API-HAL
+ * initialization routine Can be used to reinitialize device to safe state and
+ * send it to sleep
+ */
+void furi_hal_subghz_init(void);
+
+/** Send device to sleep mode
+ */
+void furi_hal_subghz_sleep(void);
+
+/** Dump info to stdout
+ */
+void furi_hal_subghz_dump_state(void);
+
+/** Load custom registers from preset
+ *
+ * @param      preset_data   registers to load
+ */
+void furi_hal_subghz_load_custom_preset(const uint8_t* preset_data);
+
+/** Load registers
+ *
+ * @param      data  Registers data
+ */
+void furi_hal_subghz_load_registers(const uint8_t* data);
+
+/** Load PATABLE
+ *
+ * @param      data  8 uint8_t values
+ */
+void furi_hal_subghz_load_patable(const uint8_t data[8]);
+
+/** Write packet to FIFO
+ *
+ * @param      data  bytes array
+ * @param      size  size
+ */
+void furi_hal_subghz_write_packet(const uint8_t* data, uint8_t size);
+
+/** Check if receive pipe is not empty
+ *
+ * @return     true if not empty
+ */
+bool furi_hal_subghz_rx_pipe_not_empty(void);
+
+/** Check if received data crc is valid
+ *
+ * @return     true if valid
+ */
+bool furi_hal_subghz_is_rx_data_crc_valid(void);
+
+/** Read packet from FIFO
+ *
+ * @param      data  pointer
+ * @param      size  size
+ */
+void furi_hal_subghz_read_packet(uint8_t* data, uint8_t* size);
+
+/** Flush rx FIFO buffer
+ */
+void furi_hal_subghz_flush_rx(void);
+
+/** Flush tx FIFO buffer
+ */
+void furi_hal_subghz_flush_tx(void);
+
+/** Shutdown Issue SPWD command
+ * @warning    registers content will be lost
+ */
+void furi_hal_subghz_shutdown(void);
+
+/** Reset Issue reset command
+ * @warning    registers content will be lost
+ */
+void furi_hal_subghz_reset(void);
+
+/** Switch to Idle
+ */
+void furi_hal_subghz_idle(void);
+
+/** Switch to Receive
+ */
+void furi_hal_subghz_rx(void);
+
+/** Switch to Transmit
+ *
+ * @return     true if the transfer is allowed by belonging to the region
+ */
+bool furi_hal_subghz_tx(void);
+
+/** Get RSSI value in dBm
+ *
+ * @return     RSSI value
+ */
+float furi_hal_subghz_get_rssi(void);
+
+/** Get LQI
+ *
+ * @return     LQI value
+ */
+uint8_t furi_hal_subghz_get_lqi(void);
+
+/** Check if frequency is in valid range
+ *
+ * @param      value  frequency in Hz
+ *
+ * @return     true if frequency is valid, otherwise false
+ */
+bool furi_hal_subghz_is_frequency_valid(uint32_t value);
+
+/** Set frequency and path This function automatically selects antenna matching
+ * network
+ *
+ * @param      value  frequency in Hz
+ *
+ * @return     real frequency in Hz
+ */
+uint32_t furi_hal_subghz_set_frequency_and_path(uint32_t value);
+
+/** Сheck if and why transmission is blocked on this frequency with current config
+ *
+ * @param      value  frequency in Hz
+ *
+ * @return     tx allowed or blocked enum
+ */
+SubGhzTx furi_hal_subghz_check_tx(uint32_t value);
+
+/** Сheck if transmission is allowed on this frequency with your current config
+ *
+ * @param      value  frequency in Hz
+ *
+ * @return     true if allowed
+ */
+bool furi_hal_subghz_is_tx_allowed(uint32_t value);
+
+/** Get the current rolling protocols counter ++/-- value
+ * @return    int32_t current value
+ */
+int32_t furi_hal_subghz_get_rolling_counter_mult(void);
+
+/** Set the current rolling protocols counter ++/-- value
+ * @param      mult int32_t = -1, -10, -50, 0, 1, 10, 50 
+ */
+void furi_hal_subghz_set_rolling_counter_mult(int32_t mult);
+
+/** Set frequency
+ *
+ * @param      value  frequency in Hz
+ *
+ * @return     real frequency in Hz
+ */
+uint32_t furi_hal_subghz_set_frequency(uint32_t value);
+
+/** Set path
+ *
+ * @param      path  path to use
+ */
+void furi_hal_subghz_set_path(FuriHalSubGhzPath path);
+
+/* High Level API */
+
+/** Signal Timings Capture callback */
+typedef void (*FuriHalSubGhzCaptureCallback)(bool level, uint32_t duration, void* context);
+
+/** Enable signal timings capture Initializes GPIO and TIM2 for timings capture
+ *
+ * @param      callback  FuriHalSubGhzCaptureCallback
+ * @param      context   callback context
+ */
+void furi_hal_subghz_start_async_rx(FuriHalSubGhzCaptureCallback callback, void* context);
+
+/** Disable signal timings capture Resets GPIO and TIM2
+ */
+void furi_hal_subghz_stop_async_rx(void);
+
+/** Async TX callback type
+ * @param      context  callback context
+ * @return     LevelDuration
+ */
+typedef LevelDuration (*FuriHalSubGhzAsyncTxCallback)(void* context);
+
+/** Start async TX Initializes GPIO, TIM2 and DMA1 for signal output
+ *
+ * @param      callback  FuriHalSubGhzAsyncTxCallback
+ * @param      context   callback context
+ *
+ * @return     true if the transfer is allowed by belonging to the region
+ */
+bool furi_hal_subghz_start_async_tx(FuriHalSubGhzAsyncTxCallback callback, void* context);
+
+/** Wait for async transmission to complete
+ *
+ * @return     true if TX complete
+ */
+bool furi_hal_subghz_is_async_tx_complete(void);
+
+/** Stop async transmission and cleanup resources Resets GPIO, TIM2, and DMA1
+ */
+void furi_hal_subghz_stop_async_tx(void);
+
+// External CC1101 Ebytes power amplifier control is now enabled by default
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_subghz_i.h ===
+
+#pragma once
+
+void furi_hal_subghz_set_extended_range(bool enabled);
+
+bool furi_hal_subghz_get_extended_range(void);
+
+void furi_hal_subghz_set_bypass_region(bool enabled);
+
+bool furi_hal_subghz_get_bypass_region(void);
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_target_hw.h ===
+
+#pragma once
+
+#include <furi_hal_subghz.h>
+#include <furi_hal_ibutton.h>
+#include <furi_hal_rfid.h>
+#include <furi_hal_nfc.h>
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_usb_cdc.h ===
+
+#pragma once
+
+#include <stdint.h>
+#include "usb_cdc.h"
+
+#define CDC_DATA_SZ 64
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    CdcStateDisconnected,
+    CdcStateConnected,
+} CdcState;
+
+typedef enum {
+    CdcCtrlLineDTR = (1 << 0),
+    CdcCtrlLineRTS = (1 << 1),
+} CdcCtrlLine;
+
+typedef struct {
+    void (*tx_ep_callback)(void* context);
+    void (*rx_ep_callback)(void* context);
+    void (*state_callback)(void* context, CdcState state);
+    void (*ctrl_line_callback)(void* context, CdcCtrlLine ctrl_lines);
+    void (*config_callback)(void* context, struct usb_cdc_line_coding* config);
+} CdcCallbacks;
+
+void furi_hal_cdc_set_callbacks(uint8_t if_num, CdcCallbacks* cb, void* context);
+
+struct usb_cdc_line_coding* furi_hal_cdc_get_port_settings(uint8_t if_num);
+
+uint8_t furi_hal_cdc_get_ctrl_line_state(uint8_t if_num);
+
+void furi_hal_cdc_send(uint8_t if_num, uint8_t* buf, uint16_t len);
+
+int32_t furi_hal_cdc_receive(uint8_t if_num, uint8_t* buf, uint16_t max_len);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\furi-hal-headers\furi_hal_usb_i.h ===
+
+#pragma once
+
+#include "usb.h"
+
+#define USB_EP0_SIZE 8
+
+/* String descriptors */
+enum UsbDevDescStr {
+    UsbDevLang = 0,
+    UsbDevManuf = 1,
+    UsbDevProduct = 2,
+    UsbDevSerial = 3,
+};

@@ -119,3 +119,36 @@ Each decision is numbered, dated, framed as "we picked A over B because..." and 
 3. Date format: YYYY-MM-DD
 4. Always cite a captured-in source (decision doc or commit hash)
 5. Never delete old decisions; they're history
+
+
+### 013 — CFC architecture: Path A (FAP + AppDataExchange), Path B (.fal) ruled out
+**Date:** 2026-05-27 (Day 9)
+**Status:** ACTIVE — Phase 1 spec v5 SHIPPABLE
+**Pick:** Single `.fap` (FlipperAppType.EXTERNAL) using `RpcAppEventTypeDataExchange` for all host↔device communication. CFC-layer 16-byte frame header carrying msgpack-encoded payloads. Max 884 bytes usable payload per RPC envelope.
+**Alternative considered:** Path B — out-of-tree `.fal` JS modules. Definitively ruled out by NotebookLM Q4: the CompositeApiResolver only exposes mJS-engine helpers from `app_api_table_i.h`. Hardware functions are absent from both the JS app's private table and the global firmware API table. Zero out-of-tree `.fal` modules exist in 800MB of community FAPs (recon Finding G).
+**Reasoning:** Path A is the documented intended pattern in Momentum/OFW/Unleashed firmware. `rpc_app.h` is identical across all three firmwares (recon Finding D). Official Python bindings already expose `rpc_app_data_exchange_send/recv` (recon Finding E). qFlipper documents the host-side FIFO queue + complete-response timeout pattern (NotebookLM Q6). Spec went through 4 adversarial review passes via Sherpa.
+**Captured in:** `docs/decisions/DAY8_FAP_PHASE1_SPEC.md` (v5)
+
+### 014 — Wire protocol: 16-byte CFC frame header, msgpack payload, 8KB transaction cap
+**Date:** 2026-05-27 (Day 9)
+**Status:** ACTIVE — Phase 1 spec v5
+**Pick:** Fixed 16-byte header per frame (magic + version + op_code + transaction_id + fragment_index + fragment_total + payload_length). Payload after header is msgpack-encoded. Max payload_length per transaction: 8192 bytes (8KB). Single-fragment outbound in Phase 2; multi-fragment inbound assembling required for §12.1 stress tests.
+**Alternative considered:** (a) Protobuf payloads — rejected for high schema-evolution friction; (b) JSON — rejected for ~30% encoding overhead; (c) 64KB transaction cap — rejected after adversarial review found it would OOM Flipper's ~128KB heap.
+**Reasoning:** msgpack is binary, schemaless, has small C and Python libraries. The 8KB cap leaves heap headroom. Per-frame data limits (884 bytes) prevent buffer overflows. ASSEMBLING-state 5-second timer prevents dropped-cable scenarios from bricking the FAP.
+**Captured in:** `docs/decisions/DAY8_FAP_PHASE1_SPEC.md` §4 (v5)
+
+### 015 — Sherpa adversarial review made part of pre-cook hygiene
+**Date:** 2026-05-27 (Day 9)
+**Status:** ACTIVE
+**Pick:** Any multi-session implementation spec runs through Sherpa's `adversarial_review.ps1` (Grok 4.3 + DeepSeek V4 Pro + MiMo V2.5 Pro) before cook starts. Iterate spec until convergence (verdicts shift from "structural issues" to "empirically-dependent details").
+**Alternative considered:** (a) Single-pass review with one model — rejected, misses domain blind spots; (b) Skip review entirely — rejected, costs much more in failed cook time than $0.04 review.
+**Reasoning:** Phase 1 spec went through 4 iterations × 3 reviewers = 12 critique runs. v1 had a serious async/sync architectural mismatch that would have wasted a full Phase 2 session if missed. v2 had an ASSEMBLING-state timeout gap that would have bricked the device on first dropped cable. v3 had ambiguous error-code definitions. Each pass caught real issues that survived multiple human reviews. The pattern is: spec drafts CONVERGE rather than oscillate — after 4 passes, reviewers run out of structural issues and start hitting empirical questions that only live testing can answer.
+**Captured in:** This decision, plus the 4 review runs at `E:\Sherpa\working\reviews\DAY8_FAP_PHASE1_SPEC\`
+
+### 016 — Path B (.fal modules) abandoned for hardware-touching code
+**Date:** 2026-05-27 (Day 9)
+**Status:** ACTIVE
+**Pick:** No `.fal` modules in CFC v1+. If a future feature ever needs a JS-engine-only helper (e.g., pure-math utility), `.fal` remains viable for that narrow use case — but not for any code that touches RF, NFC, IR, GPIO, or storage.
+**Alternative considered:** Mixed-architecture (Path A for hardware, Path B for utility helpers). Rejected to keep CFC as a single deployable artifact.
+**Reasoning:** NotebookLM Q4 closed the door on hardware-touching `.fal`. The community's zero-in-the-wild `.fal` pattern confirms the architecture deliberately blocks this. Keeping the project Path-A-only simplifies build, deploy, debugging, and documentation.
+**Captured in:** `docs/decisions/DAY8_FAP_PHASE1_SPEC.md` §2.1 (v5)

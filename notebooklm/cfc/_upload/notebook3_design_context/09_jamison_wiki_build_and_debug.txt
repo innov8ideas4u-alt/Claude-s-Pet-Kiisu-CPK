@@ -1,0 +1,590 @@
+# Bundle: 09_jamison_wiki_build_and_debug.txt
+# 4 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: wide\jamison-wiki\UFBT.md ===
+
+# Overview
+uFBT us a cross-platform tool for building application for Flipper Zero. It is a lightweight version of FBT that is installed when you clone the entire firmware repo. uFBT requires you first install Python 3.8 or newer.
+
+# Installation
+You can find installation directions on the [official project](https://github.com/flipperdevices/flipperzero-ufbt?tab=readme-ov-file#installation) documentation.
+
+- Linux & macOS: python3 -m pip install --upgrade ufbt
+- Windows: py -m pip install --upgrade ufbt
+
+# Building
+- Run `ufbt` in the directory where your **application.fam** file is. This will compile the application and create a **dist** folder with the resulting FAP file, which you can copy onto the SD card.
+- Run `ufbt launch` in the directory where your **application.fam** file is. Be sure your Flipper Zero is connected with a USB cable that has data capabilities and that qFlipper and lab.flipper.net are NOT running. This will build, install and run the application on the Flipper Zero. If you look at the application.fam file, the `fap_category` will tell you which folder it was installed into.
+
+# Changing channel
+`ufbt update --channel=[dev|rc|release]` will change which release channel you are using. If your Flipper is running a different channel than uFBT you may see API compatibility errors.
+
+# Changing branches
+`ufbt update -b branchname` will change to the branch name. This is helpful if you want to change to a named branch. For example, `ufbt update -b 1.1.2-rc` will switch to using branch index https://update.flipperzero.one/builds/firmware/1.1.2-rc/ for the SDK definitions.
+
+# Switching target Firmware
+## Official firmware
+`ufbt update --index-url=https://update.flipperzero.one/firmware/directory.json`
+
+## Unleashed firmware
+`ufbt update --index-url=https://up.unleashedflip.com/directory.json`
+
+## Momentum firmware
+`ufbt update --index-url=https://up.momentum-fw.dev/firmware/directory.json`
+
+## RogueMaster firmware
+- UFBT is not supported. Please contain [RogueMaster](https://www.patreon.com/c/roguemaster/about) to add your application into the firmware.
+
+
+=== FILE: wide\jamison-wiki\Debugging.md ===
+
+# Video
+I have a [YouTube video](https://youtu.be/CLsLZO15S44) for debugging FURI_ASSERT failures on the Flipper Zero using ESP32.  This wiki page goes into even more detail on debugging.
+
+# Easy way (buy the wifi-devboard)
+You can purchase a [wifi-devboard](https://shop.flipperzero.one/collections/flipper-zero-accessories/products/wifi-devboard) from shop.flipperzero.one for $29 USD.  The devboard comes preinstalled with the BlackMagic firmware, which exposes the devboard as a WIFI access point and also a pair of serial ports for debugging the Flipper Zero.  Plug the board into the top of your Flipper and you are ready to go!
+
+# DIY (bring your own ESP32-S2)
+## Flash the software
+If you already have an ESP32-S2, you can use [FZ Marauder Flasher](https://github.com/SkeletonMan03/FZEasyMarauderFlash) to flash the Blackmagic firmware.  For Windows users there is a [second technique](https://github.com/UberGuidoZ/Flipper/tree/main/Wifi_DevBoard/FZ_Marauder_Flasher) available as well.
+
+If you are wanting something custom, you can [build your own firmware](https://github.com/flipperdevices/blackmagic-esp32-s2) and use idf.py to flash your ESP32.  The project seems fairly complex, but I haven't looked into it in detail yet.
+
+I haven't looked into other devices besides the ESP32-S2 for running [Blackmagic](https://black-magic.org/) to debug the Flipper Zero.
+
+
+## Connect the wires
+For Blackmagic to debug the Flipper Zero, there are 4 pins that are used.  Pin 9 (3V3) on the Flipper goes to 3v3 on the ESP32-S2 (this is optional if you are going to be plugging the board into your USB port, since it will get power from there).  Pin 10 (SWC) on the Flipper goes to GPIO1 on the ESP32-S2 (on my board this is marked "1").  Pin 11 (GND) on the Flipper goes to GND on the ESP32-S2 (on my board this is marked "G").  Pin 12 (SIO) on the Flipper goes to GPIO2 on the ESP32-S2 (on my board this is marked "2").
+
+# Connect dev box to the Flipper
+## WIFI
+If you are using Blackmagic WIFI, then it will expose an access point with an SSID named "blackmagic" and a password of "iamwitcher".  You can connect to the access point and then "blackmagic.local" should show up (at address [192.168.4.1](http://192.168.4.1)).  The debugger is running on port 2345.  Port 80 is a management UI where you can change your SSID/password and also switch from an AP to an STA.
+
+NOTE: Once you switch to an STA, I'm not clear how you would switch back to an AP, if the device failed to connect to the STA?
+
+## USB/Serial
+If you are using Blackmagic USB, then plug the USB cable into your computer and two serial ports should appear.  The first port is used for debugging.  (I think the second port may be for logging, but I haven't tried yet.)
+
+# Attaching a debugger
+## Confirm you can detect Blackmagic probe
+From the root of your Flipper firmware project (e.g. where you ```git clone --recursive https://github.com/flipperdevices/flipperzero-firmware```) you should have the **fbt** command.
+
+Run the following command to detect your blackmagic probe:
+```
+fbt get_blackmagic
+```
+
+## Enable Debugging on Flipper
+![Debug-on](https://github.com/jamisonderek/flipper-zero-tutorials/assets/7028096/a0ccdc48-6ccd-4023-9f6a-d8659309e25f)
+
+On your Flipper, go to Settings, then System, then make sure "Debug" is set to ON.
+
+
+## Debugging with gdb (from command prompt)
+If you want to debug with GDB you can use fbt to launch the blackmagic probe:
+```
+fbt blackmagic
+```
+
+## Debugging with Visual Studio Code
+### VS Code Prerequisites
+You should have already setup your environment for Visual Studio Code by running the command:
+```
+fbt vscode_dist
+```
+You only need to run the command once.
+
+### Edit launch.json file
+I make a few tweaks to the launch.json file that is found in the ".vscode" folder.  In the inputs[] section I add the following BLACKMAGIC-menu entry (above the existing BLACKMAGIC entry that is there):
+```
+        {
+            "id": "BLACKMAGIC-menu",
+            "type": "pickString",
+            "default": "tcp:192.168.4.1:2345",
+            "description": "Blackmagic GDB server address",
+            "options": [
+                "tcp:192.168.4.1:2345",
+                "\\\\.\\COM3",
+                "/dev/cu.usbmodemblackmagic1"
+            ]
+        },
+```
+The advantage of the BLACKMAGIC-menu is you are able to debug quicker since you don't have to go through the auto-detect process.  To use the menu, change the line: ```"gdbTarget": "${input:BLACKMAGIC}",``` to ```"gdbTarget"gdbTarget": "${input:BLACKMAGIC-menu}",```.
+
+**NOTE:** In the "BLACKMAGIC" section I also change the line ```"FBT_QUIET": 1``` to ```// "FBT_QUIET": 1``` or else for some reason my computer doesn't seem to attach to the debugger?  (Let me know if it fixes it for you too.)
+
+### Launch the debugger
+On the left side of Visual Studio you should have a Run and Debug icon (bug with an arrow) -- my key bindings this is CTRL+SHIFT+D.  In the attach dropdown choose "Attach FW (Blackmagic)".  Then click the green arrow (my key bindings this is F5) to start debugging.  If all goes well, the debugger should launch and you should be paused in the debugger (and the Flipper Zero should be frozen).  Also switch your View / Debug Console -- my key bindings this is CTRL+SHIFT+Y.
+
+# Debug a furi_assert failure
+Developers add ```furi_assert(_condition_);``` statements to help identify coding errors.  For example, a callback might do ```    furi_assert(context);``` to ensure that the context object is not null.  In debug builds, if the assertion is false then ```furi_crash(__FURI_ASSERT_MESSAGE_FLAG);``` will be invoked.  furi_assert is a #define so the code is not on the callstack, but the __furi_crash will be on the callstack (and the caller will be the code doing the assert).  In release builds, the furi_assert still evaluates the expression but the result is cast to a (void) -- it's not clear if the compiler optimizes away some of the checks?
+
+## VSCode
+To debug an application that is crashing with 'furi_assert', attach the debugger and then press the Continue button -- my key bindings this is F5.  The Flipper will be running and you should be able to reproduce the issue.  Once the assertion fails, the debugger should be at a breakpoint in the __furi_crash method.
+
+The call stack window should show the method that called furi_assert.  Clicking on that method should show the code and you should be able to inspect variables.
+
+## GDB
+To debug an application that is crashing with 'furi_assert', attach the debugger and then type "c" (for 'continue' and press enter).  The Flipper will be running and you should be able to reproduce the issue.  Once the assertion fails, the debugger should be at a breakpoint in the __furi_crash method.
+
+Type "bt" (for 'backtrace' and press enter).  You should then see all of the callstack.  Type "up" (for 'up to previous caller' and press enter).  Type "info locals" (to see the local variables and press enter).  Type "list" (to see the code and press enter).
+
+## Logging
+
+### MacOS
+
+1. connect Flipper Zero to your Mac via USB
+2. open a terminal window
+3. type in `ls /dev/cu.usbmodemflip*`  
+now your device with its unique name should show up `/dev/cu.usbmodemflip_UNIQUENAME`
+4. connect to your device with `screen /dev/cu.usbmodemflip_UNIQUENAME`
+5. now you should see the Flipper CLI welcome message
+6. with `help` you get a list of commands you can use
+7. use `log` to view the logs in real time, `Cltr+C` to get out of the logs
+8. to end your session, hit `Cltr+A`, release and then `k`. Confirm with `y`  
+(don't use `Cltr+C` to end the session, it will get you back to your terminal, but the screen session will still be open and you cannot use the connection anymore)
+9. to see a log statement from your own FAP, use `FURI_LOG_D("my_app_name", "My first log statment, nice!");` in your code. (include `furi.h`)
+
+### Windows
+
+TODO
+
+=== FILE: wide\jamison-wiki\Customize-Firmware.md ===
+
+# Introduction
+Most of the tutorials I have are about making applications, which can be compiled into a FAP file that you install on your firmware.  Some changes however, involve changing the code of the firmware itself -- for example the videos in [Flipper Zero - UX](https://www.youtube.com/playlist?list=PLM1cyTMe-PYJiK1cl3qGMSbd6Ssp3tOg4) playlist for customizing your Flipper's main menu.
+
+# Fork the firmware
+* The first step is to make sure you have a [github.com](https://github.com) account.
+* The second step is to decide [which firmware](https://github.com/UberGuidoZ/Flipper/tree/main/Firmware_Options) you want to fork.  You can click the "Main" link on UberGuidoZ page to be redirected to the repository for that firmware.
+* Next step is to fork the repository into your own GitHub.
+  * Near the top of the page, you should see a "Fork" option with a dropdown arrow.  **Click** the drop-down arrow.
+  * Click on "+ Create a new fork"
+  * You should see "Owner" with your name filled out.
+  * You should see "Repository name" with the name of the repository filled out.  You can change this name if you want.
+  * If you are okay with latest dev changes, check the "copy the dev branch only" option.  If you need other branches, like release candidates, then uncheck the box.
+  * Click the "Create Fork" button.
+
+# Clone the repository
+* Load your github.com account.
+* Click on Repositories (for example, https://github.com/jamisonderek?tab=repositories)
+* Choose the repository you just made.
+* Click on the green "Code" button.
+* Click on the clipboard icon, under Clone/HTTPS.
+* Either: Clone the repository in VS Code
+  * Open VSCode.
+  * Ctrl+Shift+P
+  * type: "Git: Clone (Recursive)"
+  * paste the URL from your clipboard and click Enter
+  * choose a destination 
+* Or: Clone the repository in a command line.  From a command window that is in the parent directory where you want to clone...
+  ``git clone --recursive`` _https-url-from-your-clipboard_
+
+# Configure project for VSCode
+* In VSCode, open the project you just created.
+* Right click on fbt.cmd and choose "Open in Integrated Terminal"
+* Type: ``./fbt vscode_dist``
+* Once that completes, close Visual Studio Code & reopen it.
+
+# Build the firmware
+* In VSCode, CTRL+SHIFT+B
+* Choose "[Debug] Build update bundle"
+* Once that completes...
+
+# Deploy firmware to Flipper Zero
+* Connect your Flipper
+* Be sure you close any apps that are connected to the Flipper (like serial port, https://lab.flipper.net/cli, qFlipper, etc.)
+* CTRL+SHIFT+B
+* Choose "[Debug] Flash (USB, with resources)"
+* Another method is to just go to your ``.\dist\f7-D\f7-update-local`` folder and copy those files into a folder on the Flipper Zero (I usually drag-and-drop in qFlipper).  You can then DOWN arrow on the Flipper, RIGHT arrow until you are in 'Browser', DOWN arrow to choose the folder on your Flipper, click OK on the "Update" app, choose Run in app, and then RIGHT to install.
+
+# Make your changes
+* Make whatever changes you want (be sure you are in the correct branch if you unselected "copy dev branch only" when you created the fork).
+* Follow the "Build the firmware" instructions
+* Follow the "Deploy firmware to Flipper Zero" instructions
+
+# Update your fork to have new fixes
+* Load your github.com account.
+* Click on Repositories (for example, https://github.com/jamisonderek?tab=repositories)
+* Choose the repository you made.
+* Click on the "Sync fork" button (it should be below the green "Code" button).
+* Hopefully it says "This branch is out of date"
+  * Click "Compare" if you want to understand the differences.
+  * Or click "Update branch" and hopefully it will automatically merge.
+* Follow the "Build the firmware" instructions
+* Follow the "Deploy firmware to Flipper Zero" instructions
+
+# Resolving conflicts
+* If you made changes to files that were also changed, you may have to resolve the conflicts so that the computer knows what to do.  Often it is less confusing to store off your changes somewhere, accept their change, and then add back your changes.  It all depends on how many changes you had & what the conflicts are.
+
+=== FILE: wide\jamison-wiki\Install-Firmware-and-Apps.md ===
+
+# Overview
+This page is mostly about how you can build & deploy applications to your Flipper Zero.  In this document, we will use the following steps:
+- Install prerequisites 
+- Clone firmware and deploy to Flipper
+- Find the app
+- Copy the app into our firmware's **applications_user** folder
+- Build and deploy the app
+
+About 80% of the applications work across all of the different firmware.  Some minor (or major) changes may be needed for the application to work on a different firmware than the one it was designed for.  If you encounter errors building the application for your firmware, you can [ask for help](https://discord.com/invite/NsjCvqwPAd) in my Discord server.
+
+Flipper applications are `FAP` files, which stands for `Flipper Application Package`. When a FAP file is created, it has a required API version.  This version should match the firmware version you are running on your Flipper (older or newer version may not work).  You can read more about FAP files in the [official documentation](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/documentation/AppsOnSDCard.md).
+
+#### CFW
+If you just want to install custom firmware (and not custom applications), a web Chrome based installer is the easiest method:
+  - [Official](https://lab.flipper.net/) choose "Install"
+  - [RogueMaster](https://github.com/RogueMaster/flipperzero-firmware-wPlugins/releases) choose "WEB INSTALLER"
+  - [Unleashed](https://github.com/DarkFlippers/unleashed-firmware/releases) choose "Version with Extra apps - Install via Web Updater"
+  - [Momentum](https://momentum-fw.dev/update) choose "Install"
+  - [Xtreme - no longer under development](https://flipper-xtre.me/update/) choose "Flash"
+
+You can also install applications from the Official apps hub. Open a Chrome based browser, connect your Flipper to your computer and load [https://lab.flipper.net/apps](https://lab.flipper.net/apps).  Click the `Install` button to install an app.  If you are on custom firmware, the application may not work (but following the directions below and building it yourself may work).
+
+
+# Techniques
+There are many techniques to accomplish the various tasks.  At the beginning of this document we will focus on using a command-line interface, but you can also accomplish these tasks using Visual Studio Code (which allows you to pick commands to run from a nice user interface, instead of memorizing command-line parameters).  There are also multiple tools, such as [uFBT](https://github.com/flipperdevices/flipperzero-ufbt) and [FBT](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/documentation/fbt.md).  At the beginning of this document, we will use the **FBT** instead of **uFBT** tool.
+
+# Prerequisites (Required apps)
+- **Required**: We use the Git command (and the Git tools with VS Code).  This is pre-installed in Kali.  If it is not already installed for your OS, you can download from [Git tools download](https://git-scm.com/downloads)
+- _Required for uFBT only_: Python 3.8 or newer is needed for installing uFBT. You can install from [Python download](https://www.python.org/downloads/)
+- _Optional_: Visual Studio Code is nice editor.  You can install from [VS Code download](https://code.visualstudio.com/Download)
+
+# Clone & Deploy firmware
+We need the SDK API version to match what we are running on our Flipper Zero. The easiest way to accomplish this is to recursively clone the firmware we are running on the Flipper.  Many people choose to run a custom firmware instead of the official firmware.  This will also update our Flipper firmware, so you can follow this step to switch to a different firmware.
+
+## Step 1: Open a command terminal.  
+  - In Kali/Ubuntu, this is called `Terminal Emulator` 
+  - In Windows, this is called `Command Prompt`.
+## Step 2: Change into whatever directory you want to put the files.
+  - In Kali/Ubuntu:
+    - First time: `mkdir repo` to make a **repo** folder. 
+    - Every time: `cd repo`
+  - In Windows:
+    - First time: `mkdir c:\repo` to make a **repo** folder.
+    - Every time: `cd c:\repo`
+## Step 3: Recursively clone the firmware you want to use.
+
+  Be sure that you installed `git tools` listed in the [prerequisites](#prerequisites-required-apps).  Adding a `--jobs 8` switch may make it run faster.
+  - Official firmware:
+    - `git clone --recursive https://github.com/flipperdevices/flipperzero-firmware.git`
+    - `cd flipperzero-firmware`
+  - Momentum firmware:
+    - `git clone --recursive https://github.com/Next-Flip/Momentum-Firmware momentum-firmware`
+    - `cd momentum`
+  - RogueMaster firmware:
+    - `git clone --recursive https://github.com/RogueMaster/flipperzero-firmware-wPlugins.git roguemaster-firmware`
+    - `cd roguemaster-firmware`
+  - Unleashed firmware:
+    - `git clone --recursive https://github.com/DarkFlippers/unleashed-firmware.git`
+    - `cd unleashed-firmware`
+  - Xtreme firmware: (no longer under development)
+    - `git clone --recursive https://github.com/Flipper-XFW/Xtreme-Firmware.git xtreme-firmware`
+    - `cd xtreme-firmware`
+  - SquachWare firmware: (no longer under development)
+    - `git clone --recursive https://github.com/skizzophrenic/SquachWare-CFW.git squach-firmware`
+    - `cd squach-firmware`
+## Step 4: Choose the branch
+  - Official:
+    - Release branch: (Stable release)
+      - `git checkout release`
+    - Release candidate branch: (Release being tested)
+      - `git checkout release-candidate`
+    - Dev branch: (Latest version, may be unstable)
+      - `git checkout dev`
+  - Momentum
+    - Dev branch: (Latest, may be unstable)
+      - `git checkout dev`
+    - Release: (see tags and choose highest version)
+  - RogueMaster: 420 (Latest version)
+    - `git checkout 420`
+  - Unleashed:
+    - Release branch: (Stable release)
+      - `git checkout release`
+    - Dev branch: (Latest, may be unstable)
+      - `git checkout dev`
+  - Xtreme
+    - Main branch: (Stable release)
+      - `git checkout main`
+    - Dev branch: (Latest, may be unstable)
+      - `git checkout dev`
+## Step 5 (Optional): Install VS Code support
+
+  The following command will update the `.vscode` folder so that it has all of the required files for VS Code.  If you have VS Code installed on your computer, I recommend doing this step, so that later if you choose to use VS Code you will already have the Flipper support files.
+  - Kali/Ubuntu: `./fbt vscode_dist`
+  - Windows: `fbt vscode_dist`
+
+## Step 6: Backup your files
+
+  It's always possible that you could lose data, so be sure to backup any files from the SD card that you care about (like captured subghz files, nfc files, etc.)  Some people do `Settings/Storage/Unmount SD Card` before ejecting the SD card, then they put it computer to copy the files.  Once they are done, they put the SD card back into the Flipper Zero.  NOTE: You can also use the mobile app to backup files or the qFlipper app to backup files, you can install from this Flipper Zero [download page](https://flipperzero.one/downloads).
+
+## Step 7: Build and deploy firmware
+
+Make sure your Flipper Zero is not running any applications (press Back putting until you are at the desktop).  Make sure your Flipper Zero is connected to your computer.  Make sure qFlipper and the CLI is not connected.
+
+- Kali/Ubuntu: `./fbt COMPACT=1 DEBUG=0 FORCE=1 flash_usb_full`
+- Windows: `fbt COMPACT=1 DEBUG=0 FORCE=1 flash_usb_full`
+
+Congratulations -- your Flipper is now running new firmware that you built!
+
+# Installing Applications
+
+Some people have pre-built FAP files that you can install on your Flipper.  The problem is often the SDK API version of the FAP does not match what you are running so the application will not work correctly.  I recommend instead that you download the source code and build your own FAP files, which you know will match the firmware on your Flipper Zero.
+
+## Step 1: Find the app
+
+Many people use flipc.org but in Jan/Feb of 2024 it seems to be `Under maintenance`.  We need to use a different way to discover apps.  Perhaps Google search for Flipper applications, or maybe someone posted a link to a project on a social network.  I find that RogueMaster firmware has a large majority of the applications, so I use them as a resource (even when I'm running a different firmware).  RogueMaster [Readme](https://github.com/RogueMaster/flipperzero-firmware-wPlugins/blob/420/ReadMe.md#games) file has links for many of the Games and Plugins.  Those links will take you to the projects, but you may need to hunt around until you find the actual project.  Xtreme firmware also has many applications, but they typically have fewer applications than RogueMaster.  
+
+The project folder you are looking for will have a text file named `application.fam`. If you look in that file, you will see a `name=` entry with the name of the application and a `fap_category=` with the name of the category where the application will be installed.
+
+About 80% of the applications will run on any firmware, but it's possible that some applications will call custom APIs (or newer serial APIs) that are only available on one or more custom firmware.  Some applications are not getting updated by their owner, but often RogueMaster will keep updating the application so that it still works.  For example, the `appid` entry in the `application.fam` file must be lowercase letters, numbers and underscores (and RogueMaster will fix the old application.fam file so that it works).  For this reason, I recommend looking at [RogueMaster/applications/external](https://github.com/RogueMaster/flipperzero-firmware-wPlugins/tree/420/applications/external) since these files have the modifications.  Some changes may be optimized for RogueMaster and not run on other firmwrae.  If the application doesn't work, I see if it is [available in Xtreme](https://github.com/Flipper-XFW/Xtreme-Apps) and try that version with my firmware.
+
+In this tutorial, we will use the **Flipper Zero Caesar Cipher application**, but you can use __any application__ you choose:
+
+- Google search for `Caesar cipher flipper zero` returned [https://github.com/panki27/caesar-cipher](https://github.com/panki27/caesar-cipher) as top hit.
+- We can find the app at [https://lab.flipper.net/apps](https://lab.flipper.net/apps) and it lists the Repository as [https://github.com/xMasterX/all-the-plugins/tree/dev/apps_source_code/caesarcipher](https://github.com/xMasterX/all-the-plugins/tree/dev/apps_source_code/caesarcipher)
+- RogueMaster README lists it as [Ceasar Cipher v1.1 (By panki27)](https://github.com/panki27/caesar-cipher)
+- RogueMaster has a copy at [https://github.com/RogueMaster/flipperzero-firmware-wPlugins/tree/420/applications/external/caesarcipher](https://github.com/RogueMaster/flipperzero-firmware-wPlugins/tree/420/applications/external/caesarcipher)
+- Xtreme has a copy at [https://github.com/Flipper-XFW/Xtreme-Apps/tree/dev/caesarcipher](https://github.com/Flipper-XFW/Xtreme-Apps/tree/dev/caesarcipher)
+
+## Step 2: Copy the app
+
+**NOTE**: If your firmware already has a copy of the application you want in applications\external, it is highly recommended you use that version instead of creating a duplicate project.  In that case, it is already installed on your Flipper & you are done.  The application.fam file will detail where to find it (see the next step for directions on how to read the application.fam file).
+
+- Copy the project's main folder (the folder you found in the previous step that contains the `application.fam` file) into a folder directly under the `applications_user` folder in your firmware.  You can name this folder whatever you want, in our case we will use `caesarcipher` as the name.  You will be using the folder name in the next step.
+
+In this case you should now have the following files in your firmware:
+- /flipperzero-firmware/applications_user/caesarcipher/application.fam
+- /flipperzero-firmware/applications_user/caesarcipher/caesar_cipher.c
+- /flipperzero-firmware/applications_user/caesarcipher/caesar_cipher_icon.png
+- /flipperzero-firmware/applications_user/caesarcipher/img/1.png
+- /flipperzero-firmware/applications_user/caesarcipher/img/2.png
+- /flipperzero-firmware/applications_user/caesarcipher/LICENSE
+- /flipperzero-firmware/applications_user/caesarcipher/README.md
+
+## Step 3: Deploy the app
+
+Make sure your Flipper Zero is not running any applications (press Back putting until you are at the desktop).  Make sure your Flipper Zero is connected to your computer.  Make sure qFlipper and the CLI is not connected.
+
+Your command terminal should be in the main firmware folder (the folder where the `fbt` file is).  In this next step we deploy and launch the application at the specified path.  In this example, `applications_user/caesarcipher` is where our application.fam file is located.  If you put your project in a different folder under applications_user, edit the command as needed.
+
+- Kali/Ubuntu: `./fbt COMPACT=1 DEBUG=0 launch APPSRC=applications_user/caesarcipher`
+- Windows: `fbt COMPACT=1 DEBUG=0 launch APPSRC=applications_user/caesarcipher`
+
+Congratulations -- your Flipper should now be running the application!  If you look at the `application.fam` file, you will see the `fap_category="Tools"` so it was installed on your Flipper under `Apps`, `Tools`.  The `name="Caesar Cipher"` so the displayed name is `Caesar Cipher`.
+
+## Step 4: Debugging deployment issues
+
+If Step 3 failed, there are a few different reasons that are possible.
+
+### Failed to find 
+
+```c
+[ERROR] Failed to find connected Flipper
+[ERROR] Failed to guess which port to use
+```
+
+This error typically happens because the Flipper Zero is not connected, or qFlipper or a serial monitor is running.  Close qFlipper, close any browsers that are communicating with Flipper, close any CLI that are communicating with Flipper.  Try the command again.
+
+### Loader is locked
+
+`[ERROR] Unexpected response: Loader is locked, please close the "Sub-GHz" first`
+
+This error typically happens because the Flipper Zero is running another application.  Be sure to press back button to get at the Desktop.  You can also try holding Left+Back to reboot the Flipper to ensure nothing is running.  Try the command again.
+
+### Invalid appid
+
+`fbt: warning: Failed parsing manifest 'application.fam' : Invalid appid 'Caesar_Cipher'. Must match regex 're.compile('^[a-z0-9_]+$')'`
+
+This error indicates the `appid=` in the `application.fam` file contains invalid characters (older versions of Flipper apps were allowed other characters like uppercase).  Edit the appid in the application.fam file to be all lowercase letters, numbers and underscores (you can choose any unique name) and then try the fbt command again.
+
+### Failed to resolve application
+
+`scons: *** Failed to resolve application for given APPSRC=applications_user/democipher`
+
+First, make sure you don't have any warnings above, like Invalid appid.  This error may indicate that the path you specified does not have an application.fam file (or it is invalid).  Be sure that you spelled the path correctly and that you copied the folder containing the application.fam file.
+
+### Multiple definition / first defined here
+
+`bin/ld: build/f7-firmware-C/.extapps/caesar_cipher/caesar_cipher.o: in function 'caesar_cipher_app':
+/home/kali/repo/flipperzero-firmware/applications_user/caesarcipher/caesar_cipher.c:101: multiple definition of 'caesar_cipher_app'; build/f7-firmware-C/.extapps/caesar_cipher/caesarcipher/caesar_cipher.o:/home/kali/repo/flipperzero-firmware/applications_user/caesarcipher/caesarcipher/caesar_cipher.c:101: first defined here`
+
+If you get an error similar to the above, it likely means you have two copied of the application.  
+
+Find the path in front of the line number, like:
+- `/home/kali/repo/flipperzero-firmware/applications_user/caesarcipher/caesar_cipher.c:101`
+
+And then the other path:
+- `/home/kali/repo/flipperzero-firmware/applications_user/caesarcipher/caesarcipher/caesar_cipher.c:101`
+
+You can see these two paths are different, in this case we accidentally have a `/applications_user/caesarcipher/caesarcipher` that is a duplicate folder.  Probably deleting the folder under `applications_user` and copying it from the original source is probably be best option to fix the issue.  It's also possible that the duplicate was because the application was already present in a folder under `/applications/external`.
+
+### No such file or directory
+
+`applications_user/clibridge/cli_control.c:6:10: fatal error: furi/core/thread_i.h: No such file or directory`
+
+An error with `No such file or directory` likely indicates that the firmware does not have the necessary files.  Make sure you copied all subdirectories of the project.  If you have, then it's possible that it's a file only available in newer/older firmware or in some custom firmware.  You can try to find a different copy of the files, and perhaps they will work with your firmware.
+
+### Implicit declaration of function
+
+`applications_user/ble_spam/scenes/config.c:44:5: error: implicit declaration of function 'variable_item_list_set_header'; did you mean 'variable_item_list_get_view'? [-Werror=implicit-function-declaration]`
+
+An error with `implicit declaration of function` likely indicates that the firmware does not have the necessary code.  Make sure you copied all subdirectories of the project.  If you have, then it's possible that it's a file only available in newer/older firmware or in some custom firmware. You can try to find a different copy of the files, and perhaps they will work with your firmware.
+
+### Undeclared here (not in a function)
+
+`applications_user/bad_kb/helpers/ducky_script.h:106:25: error: 'FURI_HAL_BT_ADV_NAME_LENGTH' undeclared here (not in a function); did you mean 'FURI_HAL_VERSION_NAME_LENGTH'?`
+
+An error with `undeclared here` likely indicates that the firmware does not have the necessary code.  Make sure you copied all subdirectories of the project.  If you have, then it's possible that it's a file only available in newer/older firmware or in some custom firmware. You can try to find a different copy of the files, and perhaps they will work with your firmware.
+
+### Wrong Entry_point
+
+`arm-none-eabi/bin/ld: --gc-sections requires a defined symbol root specified by -e or -u`
+
+This error indicates that the `entry_point=` specified in the application.fam file does not match the name of a method in any of your `*.c` files.  Make sure your .c files are also in the same folder as your application.fam file and that the code matches what is specified in the application.fam file.
+
+# Advanced Topics
+
+## Refresh firmware
+
+If it has been a while since you last did a [Clone and Deploy firmware](#clone--deploy-firmware), you can grab the latest version of the firmware.  
+
+### Step 1: Open a command terminal.  
+
+  - In Kali/Ubuntu, this is called `Terminal Emulator` 
+  - In Windows, this is called `Command Prompt`.
+
+### Step 2: Change into whatever directory you want to put the files (this is the folder you created before).
+
+  - In Kali/Ubuntu:
+    - `cd repo`
+  - In Windows:
+    - `cd c:\repo`
+
+### Step 3: Change into your firmware directory
+
+    - Official: `cd flipperzero-firmware`
+    - RogueMaster: `cd roguemaster-firmware`
+    - Unleashed: `cd unleashed-firmware`
+    - Xtreme: `cd xtreme-firmware`
+
+### Step 4: Pull the latest
+
+  - `git pull`
+
+### Step 5: Choose the branch
+
+  - Official:
+    - Release branch: (Stable release)
+      - `git checkout release`
+    - Release candidate branch: (Release being tested)
+      - `git checkout release-candidate`
+    - Dev branch: (Latest version, may be unstable)
+      - `git checkout dev`
+  - RogueMaster: 420 (Latest version)
+    - `git checkout 420`
+  - Unleashed:
+    - Release branch: (Stable release)
+      - `git checkout release`
+    - Dev branch: (Latest, may be unstable)
+      - `git checkout dev`
+  - Xtreme
+    - Main branch: (Stable release)
+      - `git checkout main`
+    - Dev branch: (Latest, may be unstable)
+      - `git checkout dev`
+
+### Step 6: Backup your files
+
+  It's always possible that you could lose data, so be sure to backup any files from the SD card that you care about (like captured subghz files, nfc files, etc.)  Some people do `Settings/Storage/Unmount SD Card` before ejecting the SD card, then they put it computer to copy the files.  Once they are done, they put the SD card back into the Flipper Zero.  NOTE: You can also use the mobile app to backup files or the qFlipper app to backup files, you can install from this Flipper Zero [download page](https://flipperzero.one/downloads).
+
+### Step 7: Build and deploy firmware
+
+Make sure your Flipper Zero is not running any applications (press Back putting until you are at the desktop).  Make sure your Flipper Zero is connected to your computer.  Make sure qFlipper and the CLI is not connected.
+
+- Kali/Ubuntu: `./fbt COMPACT=1 DEBUG=0 FORCE=1 flash_usb_full`
+- Windows: `fbt COMPACT=1 DEBUG=0 FORCE=1 flash_usb_full`
+
+Congratulations -- your Flipper is now running new firmware that you built!
+
+## VS Code
+
+You can use Visual Studio Code for Flipper Zero development.
+
+### Cloning firmware
+
+You can use Visual Studio Code to clone the github repo, instead of the command-line.
+
+- Step 1: Make sure you installed Git Tools, as described in [Prerequisites](#prerequisites-required-apps).
+- Step 2: In VSCode press Ctrl+Shift+P to bring up the command palette.
+- Step 3: Type the following `Git: Clone (Recursive)` then press enter.  Be sure it is *recursive*.
+- Step 4: Paste in the URL of the firmware that you want to clone, for example Xtreme is `https://github.com/Flipper-XFW/Xtreme-Firmware.git`.
+- Step 5: Choose a location to clone the files to.
+
+### Install VSCode tools
+
+- Step 1: In VSCode open your firmware project.
+- Step 2: If asked if you trust the authors, choose Yes.
+- Step 3: Right click on `fbt` and choose `Open in Integrated Terminal`.  A new command terminal should appear at the bottom right of the screen.
+- Step 4: Type `./fbt vscode_dist` in the Integrated Terminal and press enter.
+- Step 5: Close Visual Studio Code.
+
+### Setup Firmware
+
+Be sure you already ran the `./fbt vscode_dist` command after you cloned the firmware.  Reopen the firmware folder using Visual Studio Code.
+- Step 1: If prompted if you would like to install the recommended extensions, choose `Install`.
+- Step 2: Be sure the extensions `CMAKE` and `CMAKE TOOLS` are disabled for the workspace, otherwise Ctrl+Shift+B may not show the build options (and instead show things about `cmake`)!
+- Step 3: Click on the `Extensions` icon on the left side of the screen.
+- Step 4: Type `cmake` in the search box.
+- Step 5: Click on the `CMAKE` extension.
+- Step 6: If it has an `Install` button you are done.
+- Step 7: If it has a `Disable` button, click on the `Disable` button.
+
+### Choose branch
+
+- Step 1: Ctrl+Shift+P
+- Step 2: Type: `Git: Checkout to...`
+- Step 3: Choose the `firmware`
+- Step 4: Choose the `branch`, such as `/origin/dev`
+
+A faster way to change branches, is to click the branch name in the bottom left of the VS Code window.
+
+### Synchronize changes
+
+If it has been a while, this will get you the latest version of the code.
+
+- Step 1: Ctrl+Shift+P
+- Step 2: Type: `Git: Sync`
+- Step 3: Choose the `firmware`
+
+### Build and deploy firmware
+
+Make sure your Flipper Zero is not running any applications (press Back putting until you are at the desktop).  Make sure your Flipper Zero is connected to your computer.  Make sure qFlipper and the CLI is not connected.
+
+- Step 1: Connect your Flipper to the computer.
+- Step 2: Press `Ctrl+Shift+B` to bring up the build options.
+- Step 3: Choose `[Release] Flash (USB, with resources)`.
+- Step 4: The firmware and FAPs should get built.
+- Step 5: The firmware should get installed on the Flipper Zero.
+
+### Copy any applications into applications_user folder
+
+You can copy any programs you want to build into the applications_user folder but be sure they are not already part of your firmware (for example, many applications may already be in `applications/external`.)
+
+- Step 1: If the source is another Github repo, Ctrl+Shift+P, type `Git: Clone`, enter the URL of the repo, choose a folder to clone the project to.
+- Step 2: Copy the project (the folder containing the application.fam folder and it's subfolders) into your applications_user folder.
+
+NOTE: Instead of copy-and-paste files, you may want to make a junction; so that edits you make are also reflected in the project you pulled from.  This is only needed if you plan on contributing your changes back to the original application, or want to keep your changes under source control.  You can do an internet search (or ask chatgpt) how to make a junction for your operating system.
+
+  - In Windows from Admin command prompt in the applications_user folder I run a command similar to `mklink /D gpio_blink_pwm c:\repo\flipper-zero-tutorial\gpio\gpio_blink_pwm`
+
+### Build and deploy an application
+
+- Step 1: Connect your Flipper to the computer.
+- Step 2: In VSCode, make sure the Explorer window is open (`View`/`Explorer`).
+- Step 3: Open the file `./applications_user/caesarcipher/caesar_cipher.c` (or whichever application you want to build)
+- Step 4: Press `Ctrl+Shift+B` to bring up the build options.
+- Step 5: Choose `[Release] Launch App on Flipper`.
+- Step 6: The application should get built, the FAP installed on the Flipper Zero, and then the application should get launched.

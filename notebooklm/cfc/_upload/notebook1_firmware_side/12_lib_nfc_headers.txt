@@ -1,0 +1,1100 @@
+# Bundle: 12_lib_nfc_headers.txt
+# 7 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: tight\lib-nfc\nfc.h ===
+
+/**
+ * @file nfc.h
+ * @brief Transport layer Nfc library.
+ *
+ * The Nfc layer is responsible for setting the operating mode (poller or listener)
+ * and technology (ISO14443-3A/B, ISO15693, ...), data exchange between higher
+ * protocol-specific levels and underlying NFC hardware, as well as timings handling.
+ *
+ * In applications using the NFC protocol system there is no need to neiter explicitly
+ * create an Nfc instance nor call any of its functions, as it is all handled
+ * automatically under the hood.
+ *
+ * If the NFC protocol system is not suitable for the application's intended purpose
+ * or there is need of having direct access to the NFC transport layer, then an Nfc
+ * instance must be allocated and the below functions shall be used to implement
+ * the required logic.
+ */
+#pragma once
+
+#include <toolbox/bit_buffer.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Nfc opaque type definition.
+ */
+typedef struct Nfc Nfc;
+
+/**
+ * @brief Enumeration of possible Nfc event types.
+ *
+ * Not all technologies implement all events (this is due to hardware limitations).
+ */
+typedef enum {
+    NfcEventTypeUserAbort, /**< User code explicitly aborted the current operation. */
+    NfcEventTypeFieldOn, /**< Reader's field was detected by the NFC hardware. */
+    NfcEventTypeFieldOff, /**< Reader's field was lost. */
+    NfcEventTypeTxStart, /**< Data transmission has started. */
+    NfcEventTypeTxEnd, /**< Data transmission has ended. */
+    NfcEventTypeRxStart, /**< Data reception has started. */
+    NfcEventTypeRxEnd, /**< Data reception has ended. */
+
+    NfcEventTypeListenerActivated, /**< The listener has been activated by the reader. */
+    NfcEventTypePollerReady, /**< The card has been activated by the poller. */
+} NfcEventType;
+
+/**
+ * @brief Nfc event data structure.
+ */
+typedef struct {
+    BitBuffer* buffer; /**< Pointer to the received data buffer. */
+} NfcEventData;
+
+/**
+ * @brief Nfc event structure.
+ *
+ * Upon emission of an event, an instance of this struct will be passed to the callback.
+ */
+typedef struct {
+    NfcEventType type; /**< Type of the emitted event. */
+    NfcEventData data; /**< Event-specific data. */
+} NfcEvent;
+
+/**
+ * @brief Enumeration of possible Nfc commands.
+ *
+ * The event callback must return one of these to determine the next action.
+ */
+typedef enum {
+    NfcCommandContinue, /**< Continue operation normally. */
+    NfcCommandReset, /**< Reset the current state. */
+    NfcCommandStop, /**< Stop the current operation. */
+    NfcCommandSleep, /**< Switch Nfc hardware to low-power mode. */
+} NfcCommand;
+
+/**
+ * @brief Nfc event callback type.
+ *
+ * A function of this type must be passed as the callback parameter upon start of a an Nfc instance.
+ *
+ * @param [in] event Nfc event, passed by value, complete with protocol type and data.
+ * @param [in,out] context pointer to the user-specific context (set when starting an Nfc instance).
+ * @returns command which the event producer must execute.
+ */
+typedef NfcCommand (*NfcEventCallback)(NfcEvent event, void* context);
+
+/**
+ * @brief Enumeration of possible operating modes.
+ *
+ * Not all technologies implement the listener operating mode.
+ */
+typedef enum {
+    NfcModePoller, /**< Configure the Nfc instance as a poller. */
+    NfcModeListener, /**< Configure the Nfc instance as a listener. */
+
+    NfcModeNum, /**< Operating mode count. Internal use. */
+} NfcMode;
+
+/**
+ * @brief Enumeration of available technologies.
+ */
+typedef enum {
+    NfcTechIso14443a, /**< Configure the Nfc instance to use the ISO14443-3A technology. */
+    NfcTechIso14443b, /**< Configure the Nfc instance to use the ISO14443-3B technology. */
+    NfcTechIso15693, /**< Configure the Nfc instance to use the ISO15693 technology. */
+    NfcTechFelica, /**< Configure the Nfc instance to use the FeliCa technology. */
+
+    NfcTechNum, /**< Technologies count. Internal use. */
+} NfcTech;
+
+/**
+ * @brief Enumeration of possible Nfc error codes.
+ */
+typedef enum {
+    NfcErrorNone, /**< No error has occurred. */
+    NfcErrorInternal, /**< An unknown error has occured on the lower level. */
+    NfcErrorTimeout, /**< Operation is taking too long (e.g. card does not respond). */
+    NfcErrorIncompleteFrame, /**< An incomplete data frame has been received. */
+    NfcErrorDataFormat, /**< Data has not been parsed due to wrong/unknown format. */
+} NfcError;
+
+/**
+ * @brief Allocate an Nfc instance.
+ *
+ * Will exclusively take over the NFC HAL until deleted.
+ *
+ * @returns pointer to the allocated Nfc instance.
+ */
+Nfc* nfc_alloc(void);
+
+/**
+ * @brief Delete an Nfc instance.
+ *
+ * Will release the NFC HAL lock, making it available for use by others.
+ *
+ * @param[in,out] instance pointer to the instance to be deleted.
+ */
+void nfc_free(Nfc* instance);
+
+/**
+ * @brief Configure the Nfc instance to work in a particular mode.
+ *
+ * Not all technologies implement the listener operating mode.
+ *
+ * @param[in,out] instance pointer to the instance to be configured.
+ * @param[in] mode required operating mode.
+ * @param[in] tech required technology configuration.
+ */
+void nfc_config(Nfc* instance, NfcMode mode, NfcTech tech);
+
+/**
+ * @brief Set poller frame delay time.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] fdt_poll_fc frame delay time, in carrier cycles.
+*/
+void nfc_set_fdt_poll_fc(Nfc* instance, uint32_t fdt_poll_fc);
+
+/**
+ * @brief Set listener frame delay time.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] fdt_listen_fc frame delay time, in carrier cycles.
+ */
+void nfc_set_fdt_listen_fc(Nfc* instance, uint32_t fdt_listen_fc);
+
+/**
+ * @brief Set mask receive time.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] mask_rx_time_fc mask receive time, in carrier cycles.
+ */
+void nfc_set_mask_receive_time_fc(Nfc* instance, uint32_t mask_rx_time_fc);
+
+/**
+ * @brief Set frame delay time.
+ *
+ * Frame delay time is the minimum time between two consecutive poll frames.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] fdt_poll_poll_us frame delay time, in microseconds.
+ */
+void nfc_set_fdt_poll_poll_us(Nfc* instance, uint32_t fdt_poll_poll_us);
+
+/**
+ * @brief Set guard time.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] guard_time_us guard time, in microseconds.
+ */
+void nfc_set_guard_time_us(Nfc* instance, uint32_t guard_time_us);
+
+/**
+ * @brief Start the Nfc instance.
+ *
+ * The instance must be configured to work with a specific technology
+ * in a specific operating mode with a nfc_config() call before starting.
+ *
+ * Once started, the user code will be receiving events through the provided
+ * callback which must handle them according to the logic required.
+ *
+ * @param[in,out] instance pointer to the instance to be started.
+ * @param[in] callback pointer to a user-defined callback function which will receive events.
+ * @param[in] context pointer to a user-specific context (will be passed to the callback).
+ */
+void nfc_start(Nfc* instance, NfcEventCallback callback, void* context);
+
+/**
+ * @brief Stop Nfc instance.
+ *
+ * The instance can only be stopped if it is running.
+ *
+ * @param[in,out] instance pointer to the instance to be stopped.
+ */
+void nfc_stop(Nfc* instance);
+
+/**
+ * @brief Transmit and receive a data frame in poller mode.
+ *
+ * The rx_buffer will be filled with any data received as a response to data
+ * sent from tx_buffer, with a timeout defined by the fwt parameter.
+ *
+ * The data being transmitted and received may be either bit- or byte-oriented.
+ * It shall not contain any technology-specific sequences as start or stop bits
+ * and/or other special symbols, as this is handled on the underlying HAL level.
+ *
+ * Must ONLY be used inside the callback function.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] tx_buffer pointer to the buffer containing the data to be transmitted.
+ * @param[out] rx_buffer pointer to the buffer to be filled with received data.
+ * @param[in] fwt frame wait time (response timeout), in carrier cycles.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError
+    nfc_poller_trx(Nfc* instance, const BitBuffer* tx_buffer, BitBuffer* rx_buffer, uint32_t fwt);
+
+/**
+ * @brief Transmit a data frame in listener mode.
+ *
+ * Used to transmit a response to the reader request in listener mode.
+ *
+ * The data being transmitted may be either bit- or byte-oriented.
+ * It shall not contain any technology-specific sequences as start or stop bits
+ * and/or other special symbols, as this is handled on the underlying HAL level.
+ *
+ * Must ONLY be used inside the callback function.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] tx_buffer pointer to the buffer containing the data to be transmitted.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_listener_tx(Nfc* instance, const BitBuffer* tx_buffer);
+
+/*
+ * Technology-specific functions.
+ *
+ * In a perfect world, this would not be necessary.
+ * However, the current implementation employs NFC hardware that partially implements
+ * certain protocols (e.g. ISO14443-3A), thus requiring methods to access such features.
+ */
+
+/******************* ISO14443-3A specific API *******************/
+
+/**
+ * @brief Enumeration of possible ISO14443-3A short frame types.
+ */
+typedef enum {
+    NfcIso14443aShortFrameSensReq,
+    NfcIso14443aShortFrameAllReqa,
+} NfcIso14443aShortFrame;
+
+/**
+ * @brief Transmit an ISO14443-3A short frame and receive the response in poller mode.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] frame type of short frame to be sent.
+ * @param[out] rx_buffer pointer to the buffer to be filled with received data.
+ * @param[in] fwt frame wait time (response timeout), in carrier cycles.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso14443a_poller_trx_short_frame(
+    Nfc* instance,
+    NfcIso14443aShortFrame frame,
+    BitBuffer* rx_buffer,
+    uint32_t fwt);
+
+/**
+ * @brief Transmit an ISO14443-3A SDD frame and receive the response in poller mode.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] tx_buffer pointer to the buffer containing the data to be transmitted.
+ * @param[out] rx_buffer pointer to the buffer to be filled with received data.
+ * @param[in] fwt frame wait time (response timeout), in carrier cycles.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso14443a_poller_trx_sdd_frame(
+    Nfc* instance,
+    const BitBuffer* tx_buffer,
+    BitBuffer* rx_buffer,
+    uint32_t fwt);
+
+/**
+ * @brief Transmit an ISO14443-3A data frame with custom parity bits and receive the response in poller mode.
+ *
+ * Same as nfc_poller_trx(), but uses the parity bits provided by the user code
+ * instead of calculating them automatically.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] tx_buffer pointer to the buffer containing the data to be transmitted.
+ * @param[out] rx_buffer pointer to the buffer to be filled with received data.
+ * @param[in] fwt frame wait time (response timeout), in carrier cycles.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso14443a_poller_trx_custom_parity(
+    Nfc* instance,
+    const BitBuffer* tx_buffer,
+    BitBuffer* rx_buffer,
+    uint32_t fwt);
+
+/**
+ * @brief Transmit an ISO14443-3A frame with custom parity bits in listener mode.
+ *
+ * Same as nfc_listener_tx(), but uses the parity bits provided by the user code
+ * instead of calculating them automatically.
+ *
+ * @param[in,out] instance pointer to the instance to be used in the transaction.
+ * @param[in] tx_buffer pointer to the buffer containing the data to be transmitted.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso14443a_listener_tx_custom_parity(Nfc* instance, const BitBuffer* tx_buffer);
+
+/**
+ * @brief Set ISO14443-3A collision resolution parameters in listener mode.
+ *
+ * Configures the NFC hardware for automatic collision resolution.
+ *
+ * @param[in,out] instance pointer to the instance to be configured.
+ * @param[in] uid pointer to a byte array containing the UID.
+ * @param[in] uid_len UID length in bytes (must be supported by the protocol).
+ * @param[in] atqa ATQA byte value.
+ * @param[in] sak SAK byte value.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso14443a_listener_set_col_res_data(
+    Nfc* instance,
+    uint8_t* uid,
+    uint8_t uid_len,
+    uint8_t* atqa,
+    uint8_t sak);
+
+/**
+ * @brief Set FeliCa collision resolution parameters in listener mode.
+ * 
+ * Configures the NFC hardware for automatic collision resolution.
+ *
+ * @param[in,out] instance pointer to the instance to be configured.
+ * @param[in] idm pointer to a byte array containing the IDm.
+ * @param[in] idm_len IDm length in bytes.
+ * @param[in] pmm pointer to a byte array containing the PMm.
+ * @param[in] pmm_len PMm length in bytes.
+ * @param[in] sys_code System code from SYS_C block
+ * @returns NfcErrorNone on success, any other error code on failure.
+*/
+NfcError nfc_felica_listener_set_sensf_res_data(
+    Nfc* instance,
+    const uint8_t* idm,
+    const uint8_t idm_len,
+    const uint8_t* pmm,
+    const uint8_t pmm_len,
+    const uint16_t sys_code);
+
+/**
+ * @brief Send ISO15693 Start of Frame pattern in listener mode
+ *
+ * @param[in,out] instance pointer to the instance to be configured.
+ * @returns NfcErrorNone on success, any other error code on failure.
+ */
+NfcError nfc_iso15693_listener_tx_sof(Nfc* instance);
+
+/**
+ * @brief Start the timer used for manual FeliCa collision resolution in listener mode.
+ * 
+ * This blocks TX until the desired Time Slot, and should be called as soon as the listener
+ * determines that a collision resolution needs to be handled manually.
+ *
+ * @param[in, out] instance instance pointer to the instance to be configured.
+ * @param[in] target_time_slot Target Time Slot number. Should be a value within the range of 0-15 (double-inclusive).
+ */
+void nfc_felica_listener_timer_anticol_start(Nfc* instance, uint8_t target_time_slot);
+
+/**
+ * @brief Cancel the timer used for manual FeliCa collision resolution in listener mode.
+ * 
+ * @param[in, out] instance instance pointer to the instance to be configured.
+ */
+void nfc_felica_listener_timer_anticol_stop(Nfc* instance);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_common.h ===
+
+/**
+ * @file nfc_common.h
+ * @brief Various common NFC-related macros.
+ */
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* NFC file format version which changed ATQA format. Deprecated. */
+#define NFC_LSB_ATQA_FORMAT_VERSION          (2)
+/* NFC file format version which is still supported as backwards compatible. */
+#define NFC_MINIMUM_SUPPORTED_FORMAT_VERSION NFC_LSB_ATQA_FORMAT_VERSION
+/* NFC file format version which implemented the unified loading process. */
+#define NFC_UNIFIED_FORMAT_VERSION           (4)
+/* Current NFC file format version. */
+#define NFC_CURRENT_FORMAT_VERSION           NFC_UNIFIED_FORMAT_VERSION
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_device.h ===
+
+/**
+ * @file nfc_device.h
+ * @brief Abstract interface for managing NFC device data.
+ *
+ * Under the hood, it makes use of the protocol-specific functions that each one of them provides
+ * and abstracts it with a protocol-independent API.
+ *
+ * It does not perform any signal processing, but merely serves as a container with some handy
+ * operations such as loading and saving from and to a file.
+ */
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "protocols/nfc_device_base.h"
+#include "protocols/nfc_protocol.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief NfcDevice opaque type definition.
+ */
+typedef struct NfcDevice NfcDevice;
+
+/**
+ * @brief Loading callback function signature.
+ *
+ * A function with such signature can be set as a callback to indicate
+ * the completion (or a failure) of nfc_device_load() and nfc_device_save() functions.
+ *
+ * This facility is commonly used to control GUI elements, such as progress dialogs.
+ *
+ * @param[in] context user-defined context that was passed in nfc_device_set_loading_callback().
+ * @param[in] state true if the data was loaded successfully, false otherwise.
+ */
+typedef void (*NfcLoadingCallback)(void* context, bool state);
+
+/**
+ * @brief Allocate an NfcDevice instance.
+ *
+ * A newly created instance does not hold any data and thus is considered invalid. The most common
+ * use case would be to set its data by calling nfc_device_set_data() right afterwards.
+ *
+ * @returns pointer to the allocated instance.
+ */
+NfcDevice* nfc_device_alloc(void);
+
+/**
+ * @brief Delete an NfcDevice instance.
+ *
+ * @param[in,out] instance pointer to the instance to be deleted.
+ */
+void nfc_device_free(NfcDevice* instance);
+
+/**
+ * @brief Clear an NfcDevice instance.
+ *
+ * All data contained in the instance will be deleted and the instance itself will become invalid
+ * as if it was just allocated.
+ *
+ * @param[in,out] instance pointer to the instance to be cleared.
+ */
+void nfc_device_clear(NfcDevice* instance);
+
+/**
+ * @brief Reset an NfcDevice instance.
+ *
+ * The data contained in the instance will be reset according to the protocol-defined procedure.
+ * Unlike the nfc_device_clear() function, the instance will remain valid.
+ *
+ * @param[in,out] instance pointer to the instance to be reset.
+ */
+void nfc_device_reset(NfcDevice* instance);
+
+/**
+ * @brief Get the protocol identifier from an NfcDevice instance.
+ *
+ * If the instance is invalid, the return value will be NfcProtocolInvalid.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @returns protocol identifier contained in the instance.
+ */
+NfcProtocol nfc_device_get_protocol(const NfcDevice* instance);
+
+/**
+ * @brief Get the protocol-specific data from an NfcDevice instance.
+ *
+ * The protocol parameter's behaviour is a bit tricky. The function will check
+ * whether there is such a protocol somewhere in the protocol hierarchy and return
+ * the data exactly from that level.
+ *
+ * Example: Call nfc_device_get_data() on an instance with Mf DESFire protocol.
+ * The protocol hierarchy will look like the following:
+ *
+ * `Mf DESFire --> ISO14443-4A --> ISO14443-3A`
+ *
+ * Thus, the following values of the protocol parameter are valid:
+ *
+ *  * NfcProtocolIso14443_3a
+ *  * NfcProtocolIso14443_4a
+ *  * NfcProtocolMfDesfire
+ *
+ * and passing them to the call would result in the respective data being returned.
+ *
+ * However, supplying a protocol identifier which is not in the hierarchy will
+ * result in a crash. This is to improve type safety.
+ *
+ * @param instance pointer to the instance to be queried
+ * @param protocol protocol identifier of the data to be retrieved.
+ * @returns pointer to the instance's data.
+ */
+const NfcDeviceData* nfc_device_get_data(const NfcDevice* instance, NfcProtocol protocol);
+
+/**
+ * @brief Get the protocol name by its identifier.
+ *
+ * This function does not require an instance as its return result depends only
+ * the protocol identifier.
+ *
+ * @param[in] protocol numeric identifier of the protocol in question.
+ * @returns pointer to a statically allocated string containing the protocol name.
+ */
+const char* nfc_device_get_protocol_name(NfcProtocol protocol);
+
+/**
+ * @brief Get the name of an NfcDevice instance.
+ *
+ * The return value may change depending on the instance's internal state and the name_type parameter.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @param[in] name_type type of the name to be displayed.
+ * @returns pointer to a statically allocated string containing the device name.
+ */
+const char* nfc_device_get_name(const NfcDevice* instance, NfcDeviceNameType name_type);
+
+/**
+ * @brief Get the unique identifier (UID) of an NfcDevice instance.
+ *
+ * The UID length is protocol-dependent. Additionally, a particular protocol might support
+ * several UID lengths.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @param[out] uid_len pointer to the variable to contain the UID length.
+ * @returns pointer to the byte array containing the instance's UID.
+ */
+const uint8_t* nfc_device_get_uid(const NfcDevice* instance, size_t* uid_len);
+
+/**
+ * @brief Set the unique identifier (UID) of an NfcDevice instance.
+ *
+ * The UID length must be supported by the instance's protocol.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] uid pointer to the byte array containing the new UID.
+ * @param[in] uid_len length of the UID.
+ * @return true if the UID was valid and set, false otherwise.
+ */
+bool nfc_device_set_uid(NfcDevice* instance, const uint8_t* uid, size_t uid_len);
+
+/**
+ * @brief Set the data and protocol of an NfcDevice instance.
+ *
+ * Any data previously contained in the instance will be deleted.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] protocol numeric identifier of the data's protocol.
+ * @param[in] protocol_data pointer to the protocol-specific data.
+ */
+void nfc_device_set_data(
+    NfcDevice* instance,
+    NfcProtocol protocol,
+    const NfcDeviceData* protocol_data);
+
+/**
+ * @brief Copy (export) the data contained in an NfcDevice instance to an outside NfcDeviceData instance.
+ *
+ * This function does the inverse of nfc_device_set_data().
+
+ * The protocol identifier passed as the protocol parameter MUST match the one
+ * stored in the instance, otherwise a crash will occur.
+ * This is to improve type safety.
+ *
+ * @param[in] instance pointer to the instance to be copied from.
+ * @param[in] protocol numeric identifier of the instance's protocol.
+ * @param[out] protocol_data pointer to the destination data.
+ */
+void nfc_device_copy_data(
+    const NfcDevice* instance,
+    NfcProtocol protocol,
+    NfcDeviceData* protocol_data);
+
+/**
+ * @brief Check whether an NfcDevice instance holds certain data.
+ *
+ * This function's behaviour is similar to nfc_device_is_equal(), with the difference
+ * that it takes NfcProtocol and NfcDeviceData* instead of the second NfcDevice*.
+ *
+ * The following code snippets [1] and [2] are equivalent:
+ *
+ * [1]
+ * ```c
+ * bool is_equal = nfc_device_is_equal(device1, device2);
+ * ```
+ * [2]
+ * ```c
+ * NfcProtocol protocol = nfc_device_get_protocol(device2);
+ * const NfcDeviceData* data = nfc_device_get_data(device2, protocol);
+ * bool is_equal = nfc_device_is_equal_data(device1, protocol, data);
+ * ```
+ *
+ * @param[in] instance pointer to the instance to be compared.
+ * @param[in] protocol protocol identifier of the data to be compared.
+ * @param[in] protocol_data pointer to the NFC device data to be compared.
+ * @returns true if the instance is of the right type and the data matches, false otherwise.
+ */
+bool nfc_device_is_equal_data(
+    const NfcDevice* instance,
+    NfcProtocol protocol,
+    const NfcDeviceData* protocol_data);
+
+/**
+ * @brief Compare two NfcDevice instances to determine whether they are equal.
+ *
+ * @param[in] instance pointer to the first instance to be compared.
+ * @param[in] other pointer to the second instance to be compared.
+ * @returns true if both instances are considered equal, false otherwise.
+ */
+bool nfc_device_is_equal(const NfcDevice* instance, const NfcDevice* other);
+
+/**
+ * @brief Set the loading callback function.
+ *
+ * @param[in,out] instance pointer to the instance to be modified.
+ * @param[in] callback pointer to a function to be called when the load operation completes.
+ * @param[in] context pointer to a user-specific context (will be passed to the callback).
+ */
+void nfc_device_set_loading_callback(
+    NfcDevice* instance,
+    NfcLoadingCallback callback,
+    void* context);
+
+/**
+ * @brief Save NFC device data form an NfcDevice instance to a file.
+ *
+ * @param[in] instance pointer to the instance to be saved.
+ * @param[in] path pointer to a character string with a full file path.
+ * @returns true if the data was successfully saved, false otherwise.
+ */
+bool nfc_device_save(NfcDevice* instance, const char* path);
+
+/**
+ * @brief Load NFC device data to an NfcDevice instance from a file.
+ *
+ * @param[in,out] instance pointer to the instance to be loaded into.
+ * @param[in] path pointer to a character string with a full file path.
+ * @returns true if the data was successfully loaded, false otherwise.
+ */
+bool nfc_device_load(NfcDevice* instance, const char* path);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_device_i.h ===
+
+/**
+ * @file nfc_device_i.h
+ * @brief NfcDevice private types and definitions.
+ *
+ * This file is an implementation detail. It must not be included in
+ * any public API-related headers.
+ */
+#pragma once
+
+#include "nfc_device.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief NfcDevice structure definition.
+ */
+struct NfcDevice {
+    NfcProtocol protocol; /**< Numeric identifier of the data's protocol*/
+    NfcDeviceData* protocol_data; /**< Pointer to the NFC device data. */
+
+    NfcLoadingCallback
+        loading_callback; /**< Pointer to the function to be called upon loading completion. */
+    void* loading_callback_context; /**< Pointer to the context to be passed to the loading callback. */
+};
+
+/**
+ * @brief Get the mutable (non-const) data from an NfcDevice instance.
+ *
+ * The behaviour is the same as with nfc_device_get_data(), but the
+ * return pointer is non-const, allowing for changing data it is pointing to.
+ *
+ * @see nfc_device.h
+ *
+ * Under the hood, nfc_device_get_data() calls this and then adds const-ness to the return value.
+ *
+ * @param instance pointer to the instance to be queried
+ * @param protocol protocol identifier of the data to be retrieved.
+ * @returns pointer to the instance's (mutable) data.
+ */
+NfcDeviceData* nfc_device_get_data_ptr(const NfcDevice* instance, NfcProtocol protocol);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_listener.h ===
+
+/**
+ * @file nfc_listener.h
+ * @brief NFC card emulation library.
+ *
+ * Once started, it will respond to supported commands from an NFC reader, thus imitating
+ * (or emulating) an NFC card. The responses will depend on the data that was supplied to
+ * the listener, so various card types and different cards of the same type can be emulated.
+ *
+ * It will also make any changes necessary to the emulated data in response to the
+ * reader commands if the protocol supports it.
+ *
+ * When running, NfcListener will generate events that the calling code must handle
+ * by providing a callback function. The events passed to the callback are protocol-specific
+ * and may include errors, state changes, data reception, special function requests and more.
+ */
+#pragma once
+
+#include <nfc/protocols/nfc_generic_event.h>
+#include <nfc/protocols/nfc_device_base.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief NfcListener opaque type definition.
+ */
+typedef struct NfcListener NfcListener;
+
+/**
+ * @brief Allocate an NfcListener instance.
+ *
+ * @param[in] nfc pointer to an Nfc instance.
+ * @param[in] protocol identifier of the protocol to be used.
+ * @param[in] data pointer to the data to use during emulation.
+ * @returns pointer to an allocated instance.
+ *
+ * @see nfc.h
+ */
+NfcListener* nfc_listener_alloc(Nfc* nfc, NfcProtocol protocol, const NfcDeviceData* data);
+
+/**
+ * @brief Delete an NfcListener instance.
+ *
+ * @param[in,out] instance pointer to the instance to be deleted.
+ */
+void nfc_listener_free(NfcListener* instance);
+
+/**
+ * @brief Start an NfcListener instance.
+ *
+ * The callback logic is protocol-specific, so it cannot be described here in detail.
+ * However, the callback return value ALWAYS determines what the listener should do next:
+ * to continue whatever it was doing prior to the callback run or to stop.
+ *
+ * @param[in,out] instance pointer to the instance to be started.
+ * @param[in] callback pointer to a user-defined callback function which will receive events.
+ * @param[in] context pointer to a user-specific context (will be passed to the callback).
+ */
+void nfc_listener_start(NfcListener* instance, NfcGenericCallback callback, void* context);
+
+/**
+ * @brief Stop an NfcListener instance.
+ *
+ * The emulation process can be stopped explicitly (the other way is via the callback return value).
+ *
+ * @param[in,out] instance pointer to the instance to be stopped.
+ */
+void nfc_listener_stop(NfcListener* instance);
+
+/**
+ * @brief Get the protocol identifier an NfcListener instance was created with.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @returns identifier of the protocol used by the instance.
+ */
+NfcProtocol nfc_listener_get_protocol(const NfcListener* instance);
+
+/**
+ * @brief Get the data that was that was provided for emulation.
+ *
+ * The protocol identifier passed as the protocol parameter MUST match the one
+ * stored in the instance, otherwise a crash will occur.
+ * This is to improve type safety.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @param[in] protocol assumed protocol identifier of the data to be retrieved.
+ * @returns pointer to the NFC device data.
+ */
+const NfcDeviceData* nfc_listener_get_data(const NfcListener* instance, NfcProtocol protocol);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_poller.h ===
+
+/**
+ * @file nfc_poller.h
+ * @brief NFC card reading library.
+ *
+ * Once started, it will try to activate and read a card using the designated protocol,
+ * which is usually obtained by creating and starting an NfcScanner first.
+ *
+ * @see nfc_scanner.h
+ *
+ * When running, NfcPoller will generate events that the calling code must handle
+ * by providing a callback function. The events passed to the callback are protocol-specific
+ * and may include errors, state changes, data reception, special function requests and more.
+ *
+ */
+#pragma once
+
+#include <nfc/protocols/nfc_generic_event.h>
+#include <nfc/protocols/nfc_device_base.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief NfcPoller opaque type definition.
+ */
+typedef struct NfcPoller NfcPoller;
+
+/**
+ * @brief Extended generic Nfc event type.
+ *
+ * An extended generic Nfc event contains protocol poller and it's parent protocol event data.
+ * If protocol has no parent, then events are produced by Nfc instance.
+ *
+ * The parent_event_data field is protocol-specific and should be cast to the appropriate type before use.
+ */
+typedef struct {
+    NfcGenericInstance* poller; /**< Pointer to the protocol poller. */
+    NfcGenericEventData*
+        parent_event_data /**< Pointer to the protocol's parent poller event data. */;
+} NfcGenericEventEx;
+
+/**
+ * @brief Extended generic Nfc event callback type.
+ *
+ * A function of this type must be passed as the callback parameter upon extended start of a poller.
+ *
+ * @param [in] event Nfc  extended generic event, passed by value, complete with protocol type and data.
+ * @param [in,out] context pointer to the user-specific context (set when starting a poller/listener instance).
+ * @returns the command which the event producer must execute.
+ */
+typedef NfcCommand (*NfcGenericCallbackEx)(NfcGenericEventEx event, void* context);
+
+/**
+ * @brief Allocate an NfcPoller instance.
+ *
+ * @param[in] nfc pointer to an Nfc instance.
+ * @param[in] protocol identifier of the protocol to be used.
+ * @returns pointer to an allocated instance.
+ *
+ * @see nfc.h
+ */
+NfcPoller* nfc_poller_alloc(Nfc* nfc, NfcProtocol protocol);
+
+/**
+ * @brief Delete an NfcPoller instance.
+ *
+ * @param[in,out] instance pointer to the instance to be deleted.
+ */
+void nfc_poller_free(NfcPoller* instance);
+
+/**
+ * @brief Start an NfcPoller instance.
+ *
+ * The callback logic is protocol-specific, so it cannot be described here in detail.
+ * However, the callback return value ALWAYS determines what the poller should do next:
+ * to continue whatever it was doing prior to the callback run or to stop.
+ *
+ * @param[in,out] instance pointer to the instance to be started.
+ * @param[in] callback pointer to a user-defined callback function which will receive events.
+ * @param[in] context pointer to a user-specific context (will be passed to the callback).
+ */
+void nfc_poller_start(NfcPoller* instance, NfcGenericCallback callback, void* context);
+
+/**
+ * @brief Start an NfcPoller instance in extended mode.
+ *
+ * When nfc poller is started in extended mode, callback will be called with parent protocol events
+ * and protocol instance. This mode enables to make custom poller state machines.
+ *
+ * @param[in,out] instance pointer to the instance to be started.
+ * @param[in] callback pointer to a user-defined callback function which will receive events.
+ * @param[in] context pointer to a user-specific context (will be passed to the callback).
+ */
+void nfc_poller_start_ex(NfcPoller* instance, NfcGenericCallbackEx callback, void* context);
+
+/**
+ * @brief Stop an NfcPoller instance.
+ *
+ * The reading process can be stopped explicitly (the other way is via the callback return value).
+ *
+ * @param[in,out] instance pointer to the instance to be stopped.
+ */
+void nfc_poller_stop(NfcPoller* instance);
+
+/**
+ * @brief Detect whether there is a card supporting a particular protocol in the vicinity.
+ *
+ * The behaviour of this function is protocol-defined, in general, it will do whatever is
+ * necessary to determine whether a card supporting the current protocol is in the vicinity
+ * and whether it is functioning normally.
+ *
+ * It is used automatically inside NfcScanner, so there is usually no need
+ * to call it explicitly.
+ *
+ * @see nfc_scanner.h
+ *
+ * @param[in,out] instance pointer to the instance to perform the detection with.
+ * @returns true if a supported card was detected, false otherwise.
+ */
+bool nfc_poller_detect(NfcPoller* instance);
+
+/**
+ * @brief Get the protocol identifier an NfcPoller instance was created with.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @returns identifier of the protocol used by the instance.
+ */
+NfcProtocol nfc_poller_get_protocol(const NfcPoller* instance);
+
+/**
+ * @brief Get the data that was that was gathered during the reading process.
+ *
+ * @param[in] instance pointer to the instance to be queried.
+ * @returns pointer to the NFC device data.
+ */
+const NfcDeviceData* nfc_poller_get_data(const NfcPoller* instance);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\lib-nfc\nfc_scanner.h ===
+
+/**
+ * @file nfc_scanner.h
+ * @brief NFC card detection library.
+ *
+ * Once started, a NfcScanner instance will iterate over all available protocols
+ * and return a list of one or more detected protocol identifiers via a user-provided callback.
+ *
+ * The NfcScanner behaviour is greedy, i.e. it will not stop scanning upon detection of
+ * a just one protocol and will try others as well until all possibilities are exhausted.
+ * This is to allow for multi-protocol card support.
+ *
+ * If no supported cards are in the vicinity, the scanning process will continue
+ * until stopped explicitly.
+ */
+#pragma once
+
+#include <nfc/nfc.h>
+#include <nfc/protocols/nfc_protocol.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief NfcScanner opaque type definition.
+ */
+typedef struct NfcScanner NfcScanner;
+
+/**
+ * @brief Event type passed to the user callback.
+ */
+typedef enum {
+    NfcScannerEventTypeDetected, /**< One or more protocols have been detected. */
+} NfcScannerEventType;
+
+/**
+ * @brief Event data passed to the user callback.
+ */
+typedef struct {
+    size_t protocol_num; /**< Number of detected protocols (one or more). */
+    NfcProtocol* protocols; /**< Pointer to the array of detected protocol identifiers. */
+} NfcScannerEventData;
+
+/**
+ * @brief Event passed to the user callback.
+ */
+typedef struct {
+    NfcScannerEventType type; /**< Type of event. Determines how the data must be handled. */
+    NfcScannerEventData data; /**< Event-specific data. Handled accordingly to the even type. */
+} NfcScannerEvent;
+
+/**
+ * @brief User callback function signature.
+ *
+ * A function with such signature must be provided by the user upon calling nfc_scanner_start().
+ *
+ * @param[in] event occurred event, complete with type and data.
+ * @param[in] context pointer to the context data provided in nfc_scanner_start() call.
+ */
+typedef void (*NfcScannerCallback)(NfcScannerEvent event, void* context);
+
+/**
+ * @brief Allocate an NfcScanner instance.
+ *
+ * @param[in] nfc pointer to an Nfc instance.
+ * @returns pointer to the allocated NfcScanner instance.
+ *
+ * @see nfc.h
+ */
+NfcScanner* nfc_scanner_alloc(Nfc* nfc);
+
+/**
+ * @brief Delete an NfcScanner instance.
+ *
+ * @param[in,out] instance pointer to the instance to be deleted.
+ */
+void nfc_scanner_free(NfcScanner* instance);
+
+/**
+ * @brief Start an NfcScanner.
+ *
+ * @param[in,out] instance pointer to the instance to be started.
+ * @param[in] callback pointer to the callback function (will be called upon a detection event).
+ * @param[in] context pointer to the caller-specific context (will be passed to the callback).
+ */
+void nfc_scanner_start(NfcScanner* instance, NfcScannerCallback callback, void* context);
+
+/**
+ * @brief Stop an NfcScanner.
+ *
+ * @param[in,out] instance pointer to the instance to be stopped.
+ */
+void nfc_scanner_stop(NfcScanner* instance);
+
+#ifdef __cplusplus
+}
+#endif

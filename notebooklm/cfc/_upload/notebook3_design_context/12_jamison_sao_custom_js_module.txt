@@ -1,0 +1,4502 @@
+# Bundle: 12_jamison_sao_custom_js_module.txt
+# 45 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: medium\jamisonderek-sao\.gitignore ===
+
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+
+=== FILE: medium\jamisonderek-sao\js_app\application.fam ===
+
+App(
+    appid="js_app",
+    name="JS Runner",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="js_app",
+    cdefines=["JS_RUNNER_FAP"],
+    # Sources separation breaks linking when internal, comment as needed
+    sources=[
+        "*.c*",
+        "!modules",
+        "modules/js_flipper.c",
+    ],
+    stack_size=2 * 1024,
+    resources="examples",
+    order=0,
+    fap_icon="icon.png",
+    fap_category="assets",
+)
+
+App(
+    appid="js_cli",
+    targets=["f7"],
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_cli_plugin_ep",
+    requires=["cli"],
+    sources=[
+        "*.c*",
+        "!modules",
+        "modules/js_flipper.c",
+    ],
+)
+
+App(
+    appid="js_app_start",
+    apptype=FlipperAppType.STARTUP,
+    entry_point="js_app_on_system_start",
+    sources=["js_start.c"],
+    order=160,
+)
+
+App(
+    appid="js_event_loop",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_event_loop_ep",
+    requires=["js_app"],
+    sources=[
+        "modules/js_event_loop/js_event_loop.c",
+        "modules/js_event_loop/js_event_loop_api_table.cpp",
+    ],
+)
+
+App(
+    appid="js_gui",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gui_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/js_gui.c", "modules/js_gui/js_gui_api_table.cpp"],
+)
+
+App(
+    appid="js_gui__loading",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_loading_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/loading.c"],
+)
+
+App(
+    appid="js_gui__empty_screen",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_empty_screen_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/empty_screen.c"],
+)
+
+App(
+    appid="js_gui__submenu",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_submenu_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/submenu.c"],
+)
+
+App(
+    appid="js_gui__text_input",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_text_input_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/text_input.c"],
+)
+
+App(
+    appid="js_gui__byte_input",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_byte_input_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/byte_input.c"],
+)
+
+App(
+    appid="js_gui__text_box",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_text_box_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/text_box.c"],
+)
+
+App(
+    appid="js_gui__dialog",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_dialog_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/dialog.c"],
+)
+
+App(
+    appid="js_gui__file_picker",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gui_file_picker_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/file_picker.c"],
+)
+
+App(
+    appid="js_notification",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_notification_ep",
+    requires=["js_app"],
+    sources=["modules/js_notification.c"],
+)
+
+App(
+    appid="js_badusb",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_badusb_ep",
+    requires=["js_app"],
+    sources=["modules/js_badusb.c"],
+)
+
+App(
+    appid="js_serial",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_serial_ep",
+    requires=["js_app"],
+    sources=["modules/js_serial.c"],
+)
+
+App(
+    appid="js_gpio",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gpio_ep",
+    requires=["js_app"],
+    sources=["modules/js_gpio.c"],
+)
+
+App(
+    appid="js_math",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_math_ep",
+    requires=["js_app"],
+    sources=["modules/js_math.c"],
+)
+
+App(
+    appid="js_storage",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_storage_ep",
+    requires=["js_app"],
+    sources=["modules/js_storage.c"],
+)
+
+App(
+    appid="js_widget",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_widget_ep",
+    requires=["js_app"],
+    sources=["modules/js_widget.c"],
+)
+
+App(
+    appid="js_vgm",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_vgm_ep",
+    requires=["js_app"],
+    sources=["modules/js_vgm/*.c", "modules/js_vgm/ICM42688P/*.c"],
+)
+
+App(
+    appid="js_subghz",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_subghz_ep",
+    requires=["js_app"],
+    sources=["modules/js_subghz/*.c"],
+)
+
+App(
+    appid="js_blebeacon",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_blebeacon_ep",
+    requires=["js_app"],
+    sources=["modules/js_blebeacon.c"],
+)
+
+App(
+    appid="js_usbdisk",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_usbdisk_ep",
+    requires=["js_app"],
+    sources=["modules/js_usbdisk/*.c"],
+)
+
+App(
+    appid="js_i2c",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_i2c_ep",
+    requires=["js_app"],
+    sources=["modules/js_i2c.c"],
+)
+
+App(
+    appid="js_spi",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_spi_ep",
+    requires=["js_app"],
+    sources=["modules/js_spi.c"],
+)
+
+App(
+    appid="js_ws2812",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_ws2812_ep",
+    requires=["js_app"],
+    sources=["modules/js_ws2812/*.c"],
+)
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\at24c32.js ===
+
+({
+    /**
+     * let i2c=require("i2c");
+     * at24c32.init(i2c, 0x50);
+     * 
+     * getRWAddress(); // returns the address of the I2C device
+     * 
+     * readByte(memAddr); // reads a byte from the memory address
+     * 
+     * readBytes(memAddr, length); // returns an array of bytes starting at memory address
+     * 
+     * readString(memAddr, length); // returns a string of bytes starting at memory address
+     * 
+     * writeByte(memAddr, data); // writes a byte to the memory address
+     * 
+     * writeBytes(memAddr, data); // writes an array of bytes starting at memory address
+     */
+
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the AT23C32 device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0xA0 - 0xAE.
+            return this._scanAddress(0xA0, 0xAE) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+    readByte: function (addr) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], 1, this.timeout);
+        if (buffer.byteLength === 0) {
+            return -1;
+        } else {
+            return Uint8Array(buffer)[0];
+        }
+    },
+    readBytes: function (addr, length) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], length, this.timeout);
+        if (buffer.byteLength === 0) {
+            return undefined;
+        } else {
+            return Uint8Array(buffer);
+        }
+    },
+    readString: function (addr, length) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], length, this.timeout);
+        if (buffer.byteLength === 0) {
+            return undefined;
+        } else {
+            let data = Uint8Array(buffer);
+            let str = "";
+            for (let i = 0; i < data.length; i++) {
+                str = str + chr(data[i]);
+            }
+            return str;
+        }
+    },
+    writeByte: function (addr, data) {
+        return this.i2c.write(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF, data & 0xFF], this.timeout);
+    },
+    writeBytes: function (addr, data) {
+        let buffer = [];
+        buffer.push((addr >> 8) & 0xFF);
+        buffer.push(addr & 0xFF);
+        for (let i = 0; i < data.length; i++) {
+            buffer.push(data[i]);
+        }
+        return this.i2c.write(this._getAddress(), buffer, this.timeout);
+    },
+});
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\i2c_sample.js ===
+
+({
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the SAMPLE device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0x78 - 0x7A.
+            return this._scanAddress(0x78, 0x7A) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+    foo: function () {
+        this.i2c.write(this._addr, [0,1,2], this.timeout);
+    },
+    bar: function () {
+        // Write command "1" and then read 4 bytes.
+        let buffer = this.i2c.writeRead(this._addr, [1], 4, this.timeout);
+        if (buffer === undefined) {
+          print("Sample:Err-1")
+          return undefined;
+        }
+        let data = Uint8Array(buffer);
+        let x = ((data[3] << 24) | (data[2] << 16) | (data[1] << 8) | data[0]);
+        return x;   
+    }
+});
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\lis2dh12.js ===
+
+({
+  i2c: undefined,
+  timeout: 100,
+  _addr: -1,
+  _scanAddress: function (min, max) {
+      this._addr = -1;
+      for (let addr = min; addr <= max; addr += 2) {
+          if (this.i2c.isDeviceReady(addr, 20)) {
+              this._addr = addr;
+              break;
+          }
+      }
+      return this._addr;
+  },
+  /**
+   * Locates the LIS2DH12 device on the I2C bus.
+   * @param {i2c} i2cType 
+   * @param {number} deviceRWAddress
+   * @returns true if device was found, false otherwise.
+   */
+  init: function (i2cType, deviceRWAddress) {
+      this.i2c = i2cType;
+      if (deviceRWAddress === undefined) {
+          // Scan for I2C device in address range 0x18 - 0x19.
+          return this._scanAddress(0x18<<1, 0x19<<1) !== -1;
+      } else {
+          return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+      }
+  },
+  /**
+   * Call init() before using this function.
+   * @returns {number} The address of the device or -1 if no device was found.
+   */
+  getRWAddress: function () {
+      return (this._addr === -1) ? -1 : this._addr >> 1;
+  },
+  _getAddress: function () {
+      return this._addr;
+  },
+  readRegByte: function (reg) {
+    let buffer = this.i2c.writeRead(this._addr, [reg], 1, this.timeout);
+    if (buffer === undefined) {
+      print("Sample:Err",reg);
+      return undefined;
+    }
+    let data = Uint8Array(buffer);
+    return data[0];
+  },
+  who: function () { // Hopefully returns 51 (0x33)
+    return this.readRegByte(0x0F);
+  },
+  reset: function() {
+    let reg1; // ReadReg CTRL_REG1 (0x20)
+    let reg4; // ReadReg CTRL_REG4 (0x23)
+
+    // set bdu bit (Block Data Update).
+    reg4 = this.readRegByte(0x23);
+    reg4 = reg4 | 0x80; // set bit 7
+    this.i2c.write(this._addr, [0x23, reg4], this.timeout);
+
+    // set dataRate to 25 Hz.
+    reg1 = this.readRegByte(0x20);
+    reg1 = (reg1 & 0x0F) | (0x30); // set bits 4 and 5
+    this.i2c.write(this._addr, [0x20, reg1], this.timeout);
+
+    // full scale 2g.
+    reg4 = this.readRegByte(0x23);
+    reg4 = reg4 & 0x3F; // clear bits 4 and 5
+    this.i2c.write(this._addr, [0x23, reg4], this.timeout);
+
+    // 12-bit resolution
+    // ctrl_reg1.lpen = 0;
+    // ctrl_reg4.hr   = 1;
+    reg1 = this.readRegByte(0x20);
+    reg4 = this.readRegByte(0x23);
+    reg1 = reg1 & 0xF7; // clear bit 3 (lpen)
+    reg4 = reg4 | 0x08; // set bit 4 (hr)
+    this.i2c.write(this._addr, [0x20, reg1], this.timeout);
+    this.i2c.write(this._addr, [0x23, reg4], this.timeout);
+
+  },
+  accel: function () {
+      // Write command "1" and then read 4 bytes.
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      let buffer = this.i2c.writeRead(this._addr, [0x28], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-28");
+        return undefined;
+      }
+      let data = Uint8Array(buffer);
+      x = data[0];
+      buffer = this.i2c.writeRead(this._addr, [0x29], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-29");
+        return undefined;
+      }
+      data = Uint8Array(buffer);
+      x = x | (data[0]<<8);
+
+      buffer = this.i2c.writeRead(this._addr, [0x2A], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-2A");
+        return undefined;
+      }
+      data = Uint8Array(buffer);
+      y = data[0];
+      buffer = this.i2c.writeRead(this._addr, [0x2B], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-2B");
+        return undefined;
+      }
+      data = Uint8Array(buffer);
+      y = y | (data[0]<<8);
+
+      buffer = this.i2c.writeRead(this._addr, [0x2C], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-2C");
+        return undefined;
+      }
+      data = Uint8Array(buffer);
+      z = data[0];
+      buffer = this.i2c.writeRead(this._addr, [0x2D], 1, this.timeout);
+      if (buffer === undefined) {
+        print("Sample:Err-2D");
+        return undefined;
+      }
+      data = Uint8Array(buffer);
+      z = z | (data[0]<<8);
+
+      return {x:x, y:y, z:z};   
+  }
+});
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\mcp23017.js ===
+
+/**
+ * MCP23017 I2C 16-bit I/O Expander
+ * 
+ * let i2c = require("i2c");
+ * Call init(i2c); or init(i2c, deviceAddress); before using any other function.
+ * Call reset(); to reset the device into known state (bank 1 registers, interrupt pins [mirrored, push-pull, active low]).
+ * call pinMode(pin, mode); to set the pin mode (modeOutput, modeInput, modeInputPullup). pin0-7 is portA, pin8-15 is portB.
+ * call setupInterruptPin(pin, trigger); to setup an interrupt pin (triggerLow, triggerHigh, triggerChange).
+ * call clearInterruptPin(pin); to clear an interrupt pin.
+ * call digitalRead(pin); to read the digital value of a pin.
+ * call digitalWrite(pin, value); to write a digital value to a pin (true=on, false=off).
+ * call getLastInterruptPin(); to get the last pin that triggered an interrupt.
+ * call getCapturedInterruptValue(); to get the value of all the pins when the interrupt was triggered.
+ * 
+ */
+({
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    portA: 0x00,
+    portB: 0x10,
+    dataA: 0x0,
+    dataB: 0x0,
+    triggerLow: false,
+    triggerHigh: true,
+    triggerChange: 2,
+    modeOutput: 10,
+    modeInput: 11,
+    modeInputPullup: 12,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the MCP23017 device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0x40 - 0x4E.
+            return this._scanAddress(0x40, 0x4E) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+    _useBank1: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        // If we are in bank 0, then register 0x0B is IOCON. If we are in bank 1, then register 0x0B is ignored.
+        let buffer = this.i2c.writeRead(addr, [0x0B], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let data = Uint8Array(buffer)[0];
+        data = data | 0x80; // Set BANK flag to Bank 1.
+        this.i2c.write(addr, [0x0B, data], this.timeout);
+        return true;
+    },
+    setupInterrupts: function (shouldMirror, openDrain, signalPolarity) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        let config = 0x80; // IOCON.BANK = 1 (portA in register 0x00, portB in register 0x10)
+        config = config | 0x20; // IOCON.SEQOP = 1 (Address pointer does not increment)
+        config = config | 0x08; // IOCON.HAEN = 1 (Address pins are always enabled)
+        if (shouldMirror) {
+            config = config | 0x40; // IOCON.MIRROR = 1 (INTA and INTB pins are both triggered when an interrupt occurs)
+        }
+        if (openDrain) {
+            config = config | 0x04; // ODR = 1 (The INT pin is open-drain)
+        }
+        if (signalPolarity) {
+            config = config | 0x02; // INTPOL = 1 (The INT pin is active high)
+        }
+        this.i2c.write(addr, [0x05, config], this.timeout);
+        return true;
+    },
+    reset: function () {
+        return this._useBank1() && this.setupInterrupts(true, false, false);
+    },
+    setDirectionGPIO: function (direction, port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        // Direction bit (0 = output, 1 = input) [IO7 - IO0]
+        this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+    },
+    readGPIO: function (port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x09 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        return Uint8Array(buffer)[0];
+    },
+    writeGPIO: function (value, port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        this.i2c.write(addr, [0x09 + port, value], this.timeout);
+        return true;
+    },
+    pinMode: function (pin, mode) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x0 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let direction = Uint8Array(buffer)[0];
+        // If mode is an input also read the pullup register
+        if (mode === this.modeInput || mode === this.modeInputPullup) {
+            buffer = this.i2c.writeRead(addr, [0x06 + port], 1, this.timeout);
+            if (buffer === undefined) {
+                return false;
+            }
+        }
+        let pullup = Uint8Array(buffer)[0];
+        if (mode === this.modeOutput) {
+            direction = direction & ~(1 << pin);
+            return this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+        } else if (mode === this.modeInput) {
+            direction = direction | (1 << pin);
+            this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+            pullup = pullup & ~(1 << pin);
+            return this.i2c.write(addr, [0x06 + port, pullup], this.timeout);
+        } else if (mode === this.modeInputPullup) {
+            direction = direction | (1 << pin);
+            this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+            pullup = pullup | (1 << pin);
+            return this.i2c.write(addr, [0x06 + port, pullup], this.timeout);
+        }
+        return false;
+    },
+    digitalRead: function (pin) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return -1;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        let data = this.readGPIO(port);
+        if (data === -1) {
+            return -1;
+        }
+        return (data & (1 << pin)) !== 0;
+    },
+    digitalWrite: function (pin, value) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        let data = this.dataA;
+        if (pin >= 8) {
+            port = this.portB;
+            data = this.dataB;
+            pin = pin - 8;
+        }
+        // let data = this.readGPIO(port);
+        //if (data === -1) {
+        //return false;
+        //}
+        if (value) {
+            data = data | (1 << pin);
+        } else {
+            data = data & ~(1 << pin);
+        }
+
+        if (port === this.portA) {
+            this.dataA = data;
+        } else {
+            this.dataB = data;
+        }
+        return this.writeGPIO(data, port);
+    },
+    setupInterruptPin: function (pin, trigger) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        // current interrupt control register (1=DEFVAL, 0=previous pin value)
+        let buffer = this.i2c.writeRead(addr, [0x04 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            print("MCP23017:Err-CI")
+            return false;
+        }
+        let intcon = Uint8Array(buffer)[0];
+
+        // Get the current default value register (if trigger on high/low)
+        let defval = 0;
+        if (trigger === this.triggerLow || trigger === this.triggerHigh) {
+            // Get the current default value register
+            buffer = this.i2c.writeRead(addr, [0x03 + port], 1, this.timeout);
+            if (buffer === undefined) {
+                print("MCP23017:Err-DV")
+                return false;
+            }
+            defval = Uint8Array(buffer)[0];
+        }
+
+        if (trigger === this.triggerChange) {
+            intcon = intcon & ~(1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else if (trigger === this.triggerLow) {
+            defval = defval | (1 << pin);
+            this.i2c.write(addr, [0x03 + port, defval], this.timeout);
+            intcon = intcon | (1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else if (trigger === this.triggerHigh) {
+            defval = defval & ~(1 << pin);
+            this.i2c.write(addr, [0x03 + port, defval], this.timeout);
+            intcon = intcon | (1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else {
+            print("Bad Trigger param");
+            return false;
+        }
+
+        // GPIO Interrupt-on-change
+        buffer = this.i2c.writeRead(addr, [0x02 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            print("MCP23017:Err-IOC")
+            return false;
+        }
+        let gpinten = Uint8Array(buffer)[0];
+        gpinten = gpinten | (1 << pin);
+        return this.i2c.write(addr, [0x02 + port, gpinten], this.timeout);
+    },
+    clearInterruptPin: function (pin) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        // current interrupt control register (1=DEFVAL, 0=previous pin value)
+        let buffer = this.i2c.writeRead(addr, [0x04 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let intcon = Uint8Array(buffer)[0];
+        intcon = intcon & ~(1 << pin);
+        return this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+    },
+    getLastInterruptPin: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x07 + this.portA], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        let data = Uint8Array(buffer)[0];
+        if (data !== 0) {
+            let pin = 0;
+            while ((data & 0x01) === 0) {
+                data = data >> 1;
+                pin++;
+            }
+            return pin;
+        }
+        buffer = this.i2c.writeRead(addr, [0x07 + this.portB], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        data = Uint8Array(buffer)[0];
+        if (data !== 0) {
+            let pin = 8;
+            while ((data & 0x01) === 0) {
+                data = data >> 1;
+                pin++;
+            }
+            return pin;
+        }
+
+        return -1;
+    },
+    getCapturedInterruptValue: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x08 + this.portB], 2, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        let data = Uint8Array(buffer)[0] << 8;
+        buffer = this.i2c.writeRead(addr, [0x08 + this.portA], 2, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        return data | (Uint8Array(buffer)[0]);
+    },
+});
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_at24_read.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    // Assume SAO.69 format...
+    let dc = at24c32.readByte(0);
+    let maker = at24c32.readByte(1);
+    let badge = at24c32.readByte(2);
+
+    // Read format (SAO.69) of our badge...
+    if (dc === 32 && maker === 0x42 && badge < 0x10) {
+        let len = at24c32.readByte(3);
+        print("DC", dc);
+        print("Maker: ", maker.toString(16));
+        print("Badge id: ", badge);
+        print("length", len);
+        print("Data:", at24c32.readString(4, len));
+    } else if (maker === 0x49 && badge === 0x46) {
+        // Read LIFE format...
+        let header = at24c32.readString(0, 4);
+        let nameLen = at24c32.readByte(4);
+        let driverNameLen = at24c32.readByte(5);
+        let driverDataLen = at24c32.readByte(6);
+        let _extraDrivers = at24c32.readByte(7);
+        let name = at24c32.readString(8, nameLen);
+        let driverName = at24c32.readString(8 + nameLen, driverNameLen);
+        let driverData = at24c32.readBytes(8 + nameLen + driverNameLen, driverDataLen);
+        print("Header:", header);
+        print("Name:", name);
+        print("DriverName:", driverName);
+        if (driverName === "neopixel" && driverDataLen === 4) {
+            print("LEDs", driverData[0] << 8 | driverData[1]);
+            if (driverData[2] === 2) {
+                print("LED Order:", "GRB");
+            } else {
+                print("LED Order:", driverData[2]);
+            }
+        }
+    } else {
+        print("DC", dc);
+        print("Maker: ", maker.toString(16));
+        print("Badge id: ", badge);
+    }
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_at24_w_life.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+// Format (LIFE) from https://badge.team/docs/standards/sao/binary_descriptor/
+// "LIFE"
+// name length
+// driver name length
+// driver data length
+// extra drivers
+// name
+// driver name 
+// driver data
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    let memAddr = 0;
+    let header = "LIFE";
+    let name = "Blinky";
+    let driverName = "neopixel";
+    let driverDataLen = 4;
+    let extraDrivers = 0;
+    let buffer = [];
+    for (let i = 0; i < header.length; i++) {
+        buffer.push(header.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += header.length;
+
+    at24c32.writeByte(memAddr++, name.length);
+    at24c32.writeByte(memAddr++, driverName.length);
+    at24c32.writeByte(memAddr++, driverDataLen);
+    at24c32.writeByte(memAddr++, extraDrivers);
+
+    buffer = [];
+    for (let i = 0; i < name.length; i++) {
+        buffer.push(name.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += name.length;
+
+    buffer = [];
+    for (let i = 0; i < driverName.length; i++) {
+        buffer.push(driverName.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += driverName.length;
+
+    // Extra data for neopixel driver
+    let numLeds = 16;
+    let grb = 2;
+    at24c32.writeBytes(memAddr, [(numLeds >> 8) & 0xFF, numLeds & 0xFF, grb, 0]);
+
+    print("updated AT24C32");
+} else {
+    print("at24c32 not found (0xA0).");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_at24_w_sao69.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+// Format (SOA.69):
+// DC year
+// Maker ID
+// Badge Id
+// Custom Data
+
+// No registry for SAO Maker IDs, here are some known ones:
+//   0x05 is Longhorn Engineer
+//   0x49 is AND!XOR
+//   0x49 is 'I' for "LIFE" protocol from badge.team (w/Badge id 'F' 0x46)
+//   0x49 is 'E' for "TEAM" protocol from badge.team (w/Badge id 'A' 0x41)
+//   0x53 is 'S' for "JSON" protocol from badge.team (w/Badge id 'O' 0x4F)
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    let memAddr = 0;
+    at24c32.writeByte(memAddr++, 32); // DC32
+    at24c32.writeByte(memAddr++, 0x42); // Maker ID 
+    at24c32.writeByte(memAddr++, 0x01); // Badge id
+    // Begin custom data, format determined by previous 3 bytes.
+    let message = "Hello world!";
+    let buffer = [];
+    for (let i = 0; i < message.length; i++) {
+        buffer.push(message.at(i));
+    }
+    at24c32.writeByte(memAddr++, message.length); // Custom Data [Msg Length]
+    at24c32.writeBytes(memAddr, buffer);
+
+    print("updated AT24C32");
+} else {
+    print("at24c32 not found (0xA0).");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_badge_tag_nfc.js ===
+
+// Demo for https://hackaday.io/project/198165-badge-tag-nfc-sao
+// NFC Component is: NXP NT3H2211W0FT1
+// Connect an Badge Tag NFC SAO to the I2C bus of the Flipper Zero. 
+// SDA=pin 15, SCL=pin 16, VCC=pin 9, GND=pin 8.
+let i2c = require("i2c");
+
+function i2c_find_first_device() {
+    let addr = -1;
+    for (let try_addr = 0; try_addr !== 0xff; try_addr++) {
+        if (i2c.isDeviceReady(try_addr, 5)) {
+            addr = try_addr;
+            break;
+        }
+    }
+    return addr;
+}
+
+function pad2Hex(val) {
+    return val < 16 ? "0" + val.toString(16) : val.toString(16);
+}
+
+function getUid(addr) {
+    let data_buf = i2c.writeRead(addr, [0x00], 7, 100);
+    if (data_buf === undefined) {
+        return undefined;
+    }
+
+    let data = Uint8Array(data_buf);
+
+    let uid = pad2Hex(data[0]);
+    for (let i = 1; i < data.length; i++) {
+        uid += " " + pad2Hex(data[i]);
+    }
+
+    return uid;
+}
+
+function writeUrl(addr, url) {
+    let status = true;
+    let writeDelay = 100;
+    
+    // CONFIG BLOCK.
+    let write_buf = [0x01, 0x03, url.length + 5, 0xD1,
+        0x01, // START 
+        url.length + 1, // LEN 
+        0x55, // END 
+        0x04]; // https://
+    
+    for (let i = 0; i < url.length; i++) {
+        write_buf.push(url.charCodeAt(i));
+        if (write_buf.length === 17) {
+            status = status && i2c.write(addr, write_buf, 100);
+            delay(writeDelay);
+            write_buf = [write_buf[0]+1];
+        }
+    }
+
+    while (write_buf[0] !== 5) {
+        for (let i = write_buf.length; i < 17; i++) {
+            write_buf.push(0x00);
+        }
+        status = status && i2c.write(addr, write_buf, 100);
+        delay(writeDelay);    
+        write_buf = [write_buf[0]+1];
+    }
+
+    return status;
+}
+
+let addr = i2c_find_first_device();
+if (addr === -1) {
+    print("I2C device not found");
+    print("Please connect a Badge Tag NFC SAO device to the Flipper Zero.");
+    print("SDA=pin 15, SCL=pin 16,  VCC=pin 9, GND=pin 8.");
+} else {
+    print("I2C device found at address: " + (addr >> 1).toString(16));
+    delay(1000);
+
+    print("Writing URL...");
+    
+//    if (!writeUrl(addr, "github.com/jamisonderek/flipper-zero-tutorials/wiki")) {
+//        print("Error writing URL");
+//    }
+
+//    if (!writeUrl(addr, "youtube.com/@TalkingSasquach")) {
+//        print("Error writing URL");
+//    }
+
+    if (!writeUrl(addr, "youtube.com/@MrDerekJamison")) {
+        print("Error writing URL");
+    }
+    
+    print ("ID " + getUid(addr));
+
+    let data_buf = i2c.writeRead(addr, [0x01], 16, 100);
+    let data = Uint8Array(data_buf);
+    let payloadLen = data[4];
+    print ("Payload length: ", payloadLen);
+
+    let msg = "";
+    for (let reg = 0x01; reg<0x05; reg++) {
+        data_buf = i2c.writeRead(addr, [reg], 16, 100);
+        if (data_buf === undefined) {
+            print ("Error ", pad2Hex(reg));
+            delay(500);
+        }
+        data = Uint8Array(data_buf);
+        for (let i = 0; i < data.length; i++) {
+            if (reg === 0x00 || (reg === 0x1 && i <6)) {
+                msg = msg + pad2Hex(data[i])+ " ";
+            } else if (reg === 0x01 && i === 6 && data[i] === 0x04) {
+                msg = msg + "[https://]";
+            } else if (reg === 0x01 && i === 6) {
+                msg = msg + "[0x" + pad2Hex(data[i]) + "]";
+            } else if (data[i] < 32 || data[i] > 126) {
+                msg = msg + ((data[i] === 0) ? "." : "?");
+            } else {
+                msg = msg + chr(data[i]);
+            }
+        }
+        print (pad2Hex(reg) + " " + msg);
+        msg = "";
+        delay(500);
+    }
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_blinky_loop.js ===
+
+// Demo for https://hackaday.io/project/198163-blinky-loop-sao
+// Components are: LIS2DH12, WS2812b
+// Connect an Blinky Loop SAO to the I2C bus and pin A7 of the Flipper Zero.
+// SDA=pin 15, SCL=pin 16, VCC=pin 9, GND=pin 8, GPIO1=pin 2.
+let i2c = require("i2c");
+let lis2dh12 = load(__dirname + "/lis2dh12.js");
+
+let ws2812 = require('ws2812');
+
+let max = 255 / 6;
+ws2812.setup({ pin: 2, count: 12 });
+
+if (lis2dh12.init(i2c)) {
+  print("Found LIS2DH12 at address 0x" + lis2dh12.getRWAddress().toString(16));
+
+  print("who: ", lis2dh12.who());
+  delay(1000);
+  lis2dh12.reset();
+  
+  print("Tilt Flipper to change LED speed!");
+  let i=0;
+  while (true) {
+    i++;
+    ws2812.set(i%12, { red: 0, green: max, blue: max });
+    ws2812.set((i+1)%12, { red: 0, green: max, blue: 0 });
+    ws2812.set((i+2)%12, { red: 0, green: 0, blue: max });
+    ws2812.set((i+3)%12, { red: max, green: max, blue: 0 });
+    ws2812.set((i+4)%12, { red: max, green: 0, blue: max });
+    ws2812.set((i+5)%12, { red: max, green: 0, blue: 0 });
+    ws2812.set((i+6)%12, { red: max / 2, green: max / 2, blue: 0 });
+    ws2812.set((i+7)%12, { red: 0, green: max, blue: max });
+    ws2812.set((i+8)%12, { red: 0, green: max, blue: 0 });
+    ws2812.set((i+9)%12, { red: 0, green: 0, blue: max });
+    ws2812.set((i+10)%12, { red: max, green: max, blue: 0 });
+    ws2812.set((i+11)%12, { red: max, green: 0, blue: max });    
+    
+    // send the data to the LEDs
+    ws2812.update();
+
+    let accel = lis2dh12.accel();
+    print(accel.x, accel.y, accel.z);
+    let del = accel.y;
+    if (del > 16000) {del=16000;}
+    delay((16000-del)/50);
+  }
+} else {
+  print("LIS2DH12 not found.");
+}
+
+
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_gpio.js ===
+
+let event_loop = require("event_loop"); // Required before gpio
+let gpio = require("gpio");
+
+let gpioPin1 = "PA7";
+print(gpioPin1, "is GPIO1");
+let gpioPin2 = "PB3";
+print(gpioPin2, "is GPIO2");
+
+let gpio1 = gpio.get(gpioPin1);
+gpio1.init({ direction: "out", outMode: "push_pull" });
+
+let gpio2 = gpio.get(gpioPin2);
+gpio2.init({ direction: "in", inMode: "plain_digital" });
+
+let speedMillis = 500;
+for (let i = 0; i < 10; i++) {
+    gpio1.write(true);
+    print(gpio2.read());
+    delay(speedMillis);
+    gpio1.write(false);
+    print(gpio2.read());
+    delay(speedMillis);
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_lis2dh12.js ===
+
+// Demo for LIS2DH12 accelerometer data
+// Component is: LIS2DH12
+// Connect an LIS2DH12 SAO to the I2C bus of the Flipper Zero. 
+// SDA=pin 15, SCL=pin 16, VCC=pin 9, GND=pin 8.
+let i2c = require("i2c");
+let lis2dh12 = load(__dirname + "/lis2dh12.js");
+
+if (lis2dh12.init(i2c)) {
+  print("Found LIS2DH12 at address 0x" + lis2dh12.getRWAddress().toString(16));
+
+  print("who: ", lis2dh12.who());
+  delay(1000);
+  lis2dh12.reset();
+  
+  print("LIS2DH12 data:");
+  while (true) {
+    let accel = lis2dh12.accel();
+    print(accel.x, accel.y, accel.z);
+    delay(1000);
+  }
+} else {
+  print("LIS2DH12 not found.");
+}
+
+
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_mcp_matrix.js ===
+
+let i2c = require("i2c");
+let mcp = load(__dirname + "/mcp23017.js");
+
+if (mcp.init(i2c, 0x20)) {
+    print("MCP23017 at:", mcp.getRWAddress().toString(16));
+    mcp.reset();
+
+    // Demo a matrix keypad
+    print("testing matrix keypad...");
+    mcp.pinMode(0, mcp.modeOutput);
+    mcp.pinMode(1, mcp.modeOutput);
+    mcp.pinMode(2, mcp.modeOutput);
+    mcp.pinMode(3, mcp.modeOutput);
+
+    mcp.pinMode(8, mcp.modeInputPullup);
+    mcp.pinMode(9, mcp.modeInputPullup);
+    mcp.pinMode(10, mcp.modeInputPullup);
+    mcp.pinMode(11, mcp.modeInputPullup);
+    mcp.setupInterruptPin(8, mcp.triggerLow);
+    mcp.setupInterruptPin(9, mcp.triggerLow);
+    mcp.setupInterruptPin(10, mcp.triggerLow);
+    mcp.setupInterruptPin(11, mcp.triggerLow);
+    mcp.pinMode(12, mcp.modeOutput);
+    mcp.pinMode(13, mcp.modeOutput);
+    mcp.pinMode(14, mcp.modeOutput);
+    mcp.pinMode(15, mcp.modeOutput);
+    mcp.digitalWrite(12, true);
+    mcp.digitalWrite(13, true);
+    mcp.digitalWrite(14, true);
+    mcp.digitalWrite(15, true);
+    mcp.digitalRead(8);
+    mcp.digitalRead(9);
+    mcp.digitalRead(10);
+    mcp.digitalRead(11);
+    for (let i = 0; i < 50; i++) {
+        for (let j = 12; j <= 15; j++) {
+            mcp.digitalWrite(j, false);
+            mcp.digitalWrite(j - 12, true); // Turn on LED
+            mcp.digitalWrite(j, true);
+            mcp.digitalWrite(j - 12, false); // Turn off LED
+        }
+        if (mcp.getLastInterruptPin() !== -1) {
+            break;
+        }
+    }
+    let intPin = mcp.getLastInterruptPin();
+    print("Interrupt pin:", intPin);
+    if (intPin !== -1) {
+        let v = 0xFF - (mcp.getCapturedInterruptValue() >> 8);
+        print("Matrix:", v.toString(16));
+        let col = 0;
+        let row = 0;
+        if ((v & 0x0F) === 0x01) {
+            row = 1;
+        } else if ((v & 0x0F) === 0x02) {
+            row = 2;
+        } else if ((v & 0x0F) === 0x04) {
+            row = 3;
+        } else if ((v & 0x0F) === 0x08) {
+            row = 4;
+        }
+
+        if ((v & 0xF0) === 0x10) {
+            col = 1;
+        } else if ((v & 0xF0) === 0x20) {
+            col = 2;
+        } else if ((v & 0xF0) === 0x40) {
+            col = 3;
+        } else if ((v & 0xF0) === 0x80) {
+            col = 4;
+        }
+        print("Row:", row, "Col:", col);
+        print("Switch:", (row - 1) * 4 + col);
+    } else {
+        print("No key pressed");
+    }
+} else {
+    print("MCP23017 not found");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_mcp_out.js ===
+
+let i2c = require("i2c");
+
+let mcp = load(__dirname + "/mcp23017.js");
+
+if (mcp.init(i2c, 0x20)) {
+    print("MCP23017 at:", mcp.getRWAddress().toString(16));
+    mcp.reset();
+
+    // Demo LEDs
+    print("LEDs 0-5");
+
+    for (let pins = 0; pins <= 5; pins++) {
+        mcp.pinMode(pins, mcp.modeOutput);
+        mcp.digitalWrite(pins, false);
+    }
+
+    let speedMillis = 100;
+    let pinDir = 1;
+    let pin = 0;
+    for (let i = 0; i < 50; i++) {
+        pin += pinDir;
+        if (pin > 5) {
+            pin = 5;
+            pinDir = -1;
+        } else if (pin < 0) {
+            pin = 0;
+            pinDir = 1;
+        }
+        mcp.digitalWrite(pin, true);
+        delay(speedMillis);
+        mcp.digitalWrite(pin, false);
+    }
+
+    // Set all pins to input
+    for (let pins = 0; pins < 16; pins++) {
+        mcp.pinMode(pins, mcp.modeInput);
+    }
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_sk9822.js ===
+
+let spi = require("spi");
+let sk9822 = load(__dirname + "/sk9822_spi.js");
+
+sk9822.init(spi);
+
+let intensity = 31;
+let index = 0;
+for (let i = 0; i < 20; i++) {
+    sk9822.writeStart();
+    index++;
+    if (index % 2 === 0) {
+        sk9822.writeColor(128, 128, 0, intensity);
+    }
+    sk9822.writeColor(255, 0, 0, intensity);
+    sk9822.writeColor(0, 255, 0, intensity);
+    sk9822.writeColor(0, 0, 255, intensity);
+    sk9822.writeColor(255, 255, 255, intensity);
+    sk9822.writeColor(255, 255, 0, intensity);
+    sk9822.writeColor(255, 0, 255, intensity);
+    sk9822.writeColor(0, 255, 255, intensity);
+    sk9822.writeColor(1, 0, 0, intensity);
+    sk9822.writeColor(4, 0, 0, intensity);
+    sk9822.writeColor(16, 0, 0, intensity);
+    sk9822.writeColor(64, 0, 0, intensity);
+    sk9822.writeStop(0);
+    delay(500);
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_spiral_matrix_petal.js ===
+
+// Demo for https://github.com/Hack-a-Day/2024-Supercon-8-Add-On-Badge/tree/main/hardware/sao/petal_matrix
+// Component is: AS1115 I2C display driver
+// Connect an Spiral Matrix Petal SAO to the I2C bus of the Flipper Zero. 
+// SDA=pin 15, SCL=pin 16, VCC=pin 9, GND=pin 8.
+let i2c = require("i2c");
+
+function i2c_find_first_device() {
+    let addr = -1;
+    for (let try_addr = 0; try_addr !== 0xff; try_addr++) {
+        if (i2c.isDeviceReady(try_addr, 5)) {
+            addr = try_addr;
+            break;
+        }
+    }
+    return addr;
+}
+
+function readReg(addr, reg) {
+  let data_buf = i2c.writeRead(addr, [reg], 1, 100);
+  if (data_buf === undefined) {
+    return undefined;
+  } else {
+    return Uint8Array(data_buf)[0];
+  }
+}
+
+function petalRgb(addr, r, g, b) {
+  let old_b = readReg(addr,2); // 2 b
+  let old_r = readReg(addr,3); // 3 r
+  let old_g = readReg(addr,4); // 4 g
+  i2c.write(addr, [2, (old_b & 0x7F) | b]); delay(20);
+  i2c.write(addr, [3, (old_r & 0x7F) | r]); delay(20);
+  i2c.write(addr, [4, (old_g & 0x7F) | g]);
+}
+
+let addr = i2c_find_first_device();
+if (addr === -1) {
+    print("I2C device not found");
+    print("Please connect a Petal SAO to the Flipper Zero.");
+    print("SDA=pin 15, SCL=pin 16,  VCC=pin 9, GND=pin 8.");
+} else {
+    print("I2C device found at address: " + (addr >> 1).toString(16));
+    delay(1000);
+
+    print("Init...");
+    i2c.write(addr, [0x09, 0x00], 100); // raw pixel mode (not 7-seg) 
+    i2c.write(addr, [0x0A, 0x09], 100); // intensity (of 16) 
+    i2c.write(addr, [0x0B, 0x07], 100); // enable all segments
+    i2c.write(addr, [0x0C, 0x81], 100); // undo shutdown bits 
+    i2c.write(addr, [0x0D, 0x00], 100); //  
+    i2c.write(addr, [0x0E, 0x00], 100); // no crazy features
+    i2c.write(addr, [0x0F, 0x00], 100); // turn off display test mode 
+
+    print("Leds...");
+    for (let z=1;z<=8;z++) {
+        i2c.write(addr, [z, 0], 100);
+    }
+    delay(500);
+
+    petalRgb(addr,0,0,0);
+    delay(1000);
+    petalRgb(addr,128,128,128);
+    delay(2000);
+    petalRgb(addr,128,0,0);
+    delay(1000);
+    petalRgb(addr,0,128,0);
+    delay(1000);
+    petalRgb(addr,0,0,128);
+    delay(1000);
+    petalRgb(addr,128,128,0);
+    delay(1000);
+    petalRgb(addr,128,0,128); 
+    delay(1000);
+    petalRgb(addr,0,128,128); 
+    delay(1000);
+
+    for (let z=1;z<=8;z++) {
+        i2c.write(addr, [z, 0], 100);
+    }
+
+    // Each string of LEDs are 7 long (1, 2, 4, 8, 16, 32, 64).
+    for (let bits=2; bits<=128; bits*=2) {
+        let status = false;
+        print("bits", bits-1);
+        // Loop over each of the 8 strings of LEDs
+        for (let led=1; led<=8; led++) {
+            status = i2c.write(addr, [led, bits-1], 100);
+            delay(200);
+        }
+    }
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_touchwheel.js ===
+
+// Demo a https://github.com/todbot/TouchwheelSAO
+// Components are: ATtiny816
+// Connect an Touchwheel SAO to the I2C bus of the Flipper Zero.
+// SDA=pin 15, SCL=pin 16, VCC=pin 9, GND=pin 8, GPIO1=pin 2.
+let i2c = require("i2c");
+
+function i2c_find_first_device() {
+    let addr = -1;
+    for (let try_addr = 0; try_addr !== 0xff; try_addr++) {
+        if (i2c.isDeviceReady(try_addr, 5)) {
+            addr = try_addr;
+            break;
+        }
+    }
+    return addr;
+}
+
+function touchwheelRead(addr) {
+  let data_buf = i2c.writeRead(addr, [0x00], 1, 100);
+  if (data_buf === undefined) {
+    return undefined;
+  } else {
+    return Uint8Array(data_buf)[0];
+  }
+}
+
+function touchwheelRgb(addr, r, g, b) {
+    i2c.write(addr, [15, r]); delay(20);
+    i2c.write(addr, [16, g]); delay(20);
+    i2c.write(addr, [17, b]);
+}
+
+let addr = i2c_find_first_device();
+if (addr === -1) {
+    print("I2C device not found");
+    print("Please connect a Touchwheel SAO to the Flipper Zero.");
+    print("SDA=pin 15, SCL=pin 16,  VCC=pin 9, GND=pin 8.");
+} else {
+    print("I2C device found at address: " + (addr >> 1).toString(16));
+    delay(1000);
+
+    touchwheelRgb(addr,0,0,0);
+    delay(1000);
+    touchwheelRgb(addr,128,128,128);
+    delay(2000);
+    touchwheelRgb(addr,128,0,0);
+    delay(1000);
+    touchwheelRgb(addr,0,128,0);
+    delay(1000);
+    touchwheelRgb(addr,0,0,128);
+    delay(1000);
+    touchwheelRgb(addr,128,128,0);
+    delay(1000);
+    touchwheelRgb(addr,128,0,128); 
+    delay(1000);
+    touchwheelRgb(addr,0,128,128); 
+    delay(1000);
+
+    for (let i=0; i<1000;i++) {
+        let position = touchwheelRead(addr);
+        print ("Position: ", position,"/255");
+        delay(100);
+    }
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sao_ws2812b.js ===
+
+// NOTE: The ws2812 module is still under development. Function names may change.
+let ws2812 = require('ws2812');
+
+let max = 255 / 6;
+
+ws2812.setup({ pin: 2, count: 12 });
+
+for (let i=0; i<100000;i++) {
+// does not update the LEDs when called, only updates the internal buffer
+ws2812.set(i%12, { red: 0, green: max, blue: max });
+ws2812.set((i+1)%12, { red: 0, green: max, blue: 0 });
+ws2812.set((i+2)%12, { red: 0, green: 0, blue: max });
+ws2812.set((i+3)%12, { red: max, green: max, blue: 0 });
+ws2812.set((i+4)%12, { red: max, green: 0, blue: max });
+ws2812.set((i+5)%12, { red: max, green: 0, blue: 0 });
+ws2812.set((i+6)%12, { red: max / 2, green: max / 2, blue: 0 });
+ws2812.set((i+7)%12, { red: 0, green: max, blue: max });
+ws2812.set((i+8)%12, { red: 0, green: max, blue: 0 });
+ws2812.set((i+9)%12, { red: 0, green: 0, blue: max });
+ws2812.set((i+10)%12, { red: max, green: max, blue: 0 });
+ws2812.set((i+11)%12, { red: max, green: 0, blue: max });
+
+
+// send the data to the LEDs
+ws2812.update();
+
+delay(70);
+
+}
+
+let color = ws2812.getColor(6);
+print("Color[6]", color.red, color.green, color.blue);
+
+
+ws2812.setup({ pin: "pb3", count: 7 });
+ws2812.set(0, { red: max, green: 0, blue: max });
+ws2812.update();
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sk9822_gpio.js ===
+
+// SK9822 RGB LED strip example using GPIO
+
+({
+    gpio: undefined,
+    sck: undefined,
+    mosi: undefined,
+    /**
+     * Initializes an SK9822 using GPIO control.
+     * @param {any} gpio
+     */
+    init: function (gpio, dataPin, clockPin) {
+        this.gpio = gpio;
+
+        if (dataPin === undefined) {
+            dataPin = "PA7";
+            print(dataPin, "is data");
+        }
+        if (clockPin === undefined) {
+            clockPin = "PB3";
+            print(clockPin, "is clock");
+        }
+        this.mosi = gpio.get(dataPin);
+        this.mosi.init({ direction: "out", outMode: "push_pull" });
+        this.sck = gpio.get(clockPin);
+        this.sck.init({ direction: "out", outMode: "push_pull" });
+    },
+    writeByte: function (data) {
+        for (let i = 0; i < 8; i++) {
+            let mask = 1 << (7 - i);
+            this.mosi.write((data & mask) === mask);
+            this.sck.write(true);
+            this.sck.write(false);
+        }
+    },
+    writeStart: function () {
+        this.writeByte(0);
+        this.writeByte(0);
+        this.writeByte(0);
+        this.writeByte(0);
+    },
+    writeStop: function (b) {
+        this.writeByte(b);
+        this.writeByte(b);
+        this.writeByte(b);
+        this.writeByte(b);
+    },
+    writeColor: function (r, g, b, i) {
+        if (i === undefined || i > 31) {
+            i = 31;
+        } if (i < 0) {
+            i = 0;
+        }
+        this.writeByte(0xE0 | (i & 31));
+        this.writeByte(b);
+        this.writeByte(g);
+        this.writeByte(r);
+    }
+});
+
+
+
+=== FILE: medium\jamisonderek-sao\js_app\examples\apps\Scripts\SAO\sk9822_spi.js ===
+
+// SK9822 RGB LED strip example using SPI
+
+({
+    spi: undefined,
+    /**
+     * Initializes an SK9822 using GPIO control.
+     * @param {any} spi
+     */
+    init: function (spi) {
+        this.spi = spi;
+    },
+    writeStart: function () {
+        this.spi.write([0, 0, 0, 0]);
+    },
+    writeStop: function (b) {
+        this.spi.write([b, b, b, b]);
+    },
+    writeColor: function (r, g, b, i) {
+        if (i === undefined || i > 31) {
+            i = 31;
+        } if (i < 0) {
+            i = 0;
+        }
+        this.spi.write([0xE0 | (i & 31), b, g, r]);
+    }
+});
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\a_ws.js ===
+
+let ws2812 = require('ws2812');
+
+let max = 255 / 6;
+
+ws2812.setup({ pin: 2, count: 7 });
+ws2812.set(0, { red: 0, green: max, blue: max });
+ws2812.set(1, { red: 0, green: max, blue: 0 });
+ws2812.set(2, { red: 0, green: 0, blue: max });
+ws2812.set(3, { red: max, green: max, blue: 0 });
+ws2812.set(4, { red: max, green: 0, blue: max });
+ws2812.set(5, { red: max, green: 0, blue: 0 });
+ws2812.set(6, { red: max / 2, green: max / 2, blue: 0 });
+
+ws2812.update();
+
+let color = ws2812.getColor(5);
+print("Color[5]", color.red, color.green, color.blue);
+
+
+ws2812.setup({ pin: "pb3", count: 7 });
+ws2812.set(0, { red: max, green: 0, blue: max });
+
+ws2812.update();
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\at24c32.js ===
+
+({
+    /**
+     * let i2c=require("i2c");
+     * at24c32.init(i2c, 0x50);
+     * 
+     * getRWAddress(); // returns the address of the I2C device
+     * 
+     * readByte(memAddr); // reads a byte from the memory address
+     * 
+     * readBytes(memAddr, length); // returns an array of bytes starting at memory address
+     * 
+     * readString(memAddr, length); // returns a string of bytes starting at memory address
+     * 
+     * writeByte(memAddr, data); // writes a byte to the memory address
+     * 
+     * writeBytes(memAddr, data); // writes an array of bytes starting at memory address
+     */
+
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the AT23C32 device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0xA0 - 0xAE.
+            return this._scanAddress(0xA0, 0xAE) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+    readByte: function (addr) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], 1, this.timeout);
+        if (buffer.byteLength === 0) {
+            return -1;
+        } else {
+            return Uint8Array(buffer)[0];
+        }
+    },
+    readBytes: function (addr, length) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], length, this.timeout);
+        if (buffer.byteLength === 0) {
+            return undefined;
+        } else {
+            return Uint8Array(buffer);
+        }
+    },
+    readString: function (addr, length) {
+        let buffer = this.i2c.writeRead(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF], length, this.timeout);
+        if (buffer.byteLength === 0) {
+            return undefined;
+        } else {
+            let data = Uint8Array(buffer);
+            let str = "";
+            for (let i = 0; i < data.length; i++) {
+                str = str + chr(data[i]);
+            }
+            return str;
+        }
+    },
+    writeByte: function (addr, data) {
+        return this.i2c.write(this._getAddress(), [(addr >> 8) & 0xFF, addr & 0xFF, data & 0xFF], this.timeout);
+    },
+    writeBytes: function (addr, data) {
+        let buffer = [];
+        buffer.push((addr >> 8) & 0xFF);
+        buffer.push(addr & 0xFF);
+        for (let i = 0; i < data.length; i++) {
+            buffer.push(data[i]);
+        }
+        return this.i2c.write(this._getAddress(), buffer, this.timeout);
+    },
+});
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\at24c32.txt ===
+
+// at24c32
+
+let i2c = require("i2c");
+
+at24c32.init(i2c, 0x50); // returns true if the device is found at the address
+
+getRWAddress(); // returns the address of the I2C device
+
+readByte(memAddr); // reads a byte from the memory address
+
+readBytes(memAddr, length); // returns an array of bytes starting at memory address
+
+readString(memAddr, length); // returns a string of bytes starting at memory address
+
+writeByte(memAddr, data); // writes a byte to the memory address
+
+writeBytes(memAddr, data); // writes an array of bytes starting at memory address
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\mcp23017.js ===
+
+/**
+ * MCP23017 I2C 16-bit I/O Expander
+ * 
+ * let i2c = require("i2c");
+ * Call init(i2c); or init(i2c, deviceAddress); before using any other function.
+ * Call reset(); to reset the device into known state (bank 1 registers, interrupt pins [mirrored, push-pull, active low]).
+ * call pinMode(pin, mode); to set the pin mode (modeOutput, modeInput, modeInputPullup). pin0-7 is portA, pin8-15 is portB.
+ * call setupInterruptPin(pin, trigger); to setup an interrupt pin (triggerLow, triggerHigh, triggerChange).
+ * call clearInterruptPin(pin); to clear an interrupt pin.
+ * call digitalRead(pin); to read the digital value of a pin.
+ * call digitalWrite(pin, value); to write a digital value to a pin (true=on, false=off).
+ * call getLastInterruptPin(); to get the last pin that triggered an interrupt.
+ * call getCapturedInterruptValue(); to get the value of all the pins when the interrupt was triggered.
+ * 
+ */
+({
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    portA: 0x00,
+    portB: 0x10,
+    dataA: 0x0,
+    dataB: 0x0,
+    triggerLow: false,
+    triggerHigh: true,
+    triggerChange: 2,
+    modeOutput: 10,
+    modeInput: 11,
+    modeInputPullup: 12,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the MCP23017 device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0x40 - 0x4E.
+            return this._scanAddress(0x40, 0x4E) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+    _useBank1: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        // If we are in bank 0, then register 0x0B is IOCON. If we are in bank 1, then register 0x0B is ignored.
+        let buffer = this.i2c.writeRead(addr, [0x0B], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let data = Uint8Array(buffer)[0];
+        data = data | 0x80; // Set BANK flag to Bank 1.
+        this.i2c.write(addr, [0x0B, data], this.timeout);
+        return true;
+    },
+    setupInterrupts: function (shouldMirror, openDrain, signalPolarity) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        let config = 0x80; // IOCON.BANK = 1 (portA in register 0x00, portB in register 0x10)
+        config = config | 0x20; // IOCON.SEQOP = 1 (Address pointer does not increment)
+        config = config | 0x08; // IOCON.HAEN = 1 (Address pins are always enabled)
+        if (shouldMirror) {
+            config = config | 0x40; // IOCON.MIRROR = 1 (INTA and INTB pins are both triggered when an interrupt occurs)
+        }
+        if (openDrain) {
+            config = config | 0x04; // ODR = 1 (The INT pin is open-drain)
+        }
+        if (signalPolarity) {
+            config = config | 0x02; // INTPOL = 1 (The INT pin is active high)
+        }
+        this.i2c.write(addr, [0x05, config], this.timeout);
+        return true;
+    },
+    reset: function () {
+        return this._useBank1() && this.setupInterrupts(true, false, false);
+    },
+    setDirectionGPIO: function (direction, port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        // Direction bit (0 = output, 1 = input) [IO7 - IO0]
+        this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+    },
+    readGPIO: function (port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x09 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        return Uint8Array(buffer)[0];
+    },
+    writeGPIO: function (value, port) {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return false;
+        }
+        this.i2c.write(addr, [0x09 + port, value], this.timeout);
+        return true;
+    },
+    pinMode: function (pin, mode) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x0 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let direction = Uint8Array(buffer)[0];
+        // If mode is an input also read the pullup register
+        if (mode === this.modeInput || mode === this.modeInputPullup) {
+            buffer = this.i2c.writeRead(addr, [0x06 + port], 1, this.timeout);
+            if (buffer === undefined) {
+                return false;
+            }
+        }
+        let pullup = Uint8Array(buffer)[0];
+        if (mode === this.modeOutput) {
+            direction = direction & ~(1 << pin);
+            return this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+        } else if (mode === this.modeInput) {
+            direction = direction | (1 << pin);
+            this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+            pullup = pullup & ~(1 << pin);
+            return this.i2c.write(addr, [0x06 + port, pullup], this.timeout);
+        } else if (mode === this.modeInputPullup) {
+            direction = direction | (1 << pin);
+            this.i2c.write(addr, [0x00 + port, direction], this.timeout);
+            pullup = pullup | (1 << pin);
+            return this.i2c.write(addr, [0x06 + port, pullup], this.timeout);
+        }
+        return false;
+    },
+    digitalRead: function (pin) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return -1;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        let data = this.readGPIO(port);
+        if (data === -1) {
+            return -1;
+        }
+        return (data & (1 << pin)) !== 0;
+    },
+    digitalWrite: function (pin, value) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        let data = this.dataA;
+        if (pin >= 8) {
+            port = this.portB;
+            data = this.dataB;
+            pin = pin - 8;
+        }
+        // let data = this.readGPIO(port);
+        //if (data === -1) {
+        //return false;
+        //}
+        if (value) {
+            data = data | (1 << pin);
+        } else {
+            data = data & ~(1 << pin);
+        }
+
+        if (port === this.portA) {
+            this.dataA = data;
+        } else {
+            this.dataB = data;
+        }
+        return this.writeGPIO(data, port);
+    },
+    setupInterruptPin: function (pin, trigger) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        // current interrupt control register (1=DEFVAL, 0=previous pin value)
+        let buffer = this.i2c.writeRead(addr, [0x04 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            print("MCP23017:Err-CI")
+            return false;
+        }
+        let intcon = Uint8Array(buffer)[0];
+
+        // Get the current default value register (if trigger on high/low)
+        let defval = 0;
+        if (trigger === this.triggerLow || trigger === this.triggerHigh) {
+            // Get the current default value register
+            buffer = this.i2c.writeRead(addr, [0x03 + port], 1, this.timeout);
+            if (buffer === undefined) {
+                print("MCP23017:Err-DV")
+                return false;
+            }
+            defval = Uint8Array(buffer)[0];
+        }
+
+        if (trigger === this.triggerChange) {
+            intcon = intcon & ~(1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else if (trigger === this.triggerLow) {
+            defval = defval | (1 << pin);
+            this.i2c.write(addr, [0x03 + port, defval], this.timeout);
+            intcon = intcon | (1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else if (trigger === this.triggerHigh) {
+            defval = defval & ~(1 << pin);
+            this.i2c.write(addr, [0x03 + port, defval], this.timeout);
+            intcon = intcon | (1 << pin);
+            this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+        } else {
+            print("Bad Trigger param");
+            return false;
+        }
+
+        // GPIO Interrupt-on-change
+        buffer = this.i2c.writeRead(addr, [0x02 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            print("MCP23017:Err-IOC")
+            return false;
+        }
+        let gpinten = Uint8Array(buffer)[0];
+        gpinten = gpinten | (1 << pin);
+        return this.i2c.write(addr, [0x02 + port, gpinten], this.timeout);
+    },
+    clearInterruptPin: function (pin) {
+        let addr = this._getAddress();
+        if (addr === -1 || pin < 0 || pin > 15) {
+            return false;
+        }
+        let port = this.portA;
+        if (pin >= 8) {
+            port = this.portB;
+            pin = pin - 8;
+        }
+        // current interrupt control register (1=DEFVAL, 0=previous pin value)
+        let buffer = this.i2c.writeRead(addr, [0x04 + port], 1, this.timeout);
+        if (buffer === undefined) {
+            return false;
+        }
+        let intcon = Uint8Array(buffer)[0];
+        intcon = intcon & ~(1 << pin);
+        return this.i2c.write(addr, [0x04 + port, intcon], this.timeout);
+    },
+    getLastInterruptPin: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x07 + this.portA], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        let data = Uint8Array(buffer)[0];
+        if (data !== 0) {
+            let pin = 0;
+            while ((data & 0x01) === 0) {
+                data = data >> 1;
+                pin++;
+            }
+            return pin;
+        }
+        buffer = this.i2c.writeRead(addr, [0x07 + this.portB], 1, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        data = Uint8Array(buffer)[0];
+        if (data !== 0) {
+            let pin = 8;
+            while ((data & 0x01) === 0) {
+                data = data >> 1;
+                pin++;
+            }
+            return pin;
+        }
+
+        return -1;
+    },
+    getCapturedInterruptValue: function () {
+        let addr = this._getAddress();
+        if (addr === -1) {
+            return -1;
+        }
+        let buffer = this.i2c.writeRead(addr, [0x08 + this.portB], 2, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        let data = Uint8Array(buffer)[0] << 8;
+        buffer = this.i2c.writeRead(addr, [0x08 + this.portA], 2, this.timeout);
+        if (buffer === undefined) {
+            return -1;
+        }
+        return data | (Uint8Array(buffer)[0]);
+    },
+});
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao.js ===
+
+let event_loop = require("event_loop"); // Required before gpio
+let gpio = require("gpio");
+
+let i2c = require("i2c");
+let spi = require("spi");
+
+let mcp = load(__dirname + "/mcp23017.js");
+let at24c32 = load(__dirname + "/at24c32.js");
+let ssd1306 = load(__dirname + "/ssd1306.js");
+let sk9822_gpio = load(__dirname + "/sk9822_gpio.js");
+let sk9822_spi = load(__dirname + "/sk9822_spi.js");
+
+let devices = "";
+
+if (mcp.init(i2c, 0x20)) {
+    devices = devices + ("mcp23017 ");
+    print("MCP23017 at:", mcp.getRWAddress().toString(16));
+    mcp.reset();
+
+    /*
+    // Demo blinking LED and reading button
+    print("GPIO blink/read demo...");
+    mcp.pinMode(0, mcp.modeOutput);
+    mcp.digitalWrite(0, true);
+    mcp.pinMode(1, mcp.modeInputPullup);
+    let speedMillis = 500;
+    for (let i = 0; i < 10; i++) {
+        mcp.digitalWrite(0, true);
+        print(mcp.digitalRead(1));
+        delay(speedMillis);
+        mcp.digitalWrite(0, false);
+        print(mcp.digitalRead(1));
+        delay(speedMillis);
+    }
+    */
+
+    // Demo a matrix keypad
+    print("testing matrix keypad...");
+    mcp.pinMode(8, mcp.modeInputPullup);
+    mcp.pinMode(9, mcp.modeInputPullup);
+    mcp.pinMode(10, mcp.modeInputPullup);
+    mcp.pinMode(11, mcp.modeInputPullup);
+    mcp.setupInterruptPin(8, mcp.triggerLow);
+    mcp.setupInterruptPin(9, mcp.triggerLow);
+    mcp.setupInterruptPin(10, mcp.triggerLow);
+    mcp.setupInterruptPin(11, mcp.triggerLow);
+    mcp.pinMode(12, mcp.modeOutput);
+    mcp.pinMode(13, mcp.modeOutput);
+    mcp.pinMode(14, mcp.modeOutput);
+    mcp.pinMode(15, mcp.modeOutput);
+    mcp.digitalWrite(12, true);
+    mcp.digitalWrite(13, true);
+    mcp.digitalWrite(14, true);
+    mcp.digitalWrite(15, true);
+    mcp.digitalRead(8);
+    mcp.digitalRead(9);
+    mcp.digitalRead(10);
+    mcp.digitalRead(11);
+    for (let i = 0; i < 50; i++) {
+        for (let j = 12; j <= 15; j++) {
+            mcp.digitalWrite(j, false);
+            mcp.digitalWrite(j, true);
+        }
+        if (mcp.getLastInterruptPin() !== -1) {
+            break;
+        }
+    }
+    let intPin = mcp.getLastInterruptPin();
+    print("Interrupt pin:", intPin);
+    if (intPin !== -1) {
+        let v = 0xFF - (mcp.getCapturedInterruptValue() >> 8);
+        print("Matrix:", v.toString(16));
+        die("done with demo");
+    }
+} else {
+    print("MCP23017 not found");
+}
+
+if (at24c32.init(i2c, 0x50)) {
+    devices = devices + ("at24c32 ");
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    let memAddr = 0;
+    at24c32.writeByte(memAddr++, 0x20); // DC32
+    // No registry for SAO Maker IDs?
+    // 0x05 is Longhorn Engineer
+    // 0x49 is AND!XOR
+    // 0x4A is 'J' for "JSON" protocol from badge.team (w/Badge id 'S' 0x53)
+    // 0x4C is 'L' for "LIFE" protocol from badge.team (w/Badge id 'I' 0x49)
+    // 0x54 is 'T' for "TEAM" protocol from badge.team (w/Badge id 'E' 0x45)
+    at24c32.writeByte(memAddr++, 0x92); // Maker ID 
+    at24c32.writeByte(memAddr++, 0x01); // Badge id
+    // Begin custom data, format determined by previous 3 bytes.
+    let message = "Hello world!";
+    let buffer = [];
+    for (let i = 0; i < message.length; i++) {
+        // at24c32.writeByte(memAddr++, message.charCodeAt(i)); // Custom Data [Msg]
+        buffer.push(message.at(i));
+    }
+    at24c32.writeByte(memAddr++, message.length); // Custom Data [Msg Length]
+    at24c32.writeBytes(memAddr, buffer);
+
+    print("DC", at24c32.readByte(0));
+    print("Maker: ", at24c32.readByte(1).toString(16));
+    print("Badge id: ", at24c32.readByte(2));
+
+    // TODO: Check DC, Maker, Badge ID to determine how to read custom data.
+    let len = at24c32.readByte(3);
+    print(at24c32.readString(4, len));
+    delay(2000);
+} else {
+    print("at24c32 not found (0xA0).");
+}
+
+if (ssd1306.init(i2c)) { // , 0x27
+    devices = devices + ("ssd1306 ");
+    print("SSD1306 at:", ssd1306.getRWAddress().toString(16));
+} else {
+    print("ssd1306 not found (0x27).");
+}
+
+if (ssd1306.getRWAddress() === -1 && at24c32.getRWAddress() === -1 && mcp.getRWAddress() === -1) {
+    print("SDA=pin 15, SCL=pin 16. Pull-up resistors?");
+} else {
+    print("Found devices:", devices);
+}
+
+// We can't detect SK9822 devices. We'll just try to use them.
+let sk9822 = undefined;
+let useSpi = false;
+if (useSpi) {
+    sk9822_spi.init(spi);
+    sk9822 = sk9822_spi;
+} else {
+    sk9822_gpio.init(gpio, "PA7", "PB3");
+    sk9822 = sk9822_gpio;
+}
+let intensity = 20;
+let index = 0;
+for (let i = 0; i < 20; i++) {
+    sk9822.writeStart();
+    index++;
+    if (index % 2 === 0) {
+        sk9822.writeColor(128, 128, 0, intensity);
+    }
+    sk9822.writeColor(255, 0, 0, intensity);
+    sk9822.writeColor(0, 255, 0, intensity);
+    sk9822.writeColor(0, 0, 255, intensity);
+    sk9822.writeColor(255, 255, 255, intensity);
+    sk9822.writeColor(255, 255, 0, intensity);
+    sk9822.writeColor(255, 0, 255, intensity);
+    sk9822.writeColor(0, 255, 255, intensity);
+    sk9822.writeColor(1, 0, 0, intensity);
+    sk9822.writeColor(4, 0, 0, intensity);
+    sk9822.writeColor(16, 0, 0, intensity);
+    sk9822.writeColor(64, 0, 0, intensity);
+    sk9822.writeStop(0);
+    delay(500);
+}
+
+useSpi = true;
+if (useSpi) {
+    sk9822_spi.init(spi);
+    sk9822 = sk9822_spi;
+} else {
+    sk9822_gpio.init(gpio, "PA7", "PB3");
+    sk9822 = sk9822_gpio;
+}
+for (let i = 0; i < 20; i++) {
+    sk9822.writeStart();
+    index++;
+    if (index % 2 === 0) {
+        sk9822.writeColor(128, 128, 0, intensity);
+    }
+    sk9822.writeColor(255, 0, 0, intensity);
+    sk9822.writeColor(0, 255, 0, intensity);
+    sk9822.writeColor(0, 0, 255, intensity);
+    sk9822.writeColor(255, 255, 255, intensity);
+    sk9822.writeColor(255, 255, 0, intensity);
+    sk9822.writeColor(255, 0, 255, intensity);
+    sk9822.writeColor(0, 255, 255, intensity);
+    sk9822.writeColor(1, 0, 0, intensity);
+    sk9822.writeColor(4, 0, 0, intensity);
+    sk9822.writeColor(16, 0, 0, intensity);
+    sk9822.writeColor(64, 0, 0, intensity);
+    sk9822.writeStop(0);
+    delay(500);
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_at24_r.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    // Assume SAO.69 format...
+    let dc = at24c32.readByte(0);
+    let maker = at24c32.readByte(1);
+    let badge = at24c32.readByte(2);
+
+    // Read format (SAO.69) of our badge...
+    if (dc === 32 && maker === 0x42 && badge < 0x10) {
+        let len = at24c32.readByte(3);
+        print("DC", dc);
+        print("Maker: ", maker.toString(16));
+        print("Badge id: ", badge);
+        print("length", len);
+        print("Data:", at24c32.readString(4, len));
+    } else if (maker === 0x49 && badge === 0x46) {
+        // Read LIFE format...
+        let header = at24c32.readString(0, 4);
+        let nameLen = at24c32.readByte(4);
+        let driverNameLen = at24c32.readByte(5);
+        let driverDataLen = at24c32.readByte(6);
+        let _extraDrivers = at24c32.readByte(7);
+        let name = at24c32.readString(8, nameLen);
+        let driverName = at24c32.readString(8 + nameLen, driverNameLen);
+        let driverData = at24c32.readBytes(8 + nameLen + driverNameLen, driverDataLen);
+        print("Header:", header);
+        print("Name:", name);
+        print("DriverName:", driverName);
+        if (driverName === "neopixel" && driverDataLen === 4) {
+            print("LEDs", driverData[0] << 8 | driverData[1]);
+            if (driverData[2] === 2) {
+                print("LED Order:", "GRB");
+            } else {
+                print("LED Order:", driverData[2]);
+            }
+        }
+    } else {
+        print("DC", dc);
+        print("Maker: ", maker.toString(16));
+        print("Badge id: ", badge);
+    }
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_at24_w_life.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+// Format (LIFE) from https://badge.team/docs/standards/sao/binary_descriptor/
+// "LIFE"
+// name length
+// driver name length
+// driver data length
+// extra drivers
+// name
+// driver name 
+// driver data
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    let memAddr = 0;
+    let header = "LIFE";
+    let name = "Blinky";
+    let driverName = "neopixel";
+    let driverDataLen = 4;
+    let extraDrivers = 0;
+    let buffer = [];
+    for (let i = 0; i < header.length; i++) {
+        buffer.push(header.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += header.length;
+
+    at24c32.writeByte(memAddr++, name.length);
+    at24c32.writeByte(memAddr++, driverName.length);
+    at24c32.writeByte(memAddr++, driverDataLen);
+    at24c32.writeByte(memAddr++, extraDrivers);
+
+    buffer = [];
+    for (let i = 0; i < name.length; i++) {
+        buffer.push(name.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += name.length;
+
+    buffer = [];
+    for (let i = 0; i < driverName.length; i++) {
+        buffer.push(driverName.at(i));
+    }
+    at24c32.writeBytes(memAddr, buffer);
+    memAddr += driverName.length;
+
+    // Extra data for neopixel driver
+    let numLeds = 16;
+    let grb = 2;
+    at24c32.writeBytes(memAddr, [(numLeds >> 8) & 0xFF, numLeds & 0xFF, grb, 0]);
+
+    print("updated AT24C32");
+} else {
+    print("at24c32 not found (0xA0).");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_at24_w_sao69.js ===
+
+let i2c = require("i2c");
+let at24c32 = load(__dirname + "/at24c32.js");
+
+// Format (SOA.69):
+// DC year
+// Maker ID
+// Badge Id
+// Custom Data
+
+// No registry for SAO Maker IDs, here are some known ones:
+//   0x05 is Longhorn Engineer
+//   0x49 is AND!XOR
+//   0x49 is 'I' for "LIFE" protocol from badge.team (w/Badge id 'F' 0x46)
+//   0x49 is 'E' for "TEAM" protocol from badge.team (w/Badge id 'A' 0x41)
+//   0x53 is 'S' for "JSON" protocol from badge.team (w/Badge id 'O' 0x4F)
+
+if (at24c32.init(i2c, 0x50)) {
+    print("AT24C32 at:", at24c32.getRWAddress().toString(16));
+
+    let memAddr = 0;
+    at24c32.writeByte(memAddr++, 32); // DC32
+    at24c32.writeByte(memAddr++, 0x42); // Maker ID 
+    at24c32.writeByte(memAddr++, 0x01); // Badge id
+    // Begin custom data, format determined by previous 3 bytes.
+    let message = "Hello world!";
+    let buffer = [];
+    for (let i = 0; i < message.length; i++) {
+        buffer.push(message.at(i));
+    }
+    at24c32.writeByte(memAddr++, message.length); // Custom Data [Msg Length]
+    at24c32.writeBytes(memAddr, buffer);
+
+    print("updated AT24C32");
+} else {
+    print("at24c32 not found (0xA0).");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_gpio.js ===
+
+let event_loop = require("event_loop"); // Required before gpio
+let gpio = require("gpio");
+
+let gpioPin1 = "PA7";
+print(gpioPin1, "is GPIO1");
+let gpioPin2 = "PB3";
+print(gpioPin2, "is GPIO2");
+
+let gpio1 = gpio.get(gpioPin1);
+gpio1.init({ direction: "out", outMode: "push_pull" });
+
+let gpio2 = gpio.get(gpioPin2);
+gpio2.init({ direction: "in", inMode: "plain_digital" });
+
+let speedMillis = 500;
+for (let i = 0; i < 10; i++) {
+    gpio1.write(true);
+    print(gpio2.read());
+    delay(speedMillis);
+    gpio1.write(false);
+    print(gpio2.read());
+    delay(speedMillis);
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_mcp_matrix.js ===
+
+let i2c = require("i2c");
+let mcp = load(__dirname + "/mcp23017.js");
+
+if (mcp.init(i2c, 0x20)) {
+    print("MCP23017 at:", mcp.getRWAddress().toString(16));
+    mcp.reset();
+
+    // Demo a matrix keypad
+    print("testing matrix keypad...");
+    mcp.pinMode(0, mcp.modeOutput);
+    mcp.pinMode(1, mcp.modeOutput);
+    mcp.pinMode(2, mcp.modeOutput);
+    mcp.pinMode(3, mcp.modeOutput);
+
+    mcp.pinMode(8, mcp.modeInputPullup);
+    mcp.pinMode(9, mcp.modeInputPullup);
+    mcp.pinMode(10, mcp.modeInputPullup);
+    mcp.pinMode(11, mcp.modeInputPullup);
+    mcp.setupInterruptPin(8, mcp.triggerLow);
+    mcp.setupInterruptPin(9, mcp.triggerLow);
+    mcp.setupInterruptPin(10, mcp.triggerLow);
+    mcp.setupInterruptPin(11, mcp.triggerLow);
+    mcp.pinMode(12, mcp.modeOutput);
+    mcp.pinMode(13, mcp.modeOutput);
+    mcp.pinMode(14, mcp.modeOutput);
+    mcp.pinMode(15, mcp.modeOutput);
+    mcp.digitalWrite(12, true);
+    mcp.digitalWrite(13, true);
+    mcp.digitalWrite(14, true);
+    mcp.digitalWrite(15, true);
+    mcp.digitalRead(8);
+    mcp.digitalRead(9);
+    mcp.digitalRead(10);
+    mcp.digitalRead(11);
+    for (let i = 0; i < 50; i++) {
+        for (let j = 12; j <= 15; j++) {
+            mcp.digitalWrite(j, false);
+            mcp.digitalWrite(j - 12, true); // Turn on LED
+            mcp.digitalWrite(j, true);
+            mcp.digitalWrite(j - 12, false); // Turn off LED
+        }
+        if (mcp.getLastInterruptPin() !== -1) {
+            break;
+        }
+    }
+    let intPin = mcp.getLastInterruptPin();
+    print("Interrupt pin:", intPin);
+    if (intPin !== -1) {
+        let v = 0xFF - (mcp.getCapturedInterruptValue() >> 8);
+        print("Matrix:", v.toString(16));
+        let col = 0;
+        let row = 0;
+        if ((v & 0x0F) === 0x01) {
+            row = 1;
+        } else if ((v & 0x0F) === 0x02) {
+            row = 2;
+        } else if ((v & 0x0F) === 0x04) {
+            row = 3;
+        } else if ((v & 0x0F) === 0x08) {
+            row = 4;
+        }
+
+        if ((v & 0xF0) === 0x10) {
+            col = 1;
+        } else if ((v & 0xF0) === 0x20) {
+            col = 2;
+        } else if ((v & 0xF0) === 0x40) {
+            col = 3;
+        } else if ((v & 0xF0) === 0x80) {
+            col = 4;
+        }
+        print("Row:", row, "Col:", col);
+        print("Switch:", (row - 1) * 4 + col);
+    } else {
+        print("No key pressed");
+    }
+} else {
+    print("MCP23017 not found");
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_mcp_out.js ===
+
+let i2c = require("i2c");
+
+let mcp = load(__dirname + "/mcp23017.js");
+
+if (mcp.init(i2c, 0x20)) {
+    print("MCP23017 at:", mcp.getRWAddress().toString(16));
+    mcp.reset();
+
+    // Demo LEDs
+    print("LEDs 0-5");
+
+    for (let pins = 0; pins <= 5; pins++) {
+        mcp.pinMode(pins, mcp.modeOutput);
+        mcp.digitalWrite(pins, false);
+    }
+
+    let speedMillis = 100;
+    let pinDir = 1;
+    let pin = 0;
+    for (let i = 0; i < 50; i++) {
+        pin += pinDir;
+        if (pin > 5) {
+            pin = 5;
+            pinDir = -1;
+        } else if (pin < 0) {
+            pin = 0;
+            pinDir = 1;
+        }
+        mcp.digitalWrite(pin, true);
+        delay(speedMillis);
+        mcp.digitalWrite(pin, false);
+    }
+
+    // Set all pins to input
+    for (let pins = 0; pins < 16; pins++) {
+        mcp.pinMode(pins, mcp.modeInput);
+    }
+}
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_sk9822.js ===
+
+let spi = require("spi");
+let sk9822 = load(__dirname + "/sk9822_spi.js");
+
+sk9822.init(spi);
+
+let intensity = 31;
+let index = 0;
+for (let i = 0; i < 20; i++) {
+    sk9822.writeStart();
+    index++;
+    if (index % 2 === 0) {
+        sk9822.writeColor(128, 128, 0, intensity);
+    }
+    sk9822.writeColor(255, 0, 0, intensity);
+    sk9822.writeColor(0, 255, 0, intensity);
+    sk9822.writeColor(0, 0, 255, intensity);
+    sk9822.writeColor(255, 255, 255, intensity);
+    sk9822.writeColor(255, 255, 0, intensity);
+    sk9822.writeColor(255, 0, 255, intensity);
+    sk9822.writeColor(0, 255, 255, intensity);
+    sk9822.writeColor(1, 0, 0, intensity);
+    sk9822.writeColor(4, 0, 0, intensity);
+    sk9822.writeColor(16, 0, 0, intensity);
+    sk9822.writeColor(64, 0, 0, intensity);
+    sk9822.writeStop(0);
+    delay(500);
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sao_ws2812b.js ===
+
+// NOTE: The ws2812 module is still under development. Function names may change.
+let ws2812 = require('ws2812');
+
+let max = 255 / 6;
+
+ws2812.setup({ pin: 2, count: 7 });
+
+// does not update the LEDs when called, only updates the internal buffer
+ws2812.set(0, { red: 0, green: max, blue: max });
+ws2812.set(1, { red: 0, green: max, blue: 0 });
+ws2812.set(2, { red: 0, green: 0, blue: max });
+ws2812.set(3, { red: max, green: max, blue: 0 });
+ws2812.set(4, { red: max, green: 0, blue: max });
+ws2812.set(5, { red: max, green: 0, blue: 0 });
+ws2812.set(6, { red: max / 2, green: max / 2, blue: 0 });
+
+// send the data to the LEDs
+ws2812.update();
+
+let color = ws2812.getColor(6);
+print("Color[6]", color.red, color.green, color.blue);
+
+
+ws2812.setup({ pin: "pb3", count: 7 });
+ws2812.set(0, { red: max, green: 0, blue: max });
+ws2812.update();
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sk9822_gpio.js ===
+
+// SK9822 RGB LED strip example using GPIO
+
+({
+    gpio: undefined,
+    sck: undefined,
+    mosi: undefined,
+    /**
+     * Initializes an SK9822 using GPIO control.
+     * @param {any} gpio
+     */
+    init: function (gpio, dataPin, clockPin) {
+        this.gpio = gpio;
+
+        if (dataPin === undefined) {
+            dataPin = "PA7";
+            print(dataPin, "is data");
+        }
+        if (clockPin === undefined) {
+            clockPin = "PB3";
+            print(clockPin, "is clock");
+        }
+        this.mosi = gpio.get(dataPin);
+        this.mosi.init({ direction: "out", outMode: "push_pull" });
+        this.sck = gpio.get(clockPin);
+        this.sck.init({ direction: "out", outMode: "push_pull" });
+    },
+    writeByte: function (data) {
+        for (let i = 0; i < 8; i++) {
+            let mask = 1 << (7 - i);
+            this.mosi.write((data & mask) === mask);
+            this.sck.write(true);
+            this.sck.write(false);
+        }
+    },
+    writeStart: function () {
+        this.writeByte(0);
+        this.writeByte(0);
+        this.writeByte(0);
+        this.writeByte(0);
+    },
+    writeStop: function (b) {
+        this.writeByte(b);
+        this.writeByte(b);
+        this.writeByte(b);
+        this.writeByte(b);
+    },
+    writeColor: function (r, g, b, i) {
+        if (i === undefined || i > 31) {
+            i = 31;
+        } if (i < 0) {
+            i = 0;
+        }
+        this.writeByte(0xE0 | (i & 31));
+        this.writeByte(b);
+        this.writeByte(g);
+        this.writeByte(r);
+    }
+});
+
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\sk9822_spi.js ===
+
+// SK9822 RGB LED strip example using SPI
+
+({
+    spi: undefined,
+    /**
+     * Initializes an SK9822 using GPIO control.
+     * @param {any} spi
+     */
+    init: function (spi) {
+        this.spi = spi;
+    },
+    writeStart: function () {
+        this.spi.write([0, 0, 0, 0]);
+    },
+    writeStop: function (b) {
+        this.spi.write([b, b, b, b]);
+    },
+    writeColor: function (r, g, b, i) {
+        if (i === undefined || i > 31) {
+            i = 31;
+        } if (i < 0) {
+            i = 0;
+        }
+        this.spi.write([0xE0 | (i & 31), b, g, r]);
+    }
+});
+
+
+=== FILE: medium\jamisonderek-sao\js_app\javascript\ssd1306.js ===
+
+({
+    i2c: undefined,
+    timeout: 100,
+    _addr: -1,
+    _scanAddress: function (min, max) {
+        this._addr = -1;
+        for (let addr = min; addr <= max; addr += 2) {
+            if (this.i2c.isDeviceReady(addr, 20)) {
+                this._addr = addr;
+                break;
+            }
+        }
+        return this._addr;
+    },
+    /**
+     * Locates the AT23C32 device on the I2C bus.
+     * @param {i2c} i2cType 
+     * @param {number} deviceRWAddress
+     * @returns true if device was found, false otherwise.
+     */
+    init: function (i2cType, deviceRWAddress) {
+        this.i2c = i2cType;
+        if (deviceRWAddress === undefined) {
+            // Scan for I2C device in address range 0x78 - 0x7A.
+            return this._scanAddress(0x78, 0x7A) !== -1;
+        } else {
+            return this._scanAddress(deviceRWAddress << 1, deviceRWAddress << 1) !== -1;
+        }
+    },
+    /**
+     * Call init() before using this function.
+     * @returns {number} The address of the device or -1 if no device was found.
+     */
+    getRWAddress: function () {
+        return (this._addr === -1) ? -1 : this._addr >> 1;
+    },
+    _getAddress: function () {
+        return this._addr;
+    },
+});
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\js_ws2812.c ===
+
+#include "../../js_modules.h"
+#include <core/common_defines.h>
+#include <furi_hal_gpio.h>
+#include <furi_hal_resources.h>
+
+#include "ws2812.h"
+
+typedef struct {
+    Ws2812* leds;
+} JsWs2812Inst;
+
+static void js_ws2812_setup(struct mjs* mjs) {
+    mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
+    JsWs2812Inst* ws2812 = mjs_get_ptr(mjs, obj_inst);
+    furi_assert(ws2812);
+
+    mjs_val_t setup_arg;
+    JS_FETCH_ARGS_OR_RETURN(mjs, JS_EXACTLY, JS_ARG_OBJ(&setup_arg));
+    mjs_val_t pin_obj = mjs_get(mjs, setup_arg, "pin", ~0);
+    mjs_val_t count_obj = mjs_get(mjs, setup_arg, "count", ~0);
+
+    if(!mjs_is_number(count_obj)) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "count must be a number");
+    }
+
+    const GpioPinRecord* pin_record = NULL;
+    // parse input argument to a pin pointer
+    const char* name_string = mjs_get_string(mjs, &pin_obj, NULL);
+    if(name_string) {
+        pin_record = furi_hal_resources_pin_by_name(name_string);
+    } else if(mjs_is_number(pin_obj)) {
+        int name_int = mjs_get_int(mjs, pin_obj);
+        pin_record = furi_hal_resources_pin_by_number(name_int);
+    } else {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Pin must be either a string or a number");
+    }
+
+    if(!pin_record) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Pin not found on device");
+    if(pin_record->debug) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Pin is used for debugging");
+    }
+
+    uint16_t count = mjs_get_int(mjs, count_obj);
+    if(count == 0 || count > MAX_LED_COUNT) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid count");
+    }
+
+    if(ws2812->leds) {
+        ws2812_free(ws2812->leds);
+    }
+
+    ws2812->leds = ws2812_alloc(count, pin_record->pin);
+}
+
+static void js_ws2812_set(struct mjs* mjs) {
+    mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
+    JsWs2812Inst* ws2812 = mjs_get_ptr(mjs, obj_inst);
+    furi_assert(ws2812);
+
+    if(!ws2812->leds) {
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "LEDs not setup");
+    }
+
+    uint32_t color;
+    if(mjs_nargs(mjs) == 2) {
+        if(mjs_is_number(mjs_arg(mjs, 0)) && mjs_is_number(mjs_arg(mjs, 1))) {
+            color = mjs_get_int(mjs, mjs_arg(mjs, 1));
+        } else if(mjs_is_number(mjs_arg(mjs, 0)) && mjs_is_object(mjs_arg(mjs, 1))) {
+            mjs_val_t red_obj = mjs_get(mjs, mjs_arg(mjs, 1), "red", ~0);
+            mjs_val_t green_obj = mjs_get(mjs, mjs_arg(mjs, 1), "green", ~0);
+            mjs_val_t blue_obj = mjs_get(mjs, mjs_arg(mjs, 1), "blue", ~0);
+            if(!mjs_is_number(red_obj) || !mjs_is_number(green_obj) || !mjs_is_number(blue_obj)) {
+                JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "red,green,blue must be numbers");
+            }
+            color = ((mjs_get_int(mjs, red_obj) & 0xFF) << 16) |
+                    ((mjs_get_int(mjs, green_obj) & 0xFF) << 8) |
+                    (mjs_get_int(mjs, blue_obj) & 0xFF);
+        } else {
+            JS_ERROR_AND_RETURN(
+                mjs, MJS_BAD_ARGS_ERROR, "use (pin,{red,green,blue}) or (pin,r,g,b)");
+        }
+    } else if(mjs_nargs(mjs) == 4) {
+        if(!mjs_is_number(mjs_arg(mjs, 0)) || !mjs_is_number(mjs_arg(mjs, 1)) ||
+           !mjs_is_number(mjs_arg(mjs, 2)) || !mjs_is_number(mjs_arg(mjs, 3))) {
+            JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "pin,r,g,b must be numbers");
+        }
+
+        color = ((mjs_get_int(mjs, mjs_arg(mjs, 1)) & 0xFF) << 16) |
+                ((mjs_get_int(mjs, mjs_arg(mjs, 2)) & 0xFF) << 8) |
+                (mjs_get_int(mjs, mjs_arg(mjs, 3) & 0xFF));
+    } else {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "use (pin,r,g,b) or (pin,{red,green,blue})");
+    }
+
+    uint16_t index = mjs_get_int(mjs, mjs_arg(mjs, 0));
+
+    uint16_t original_color = ws2812_get(ws2812->leds, index);
+    ws2812_set(ws2812->leds, index, color);
+    mjs_return(mjs, mjs_mk_number(mjs, original_color));
+}
+
+static void js_ws2812_get_value(struct mjs* mjs) {
+    mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
+    JsWs2812Inst* ws2812 = mjs_get_ptr(mjs, obj_inst);
+    furi_assert(ws2812);
+
+    if(!ws2812->leds) {
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "LEDs not setup");
+    }
+
+    if(mjs_nargs(mjs) != 1 || !mjs_is_number(mjs_arg(mjs, 0))) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "pin must be a number");
+    }
+
+    uint16_t index = mjs_get_int(mjs, mjs_arg(mjs, 0));
+    mjs_return(mjs, mjs_mk_number(mjs, ws2812_get(ws2812->leds, index)));
+}
+
+static void js_ws2812_get_color(struct mjs* mjs) {
+    mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
+    JsWs2812Inst* ws2812 = mjs_get_ptr(mjs, obj_inst);
+    furi_assert(ws2812);
+
+    if(!ws2812->leds) {
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "LEDs not setup");
+    }
+
+    if(mjs_nargs(mjs) != 1 || !mjs_is_number(mjs_arg(mjs, 0))) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "pin must be a number");
+    }
+
+    uint16_t index = mjs_get_int(mjs, mjs_arg(mjs, 0));
+    uint32_t color = ws2812_get(ws2812->leds, index);
+
+    mjs_val_t color_obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, color_obj) {
+        JS_FIELD("red", mjs_mk_number(mjs, (color >> 16) & 0xFF));
+        JS_FIELD("green", mjs_mk_number(mjs, (color >> 8) & 0xFF));
+        JS_FIELD("blue", mjs_mk_number(mjs, color & 0xFF));
+    }
+    mjs_return(mjs, color_obj);
+}
+
+static void js_ws2812_update(struct mjs* mjs) {
+    mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
+    JsWs2812Inst* ws2812 = mjs_get_ptr(mjs, obj_inst);
+    furi_assert(ws2812);
+
+    if(!ws2812->leds) {
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "LEDs not setup");
+    }
+
+    ws2812_update(ws2812->leds);
+}
+
+static void* js_ws2812_create(struct mjs* mjs, mjs_val_t* object, JsModules* modules) {
+    UNUSED(modules);
+    JsWs2812Inst* ws2812 = malloc(sizeof(JsWs2812Inst));
+    ws2812->leds = NULL;
+    mjs_val_t ws2812_obj = mjs_mk_object(mjs);
+    mjs_set(mjs, ws2812_obj, INST_PROP_NAME, ~0, mjs_mk_foreign(mjs, ws2812));
+    mjs_set(mjs, ws2812_obj, "setup", ~0, MJS_MK_FN(js_ws2812_setup));
+    mjs_set(mjs, ws2812_obj, "set", ~0, MJS_MK_FN(js_ws2812_set));
+    mjs_set(mjs, ws2812_obj, "getValue", ~0, MJS_MK_FN(js_ws2812_get_value));
+    mjs_set(mjs, ws2812_obj, "getColor", ~0, MJS_MK_FN(js_ws2812_get_color));
+    mjs_set(mjs, ws2812_obj, "update", ~0, MJS_MK_FN(js_ws2812_update));
+    *object = ws2812_obj;
+    return ws2812;
+}
+
+static void js_ws2812_destroy(void* inst) {
+    JsWs2812Inst* ws2812 = inst;
+    if(ws2812->leds) {
+        ws2812_free(ws2812->leds);
+    }
+    free(ws2812);
+}
+
+static const JsModuleDescriptor js_ws2812_desc = {
+    "ws2812",
+    js_ws2812_create,
+    js_ws2812_destroy,
+    NULL,
+};
+
+static const FlipperAppPluginDescriptor plugin_descriptor = {
+    .appid = PLUGIN_APP_ID,
+    .ep_api_version = PLUGIN_API_VERSION,
+    .entry_point = &js_ws2812_desc,
+};
+
+const FlipperAppPluginDescriptor* js_ws2812_ep(void) {
+    return &plugin_descriptor;
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\led_driver.c ===
+
+#include "led_driver_i.h"
+
+#define TAG "led_driver"
+
+struct LedDriver {
+    LL_DMA_InitTypeDef dma_gpio_update;
+    LL_DMA_InitTypeDef dma_led_transition_timer;
+
+    const GpioPin* gpio;
+    uint32_t gpio_buf[2]; // On/Off for GPIO
+
+    uint16_t timer_buffer[LED_DRIVER_BUFFER_SIZE + 2];
+    uint32_t write_pos;
+    uint32_t read_pos;
+
+    uint32_t count_leds;
+    uint32_t* led_data;
+};
+
+/**
+ * @brief Initializes the DMA for GPIO pin toggle via BSRR.
+ * @param led_driver The led driver to initialize.
+ * @param gpio The GPIO pin to toggle.
+ */
+static void led_driver_init_dma_gpio_update(LedDriver* led_driver, const GpioPin* gpio) {
+    led_driver->gpio = gpio;
+
+    // Memory to Peripheral
+    led_driver->dma_gpio_update.Direction = LL_DMA_DIRECTION_MEMORY_TO_PERIPH;
+    // Peripheral (GPIO - We populate GPIO port's BSRR register)
+    led_driver->dma_gpio_update.PeriphOrM2MSrcAddress = (uint32_t)&gpio->port->BSRR;
+    led_driver->dma_gpio_update.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT;
+    led_driver->dma_gpio_update.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_WORD;
+    // Memory (State to set GPIO)
+    led_driver->dma_gpio_update.MemoryOrM2MDstAddress = (uint32_t)led_driver->gpio_buf;
+    led_driver->dma_gpio_update.MemoryOrM2MDstIncMode = LL_DMA_MEMORY_INCREMENT;
+    led_driver->dma_gpio_update.MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_WORD;
+    // Data
+    led_driver->dma_gpio_update.Mode = LL_DMA_MODE_CIRCULAR;
+    led_driver->dma_gpio_update.NbData = 2; // We cycle between two (HIGH/LOW)values
+    // When to perform data exchange
+    led_driver->dma_gpio_update.PeriphRequest = LL_DMAMUX_REQ_TIM2_UP;
+    led_driver->dma_gpio_update.Priority = LL_DMA_PRIORITY_VERYHIGH;
+}
+
+/**
+ * @brief Initializes the DMA for the LED timings via ARR.
+ * @param led_driver The led driver to initialize.
+ */
+static void led_driver_init_dma_led_transition_timer(LedDriver* led_driver) {
+    // Timer that triggers based on user data.
+    led_driver->dma_led_transition_timer.Direction = LL_DMA_DIRECTION_MEMORY_TO_PERIPH;
+    // Peripheral (Timer - We populate TIM2's ARR register)
+    led_driver->dma_led_transition_timer.PeriphOrM2MSrcAddress = (uint32_t)&TIM2->ARR;
+    led_driver->dma_led_transition_timer.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT;
+    led_driver->dma_led_transition_timer.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_WORD;
+    // Memory (Timings)
+    led_driver->dma_led_transition_timer.MemoryOrM2MDstAddress =
+        (uint32_t)led_driver->timer_buffer;
+    led_driver->dma_led_transition_timer.MemoryOrM2MDstIncMode = LL_DMA_MEMORY_INCREMENT;
+    led_driver->dma_led_transition_timer.MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_HALFWORD;
+    // Data
+    led_driver->dma_led_transition_timer.Mode = LL_DMA_MODE_NORMAL;
+    led_driver->dma_led_transition_timer.NbData = LED_DRIVER_BUFFER_SIZE;
+    // When to perform data exchange
+    led_driver->dma_led_transition_timer.PeriphRequest = LL_DMAMUX_REQ_TIM2_UP;
+    led_driver->dma_led_transition_timer.Priority = LL_DMA_PRIORITY_HIGH;
+}
+
+/**
+ * @brief      Allocate and initialize LedDriver structure.
+ * @details    This function allocate and initialize LedDriver structure.
+ * @return     Pointer to allocated LedDriver structure.
+ */
+LedDriver* led_driver_alloc(int count_leds, const GpioPin* gpio) {
+    furi_assert(gpio);
+    furi_assert(count_leds && count_leds <= MAX_LED_COUNT);
+
+    LedDriver* led_driver = malloc(sizeof(LedDriver));
+    led_driver_init_dma_gpio_update(led_driver, gpio);
+    led_driver_init_dma_led_transition_timer(led_driver);
+    led_driver->led_data = malloc(MAX_LED_COUNT * sizeof(uint32_t));
+
+    led_driver->count_leds = count_leds;
+
+    return led_driver;
+}
+
+/**
+ * @brief Frees a led driver.
+ * @details Frees a led driver.
+ * @param led_driver The led driver to free.
+ */
+void led_driver_free(LedDriver* led_driver) {
+    furi_assert(led_driver);
+
+    furi_hal_gpio_init_simple(led_driver->gpio, GpioModeAnalog);
+    free(led_driver->led_data);
+    free(led_driver);
+}
+
+/**
+ * @brief Sets the LED at the given index to the given color.
+ * @note You must still call led_driver_transmit to actually update the LEDs.
+ * @param led_driver The led driver to use.
+ * @param index The index of the LED to set.
+ * @param rrggbb The color to set the LED to (0xrrggbb format).
+ * @return The previous color of the LED (0xrrggbb format).
+ */
+uint32_t led_driver_set_led(LedDriver* led_driver, uint32_t index, uint32_t rrggbb) {
+    furi_assert(led_driver);
+    if(index >= led_driver->count_leds) {
+        return 0xFFFFFFFF;
+    }
+
+    uint32_t previous = led_driver->led_data[index];
+    led_driver->led_data[index] = rrggbb;
+    return previous;
+}
+
+/**
+ * @brief Gets the LED at the given index.
+ * @param led_driver The led driver to use.
+ * @param index The index of the LED to get.
+ * @return The color of the LED (0xrrggbb format).
+ */
+uint32_t led_driver_get_led(LedDriver* led_driver, uint32_t index) {
+    furi_assert(led_driver);
+    if(index >= led_driver->count_leds) {
+        return 0xFFFFFFFF;
+    }
+
+    return led_driver->led_data[index];
+}
+
+/**
+ * @brief Initializes the DMA for GPIO pin toggle and led transititions.
+ * @param led_driver The led driver to initialize.
+ */
+static void led_driver_start_dma(LedDriver* led_driver) {
+    furi_assert(led_driver);
+
+    LL_DMA_Init(DMA1, LL_DMA_CHANNEL_1, &led_driver->dma_gpio_update);
+    LL_DMA_Init(DMA1, LL_DMA_CHANNEL_2, &led_driver->dma_led_transition_timer);
+
+    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
+    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
+}
+
+/**
+ * @brief Stops the DMA for GPIO pin toggle and led transititions.
+ * @param led_driver The led driver to initialize.
+ */
+static void led_driver_stop_dma() {
+    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_2);
+    LL_DMA_ClearFlag_TC1(DMA1);
+    LL_DMA_ClearFlag_TC2(DMA1);
+}
+
+/**
+ * @brief Starts the timer for led transitions.
+ * @param led_driver The led driver to initialize.
+ */
+static void led_driver_start_timer() {
+    furi_hal_bus_enable(FuriHalBusTIM2);
+
+    LL_TIM_SetCounterMode(TIM2, LL_TIM_COUNTERMODE_UP);
+    LL_TIM_SetClockDivision(TIM2, LL_TIM_CLOCKDIVISION_DIV1);
+    LL_TIM_SetPrescaler(TIM2, 0);
+    // Updated by led_driver->dma_led_transition_timer.PeriphOrM2MSrcAddress
+    LL_TIM_SetAutoReload(TIM2, LED_DRIVER_TIMER_SETINEL);
+    LL_TIM_SetCounter(TIM2, 0);
+
+    LL_TIM_EnableCounter(TIM2);
+    LL_TIM_EnableUpdateEvent(TIM2);
+    LL_TIM_EnableDMAReq_UPDATE(TIM2);
+    LL_TIM_GenerateEvent_UPDATE(TIM2);
+}
+
+/**
+ * @brief Stops the timer for led transitions.
+ * @param led_driver The led driver to initialize.
+ */
+static void led_driver_stop_timer() {
+    LL_TIM_DisableCounter(TIM2);
+    LL_TIM_DisableUpdateEvent(TIM2);
+    LL_TIM_DisableDMAReq_UPDATE(TIM2);
+    furi_hal_bus_disable(FuriHalBusTIM2);
+}
+
+/**
+ * @brief Waits for the DMA to complete.
+ * @param led_driver The led driver to use.
+ */
+static void led_driver_spin_lock(LedDriver* led_driver) {
+    const uint32_t prev_timer = DWT->CYCCNT;
+    const uint32_t wait_time = LED_DRIVER_SETINEL_WAIT_MS * SystemCoreClock / 1000;
+
+    do {
+        /* Make sure it's started (allow 100 ticks), but then check for sentinel value. */
+        if(TIM2->ARR == LED_DRIVER_TIMER_SETINEL && DWT->CYCCNT - prev_timer > 100) {
+            break;
+        }
+
+        // We should have seen it above, but just in case we also have a timeout.
+        if((DWT->CYCCNT - prev_timer > wait_time)) {
+            FURI_LOG_E(
+                TAG,
+                "0x%04x not found (ARR 0x%08lx, read %lu)",
+                LED_DRIVER_TIMER_SETINEL,
+                TIM2->ARR,
+                led_driver->read_pos);
+            led_driver->read_pos = led_driver->write_pos - 1;
+            break;
+        }
+    } while(true);
+}
+
+static void led_driver_add_period_length(LedDriver* led_driver, uint32_t length) {
+    led_driver->timer_buffer[led_driver->write_pos++] = length;
+    led_driver->timer_buffer[led_driver->write_pos] = LED_DRIVER_TIMER_SETINEL;
+}
+
+static void led_driver_add_period(LedDriver* led_driver, uint16_t duration_ns) {
+    furi_assert(led_driver);
+
+    uint32_t reload_value = duration_ns / LED_DRIVER_TIMER_NANOSECOND;
+
+    if(reload_value > 255) {
+        FURI_LOG_E(TAG, "reload_value: %ld", reload_value);
+    }
+    furi_check(reload_value > 0);
+    furi_check(reload_value < 256 * 256);
+
+    led_driver_add_period_length(led_driver, reload_value - 1);
+}
+
+static void led_driver_add_color(LedDriver* led_driver, uint32_t rrggbb) {
+    UNUSED(rrggbb);
+
+    uint32_t ggrrbb = (rrggbb & 0xFF) | ((rrggbb & 0xFF00) << 8) | ((rrggbb & 0xFF0000) >> 8);
+
+    for(int i = 23; i >= 0; i--) {
+        if(ggrrbb & (1 << i)) {
+            led_driver_add_period(led_driver, LED_DRIVER_T0L);
+            led_driver_add_period(led_driver, LED_DRIVER_T1L);
+        } else {
+            led_driver_add_period(led_driver, LED_DRIVER_T0H);
+            led_driver_add_period(led_driver, LED_DRIVER_T1H);
+        }
+    }
+}
+
+/**
+ * @brief Send the LED data to the LEDs.
+ * @param led_driver The led driver to use.
+ */
+void led_driver_transmit(LedDriver* led_driver) {
+    furi_assert(led_driver);
+
+    furi_assert(!led_driver->read_pos);
+    furi_assert(!led_driver->write_pos);
+
+    furi_hal_gpio_init(led_driver->gpio, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+    furi_hal_gpio_write(led_driver->gpio, false);
+
+    const uint32_t bit_set = led_driver->gpio->pin << GPIO_BSRR_BS0_Pos;
+    const uint32_t bit_reset = led_driver->gpio->pin << GPIO_BSRR_BR0_Pos;
+
+    // Always start with HIGH
+    led_driver->gpio_buf[0] = bit_set;
+    led_driver->gpio_buf[1] = bit_reset;
+
+    for(size_t i = 0; i < LED_DRIVER_BUFFER_SIZE; i++) {
+        led_driver->timer_buffer[i] = LED_DRIVER_TIMER_SETINEL;
+    }
+    for(size_t i = 0; i < led_driver->count_leds; i++) {
+        led_driver_add_color(led_driver, led_driver->led_data[i]);
+    }
+    led_driver_add_period(led_driver, LED_DRIVER_TDONE);
+    led_driver->dma_led_transition_timer.NbData = led_driver->write_pos + 1;
+
+    FURI_CRITICAL_ENTER();
+
+    led_driver_start_dma(led_driver);
+    led_driver_start_timer();
+
+    led_driver_spin_lock(led_driver);
+
+    led_driver_stop_timer();
+    led_driver_stop_dma();
+
+    FURI_CRITICAL_EXIT();
+
+    memset(led_driver->timer_buffer, LED_DRIVER_TIMER_SETINEL, LED_DRIVER_BUFFER_SIZE);
+    led_driver->read_pos = 0;
+    led_driver->write_pos = 0;
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\led_driver.h ===
+
+#include <furi.h>
+#include <furi_hal.h>
+
+typedef struct LedDriver LedDriver;
+
+/**
+ * @brief      Allocate and initialize LedDriver structure.
+ * @details    This function allocate and initialize LedDriver structure.
+ * @return     Pointer to allocated LedDriver structure.
+ */
+LedDriver* led_driver_alloc(int count_leds, const GpioPin* gpio);
+
+/**
+ * @brief Frees a led driver.
+ * @details Frees a led driver.
+ * @param led_driver The led driver to free.
+ */
+void led_driver_free(LedDriver* led_driver);
+
+/**
+ * @brief Sets the LED at the given index to the given color.
+ * @note You must still call led_driver_transmit to actually update the LEDs.
+ * @param led_driver The led driver to use.
+ * @param index The index of the LED to set.
+ * @param rrggbb The color to set the LED to.
+ * @return The previous color of the LED.
+ */
+uint32_t led_driver_set_led(LedDriver* led_driver, uint32_t index, uint32_t rrggbb);
+
+/**
+ * @brief Gets the LED at the given index.
+ * @param led_driver The led driver to use.
+ * @param index The index of the LED to get.
+ * @return The color of the LED (0xrrggbb format).
+ */
+uint32_t led_driver_get_led(LedDriver* led_driver, uint32_t index);
+
+/**
+ * @brief Send the LED data to the LEDs.
+ * @param led_driver The led driver to use.
+ */
+void led_driver_transmit(LedDriver* led_driver);
+
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\led_driver_i.h ===
+
+#pragma once
+
+#include <stm32wbxx_ll_dma.h>
+#include "led_driver.h"
+
+#define MAX_LED_COUNT 64
+
+// We store the HIGH/LOW durations (2 values) for each color bit (24 bits per LED)
+#define LED_DRIVER_BUFFER_SIZE (MAX_LED_COUNT * 2 * 24)
+
+// We use a setinel value to figure out when the timer is complete.
+#define LED_DRIVER_TIMER_SETINEL 0xFFFFU
+
+/** 64 transitions per us @ 64MHz.  Our timing is in NANO_SECONDS */
+#define LED_DRIVER_TIMER_NANOSECOND (1000U / (SystemCoreClock / 1000000U))
+
+// Timings for WS2812B
+#define LED_DRIVER_T0H     400U
+#define LED_DRIVER_T1H     800U
+#define LED_DRIVER_T0L     850U
+#define LED_DRIVER_T1L     450U
+#define LED_DRIVER_TRESETL 55 * 1000U
+#define LED_DRIVER_TDONE   2000U
+
+// Max wait for the DMA to complete. NOTE: 4000 leds*(850ns+450ns)*24 = 124.8ms + 50ms blanking = 174.8ms
+#define LED_DRIVER_SETINEL_WAIT_MS 200
+
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\ws2812.c ===
+
+#include <furi_hal.h>
+
+#include "ws2812.h"
+#include "led_driver.h"
+
+struct Ws2812 {
+    uint16_t num_leds;
+    uint32_t* color;
+    uint16_t brightness;
+    LedDriver* led_driver;
+};
+
+/**
+ * @brief Allocates a Ws2812 struct.
+ * @details This method allocates a Ws2812 struct.  This is used to
+ * control the addressable LEDs.
+ * @param num_leds The number of LEDs to allocate.
+ * @param leds_pin The GPIO pin to use for the LEDs. (&gpio_ext_pc3)
+ * @return The allocated Ws2812 struct.
+*/
+Ws2812* ws2812_alloc(uint16_t num_leds, const GpioPin* const leds_pin) {
+    Ws2812* leds = malloc(sizeof(Ws2812));
+    leds->num_leds = num_leds;
+    leds->color = malloc(sizeof(uint32_t) * leds->num_leds);
+    leds->brightness = 255;
+    leds->led_driver = led_driver_alloc(leds->num_leds, leds_pin);
+
+    ws2812_reset(leds);
+    return leds;
+}
+
+/**
+ * @brief Frees a Ws2812 struct.
+ * @param leds The Ws2812 struct to free.
+*/
+void ws2812_free(Ws2812* leds) {
+    if(leds->led_driver) {
+        led_driver_free(leds->led_driver);
+    }
+    free(leds->color);
+    free(leds);
+}
+
+/**
+ * @brief Resets the LEDs to their default color pattern (off).
+ * @details This method resets the LEDs data to their default color pattern (off).
+ * You must still call ws2812_update to update the LEDs.
+ * @param leds The Ws2812 struct to reset.
+*/
+void ws2812_reset(Ws2812* leds) {
+    for(int i = 0; i < leds->num_leds; i++) {
+        leds->color[i] = 0x000000;
+    }
+}
+
+/**
+ * @brief Sets the color of the LEDs.
+ * @details This method sets the color of the LEDs.
+ * @param leds The Ws2812 struct to set the color of.
+ * @param led The LED index to set the color of.
+ * @param color The color to set the LED to (Hex value: RRGGBB).
+ * @return True if the LED was set, false if the LED was out of range.
+*/
+bool ws2812_set(Ws2812* leds, uint16_t led, uint32_t color) {
+    if(led > leds->num_leds) {
+        return false;
+    }
+
+    leds->color[led] = color;
+    return true;
+}
+
+/**
+ * @brief Gets the color of the LEDs.
+ * @details This method gets the color of the LEDs.
+ * @param leds The Ws2812 struct to get the color of.
+ * @param led The LED index to get the color of.
+ * @return The color of the LED (Hex value: RRGGBB).
+*/
+uint32_t ws2812_get(Ws2812* leds, uint16_t led) {
+    if(led > leds->num_leds) {
+        return 0;
+    }
+
+    return leds->color[led];
+}
+
+/**
+ * @brief Sets the brightness of the LEDs.
+ * @details This method sets the brightness of the LEDs.
+ * @param leds The Ws2812 struct to set the brightness of.
+ * @param brightness The brightness to set the LEDs to (0-255).
+*/
+void ws2812_set_brightness(Ws2812* leds, uint8_t brightness) {
+    leds->brightness = brightness;
+}
+
+/**
+ * @brief Adjusts the brightness of a color.
+ * @details This method adjusts the brightness of a color.
+ * @param color The color to adjust.
+ * @param brightness The brightness to adjust the color to (0-255).
+ * @return The adjusted color.
+*/
+static uint32_t adjust_color_brightness(uint32_t color, uint8_t brightness) {
+    uint32_t red = (color & 0xFF0000) >> 16;
+    uint32_t green = (color & 0x00FF00) >> 8;
+    uint32_t blue = (color & 0x0000FF);
+
+    red = (red * brightness) / 255;
+    green = (green * brightness) / 255;
+    blue = (blue * brightness) / 255;
+
+    return (red << 16) | (green << 8) | blue;
+}
+
+/**
+ * @brief Updates the LEDs.
+ * @details This method changes the LEDs to the colors set by ws2812_set.
+ * @param leds The Ws2812 struct to update.
+*/
+void ws2812_update(Ws2812* leds) {
+    for(int i = 0; i < leds->num_leds; i++) {
+        uint32_t color = adjust_color_brightness(leds->color[i], leds->brightness);
+        led_driver_set_led(leds->led_driver, i, color);
+    }
+
+    led_driver_transmit(leds->led_driver);
+}
+
+
+=== FILE: medium\jamisonderek-sao\js_app\modules\js_ws2812\ws2812.h ===
+
+#pragma once
+
+#include <furi_hal.h>
+
+#define MAX_LED_COUNT 64
+
+typedef struct Ws2812 Ws2812;
+
+/**
+ * @brief Allocates a Ws2812 struct.
+ * @details This method allocates a Ws2812 struct.  This is used to
+ * control the addressable LEDs.
+ * @param num_leds The number of LEDs to allocate.
+ * @param leds_pin The GPIO pin to use for the LEDs. (&gpio_ext_pc3)
+ * @return The allocated Ws2812 struct.
+*/
+Ws2812* ws2812_alloc(uint16_t num_leds, const GpioPin* const leds_pin);
+
+/**
+ * @brief Frees a Ws2812 struct.
+ * @param leds The Ws2812 struct to free.
+*/
+void ws2812_free(Ws2812* leds);
+
+/**
+ * @brief Resets the LEDs to their default color pattern (off).
+ * @details This method resets the LEDs data to their default color pattern (off).
+ * You must still call ws2812_update to update the LEDs.
+ * @param leds The Ws2812 struct to reset.
+*/
+void ws2812_reset(Ws2812* leds);
+
+/**
+ * @brief Sets the color of the LEDs.
+ * @details This method sets the color of the LEDs.
+ * @param leds The Ws2812 struct to set the color of.
+ * @param led The LED index to set the color of.
+ * @param color The color to set the LED to (Hex value: RRGGBB).
+ * @return True if the LED was set, false if the LED was out of range.
+*/
+bool ws2812_set(Ws2812* leds, uint16_t led, uint32_t color);
+
+/**
+ * @brief Gets the color of the LEDs.
+ * @details This method gets the color of the LEDs.
+ * @param leds The Ws2812 struct to get the color of.
+ * @param led The LED index to get the color of.
+ * @return The color of the LED (Hex value: RRGGBB).
+*/
+uint32_t ws2812_get(Ws2812* leds, uint16_t led);
+
+/**
+ * @brief Sets the brightness of the LEDs.
+ * @details This method sets the brightness of the LEDs.
+ * @param leds The Ws2812 struct to set the brightness of.
+ * @param brightness The brightness to set the LEDs to (0-255).
+*/
+void ws2812_set_brightness(Ws2812* leds, uint8_t brightness);
+
+/**
+ * @brief Updates the LEDs.
+ * @details This method changes the LEDs to the colors set by ws2812_set.
+ * @param leds The Ws2812 struct to update.
+*/
+void ws2812_update(Ws2812* leds);
+
+
+=== FILE: medium\jamisonderek-sao\LICENSE ===
+
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+                            Preamble
+
+  The GNU General Public License is a free, copyleft license for
+software and other kinds of works.
+
+  The licenses for most software and other practical works are designed
+to take away your freedom to share and change the works.  By contrast,
+the GNU General Public License is intended to guarantee your freedom to
+share and change all versions of a program--to make sure it remains free
+software for all its users.  We, the Free Software Foundation, use the
+GNU General Public License for most of our software; it applies also to
+any other work released this way by its authors.  You can apply it to
+your programs, too.
+
+  When we speak of free software, we are referring to freedom, not
+price.  Our General Public Licenses are designed to make sure that you
+have the freedom to distribute copies of free software (and charge for
+them if you wish), that you receive source code or can get it if you
+want it, that you can change the software or use pieces of it in new
+free programs, and that you know you can do these things.
+
+  To protect your rights, we need to prevent others from denying you
+these rights or asking you to surrender the rights.  Therefore, you have
+certain responsibilities if you distribute copies of the software, or if
+you modify it: responsibilities to respect the freedom of others.
+
+  For example, if you distribute copies of such a program, whether
+gratis or for a fee, you must pass on to the recipients the same
+freedoms that you received.  You must make sure that they, too, receive
+or can get the source code.  And you must show them these terms so they
+know their rights.
+
+  Developers that use the GNU GPL protect your rights with two steps:
+(1) assert copyright on the software, and (2) offer you this License
+giving you legal permission to copy, distribute and/or modify it.
+
+  For the developers' and authors' protection, the GPL clearly explains
+that there is no warranty for this free software.  For both users' and
+authors' sake, the GPL requires that modified versions be marked as
+changed, so that their problems will not be attributed erroneously to
+authors of previous versions.
+
+  Some devices are designed to deny users access to install or run
+modified versions of the software inside them, although the manufacturer
+can do so.  This is fundamentally incompatible with the aim of
+protecting users' freedom to change the software.  The systematic
+pattern of such abuse occurs in the area of products for individuals to
+use, which is precisely where it is most unacceptable.  Therefore, we
+have designed this version of the GPL to prohibit the practice for those
+products.  If such problems arise substantially in other domains, we
+stand ready to extend this provision to those domains in future versions
+of the GPL, as needed to protect the freedom of users.
+
+  Finally, every program is threatened constantly by software patents.
+States should not allow patents to restrict development and use of
+software on general-purpose computers, but in those that do, we wish to
+avoid the special danger that patents applied to a free program could
+make it effectively proprietary.  To prevent this, the GPL assures that
+patents cannot be used to render the program non-free.
+
+  The precise terms and conditions for copying, distribution and
+modification follow.
+
+                       TERMS AND CONDITIONS
+
+  0. Definitions.
+
+  "This License" refers to version 3 of the GNU General Public License.
+
+  "Copyright" also means copyright-like laws that apply to other kinds of
+works, such as semiconductor masks.
+
+  "The Program" refers to any copyrightable work licensed under this
+License.  Each licensee is addressed as "you".  "Licensees" and
+"recipients" may be individuals or organizations.
+
+  To "modify" a work means to copy from or adapt all or part of the work
+in a fashion requiring copyright permission, other than the making of an
+exact copy.  The resulting work is called a "modified version" of the
+earlier work or a work "based on" the earlier work.
+
+  A "covered work" means either the unmodified Program or a work based
+on the Program.
+
+  To "propagate" a work means to do anything with it that, without
+permission, would make you directly or secondarily liable for
+infringement under applicable copyright law, except executing it on a
+computer or modifying a private copy.  Propagation includes copying,
+distribution (with or without modification), making available to the
+public, and in some countries other activities as well.
+
+  To "convey" a work means any kind of propagation that enables other
+parties to make or receive copies.  Mere interaction with a user through
+a computer network, with no transfer of a copy, is not conveying.
+
+  An interactive user interface displays "Appropriate Legal Notices"
+to the extent that it includes a convenient and prominently visible
+feature that (1) displays an appropriate copyright notice, and (2)
+tells the user that there is no warranty for the work (except to the
+extent that warranties are provided), that licensees may convey the
+work under this License, and how to view a copy of this License.  If
+the interface presents a list of user commands or options, such as a
+menu, a prominent item in the list meets this criterion.
+
+  1. Source Code.
+
+  The "source code" for a work means the preferred form of the work
+for making modifications to it.  "Object code" means any non-source
+form of a work.
+
+  A "Standard Interface" means an interface that either is an official
+standard defined by a recognized standards body, or, in the case of
+interfaces specified for a particular programming language, one that
+is widely used among developers working in that language.
+
+  The "System Libraries" of an executable work include anything, other
+than the work as a whole, that (a) is included in the normal form of
+packaging a Major Component, but which is not part of that Major
+Component, and (b) serves only to enable use of the work with that
+Major Component, or to implement a Standard Interface for which an
+implementation is available to the public in source code form.  A
+"Major Component", in this context, means a major essential component
+(kernel, window system, and so on) of the specific operating system
+(if any) on which the executable work runs, or a compiler used to
+produce the work, or an object code interpreter used to run it.
+
+  The "Corresponding Source" for a work in object code form means all
+the source code needed to generate, install, and (for an executable
+work) run the object code and to modify the work, including scripts to
+control those activities.  However, it does not include the work's
+System Libraries, or general-purpose tools or generally available free
+programs which are used unmodified in performing those activities but
+which are not part of the work.  For example, Corresponding Source
+includes interface definition files associated with source files for
+the work, and the source code for shared libraries and dynamically
+linked subprograms that the work is specifically designed to require,
+such as by intimate data communication or control flow between those
+subprograms and other parts of the work.
+
+  The Corresponding Source need not include anything that users
+can regenerate automatically from other parts of the Corresponding
+Source.
+
+  The Corresponding Source for a work in source code form is that
+same work.
+
+  2. Basic Permissions.
+
+  All rights granted under this License are granted for the term of
+copyright on the Program, and are irrevocable provided the stated
+conditions are met.  This License explicitly affirms your unlimited
+permission to run the unmodified Program.  The output from running a
+covered work is covered by this License only if the output, given its
+content, constitutes a covered work.  This License acknowledges your
+rights of fair use or other equivalent, as provided by copyright law.
+
+  You may make, run and propagate covered works that you do not
+convey, without conditions so long as your license otherwise remains
+in force.  You may convey covered works to others for the sole purpose
+of having them make modifications exclusively for you, or provide you
+with facilities for running those works, provided that you comply with
+the terms of this License in conveying all material for which you do
+not control copyright.  Those thus making or running the covered works
+for you must do so exclusively on your behalf, under your direction
+and control, on terms that prohibit them from making any copies of
+your copyrighted material outside their relationship with you.
+
+  Conveying under any other circumstances is permitted solely under
+the conditions stated below.  Sublicensing is not allowed; section 10
+makes it unnecessary.
+
+  3. Protecting Users' Legal Rights From Anti-Circumvention Law.
+
+  No covered work shall be deemed part of an effective technological
+measure under any applicable law fulfilling obligations under article
+11 of the WIPO copyright treaty adopted on 20 December 1996, or
+similar laws prohibiting or restricting circumvention of such
+measures.
+
+  When you convey a covered work, you waive any legal power to forbid
+circumvention of technological measures to the extent such circumvention
+is effected by exercising rights under this License with respect to
+the covered work, and you disclaim any intention to limit operation or
+modification of the work as a means of enforcing, against the work's
+users, your or third parties' legal rights to forbid circumvention of
+technological measures.
+
+  4. Conveying Verbatim Copies.
+
+  You may convey verbatim copies of the Program's source code as you
+receive it, in any medium, provided that you conspicuously and
+appropriately publish on each copy an appropriate copyright notice;
+keep intact all notices stating that this License and any
+non-permissive terms added in accord with section 7 apply to the code;
+keep intact all notices of the absence of any warranty; and give all
+recipients a copy of this License along with the Program.
+
+  You may charge any price or no price for each copy that you convey,
+and you may offer support or warranty protection for a fee.
+
+  5. Conveying Modified Source Versions.
+
+  You may convey a work based on the Program, or the modifications to
+produce it from the Program, in the form of source code under the
+terms of section 4, provided that you also meet all of these conditions:
+
+    a) The work must carry prominent notices stating that you modified
+    it, and giving a relevant date.
+
+    b) The work must carry prominent notices stating that it is
+    released under this License and any conditions added under section
+    7.  This requirement modifies the requirement in section 4 to
+    "keep intact all notices".
+
+    c) You must license the entire work, as a whole, under this
+    License to anyone who comes into possession of a copy.  This
+    License will therefore apply, along with any applicable section 7
+    additional terms, to the whole of the work, and all its parts,
+    regardless of how they are packaged.  This License gives no
+    permission to license the work in any other way, but it does not
+    invalidate such permission if you have separately received it.
+
+    d) If the work has interactive user interfaces, each must display
+    Appropriate Legal Notices; however, if the Program has interactive
+    interfaces that do not display Appropriate Legal Notices, your
+    work need not make them do so.
+
+  A compilation of a covered work with other separate and independent
+works, which are not by their nature extensions of the covered work,
+and which are not combined with it such as to form a larger program,
+in or on a volume of a storage or distribution medium, is called an
+"aggregate" if the compilation and its resulting copyright are not
+used to limit the access or legal rights of the compilation's users
+beyond what the individual works permit.  Inclusion of a covered work
+in an aggregate does not cause this License to apply to the other
+parts of the aggregate.
+
+  6. Conveying Non-Source Forms.
+
+  You may convey a covered work in object code form under the terms
+of sections 4 and 5, provided that you also convey the
+machine-readable Corresponding Source under the terms of this License,
+in one of these ways:
+
+    a) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by the
+    Corresponding Source fixed on a durable physical medium
+    customarily used for software interchange.
+
+    b) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by a
+    written offer, valid for at least three years and valid for as
+    long as you offer spare parts or customer support for that product
+    model, to give anyone who possesses the object code either (1) a
+    copy of the Corresponding Source for all the software in the
+    product that is covered by this License, on a durable physical
+    medium customarily used for software interchange, for a price no
+    more than your reasonable cost of physically performing this
+    conveying of source, or (2) access to copy the
+    Corresponding Source from a network server at no charge.
+
+    c) Convey individual copies of the object code with a copy of the
+    written offer to provide the Corresponding Source.  This
+    alternative is allowed only occasionally and noncommercially, and
+    only if you received the object code with such an offer, in accord
+    with subsection 6b.
+
+    d) Convey the object code by offering access from a designated
+    place (gratis or for a charge), and offer equivalent access to the
+    Corresponding Source in the same way through the same place at no
+    further charge.  You need not require recipients to copy the
+    Corresponding Source along with the object code.  If the place to
+    copy the object code is a network server, the Corresponding Source
+    may be on a different server (operated by you or a third party)
+    that supports equivalent copying facilities, provided you maintain
+    clear directions next to the object code saying where to find the
+    Corresponding Source.  Regardless of what server hosts the
+    Corresponding Source, you remain obligated to ensure that it is
+    available for as long as needed to satisfy these requirements.
+
+    e) Convey the object code using peer-to-peer transmission, provided
+    you inform other peers where the object code and Corresponding
+    Source of the work are being offered to the general public at no
+    charge under subsection 6d.
+
+  A separable portion of the object code, whose source code is excluded
+from the Corresponding Source as a System Library, need not be
+included in conveying the object code work.
+
+  A "User Product" is either (1) a "consumer product", which means any
+tangible personal property which is normally used for personal, family,
+or household purposes, or (2) anything designed or sold for incorporation
+into a dwelling.  In determining whether a product is a consumer product,
+doubtful cases shall be resolved in favor of coverage.  For a particular
+product received by a particular user, "normally used" refers to a
+typical or common use of that class of product, regardless of the status
+of the particular user or of the way in which the particular user
+actually uses, or expects or is expected to use, the product.  A product
+is a consumer product regardless of whether the product has substantial
+commercial, industrial or non-consumer uses, unless such uses represent
+the only significant mode of use of the product.
+
+  "Installation Information" for a User Product means any methods,
+procedures, authorization keys, or other information required to install
+and execute modified versions of a covered work in that User Product from
+a modified version of its Corresponding Source.  The information must
+suffice to ensure that the continued functioning of the modified object
+code is in no case prevented or interfered with solely because
+modification has been made.
+
+  If you convey an object code work under this section in, or with, or
+specifically for use in, a User Product, and the conveying occurs as
+part of a transaction in which the right of possession and use of the
+User Product is transferred to the recipient in perpetuity or for a
+fixed term (regardless of how the transaction is characterized), the
+Corresponding Source conveyed under this section must be accompanied
+by the Installation Information.  But this requirement does not apply
+if neither you nor any third party retains the ability to install
+modified object code on the User Product (for example, the work has
+been installed in ROM).
+
+  The requirement to provide Installation Information does not include a
+requirement to continue to provide support service, warranty, or updates
+for a work that has been modified or installed by the recipient, or for
+the User Product in which it has been modified or installed.  Access to a
+network may be denied when the modification itself materially and
+adversely affects the operation of the network or violates the rules and
+protocols for communication across the network.
+
+  Corresponding Source conveyed, and Installation Information provided,
+in accord with this section must be in a format that is publicly
+documented (and with an implementation available to the public in
+source code form), and must require no special password or key for
+unpacking, reading or copying.
+
+  7. Additional Terms.
+
+  "Additional permissions" are terms that supplement the terms of this
+License by making exceptions from one or more of its conditions.
+Additional permissions that are applicable to the entire Program shall
+be treated as though they were included in this License, to the extent
+that they are valid under applicable law.  If additional permissions
+apply only to part of the Program, that part may be used separately
+under those permissions, but the entire Program remains governed by
+this License without regard to the additional permissions.
+
+  When you convey a copy of a covered work, you may at your option
+remove any additional permissions from that copy, or from any part of
+it.  (Additional permissions may be written to require their own
+removal in certain cases when you modify the work.)  You may place
+additional permissions on material, added by you to a covered work,
+for which you have or can give appropriate copyright permission.
+
+  Notwithstanding any other provision of this License, for material you
+add to a covered work, you may (if authorized by the copyright holders of
+that material) supplement the terms of this License with terms:
+
+    a) Disclaiming warranty or limiting liability differently from the
+    terms of sections 15 and 16 of this License; or
+
+    b) Requiring preservation of specified reasonable legal notices or
+    author attributions in that material or in the Appropriate Legal
+    Notices displayed by works containing it; or
+
+    c) Prohibiting misrepresentation of the origin of that material, or
+    requiring that modified versions of such material be marked in
+    reasonable ways as different from the original version; or
+
+    d) Limiting the use for publicity purposes of names of licensors or
+    authors of the material; or
+
+    e) Declining to grant rights under trademark law for use of some
+    trade names, trademarks, or service marks; or
+
+    f) Requiring indemnification of licensors and authors of that
+    material by anyone who conveys the material (or modified versions of
+    it) with contractual assumptions of liability to the recipient, for
+    any liability that these contractual assumptions directly impose on
+    those licensors and authors.
+
+  All other non-permissive additional terms are considered "further
+restrictions" within the meaning of section 10.  If the Program as you
+received it, or any part of it, contains a notice stating that it is
+governed by this License along with a term that is a further
+restriction, you may remove that term.  If a license document contains
+a further restriction but permits relicensing or conveying under this
+License, you may add to a covered work material governed by the terms
+of that license document, provided that the further restriction does
+not survive such relicensing or conveying.
+
+  If you add terms to a covered work in accord with this section, you
+must place, in the relevant source files, a statement of the
+additional terms that apply to those files, or a notice indicating
+where to find the applicable terms.
+
+  Additional terms, permissive or non-permissive, may be stated in the
+form of a separately written license, or stated as exceptions;
+the above requirements apply either way.
+
+  8. Termination.
+
+  You may not propagate or modify a covered work except as expressly
+provided under this License.  Any attempt otherwise to propagate or
+modify it is void, and will automatically terminate your rights under
+this License (including any patent licenses granted under the third
+paragraph of section 11).
+
+  However, if you cease all violation of this License, then your
+license from a particular copyright holder is reinstated (a)
+provisionally, unless and until the copyright holder explicitly and
+finally terminates your license, and (b) permanently, if the copyright
+holder fails to notify you of the violation by some reasonable means
+prior to 60 days after the cessation.
+
+  Moreover, your license from a particular copyright holder is
+reinstated permanently if the copyright holder notifies you of the
+violation by some reasonable means, this is the first time you have
+received notice of violation of this License (for any work) from that
+copyright holder, and you cure the violation prior to 30 days after
+your receipt of the notice.
+
+  Termination of your rights under this section does not terminate the
+licenses of parties who have received copies or rights from you under
+this License.  If your rights have been terminated and not permanently
+reinstated, you do not qualify to receive new licenses for the same
+material under section 10.
+
+  9. Acceptance Not Required for Having Copies.
+
+  You are not required to accept this License in order to receive or
+run a copy of the Program.  Ancillary propagation of a covered work
+occurring solely as a consequence of using peer-to-peer transmission
+to receive a copy likewise does not require acceptance.  However,
+nothing other than this License grants you permission to propagate or
+modify any covered work.  These actions infringe copyright if you do
+not accept this License.  Therefore, by modifying or propagating a
+covered work, you indicate your acceptance of this License to do so.
+
+  10. Automatic Licensing of Downstream Recipients.
+
+  Each time you convey a covered work, the recipient automatically
+receives a license from the original licensors, to run, modify and
+propagate that work, subject to this License.  You are not responsible
+for enforcing compliance by third parties with this License.
+
+  An "entity transaction" is a transaction transferring control of an
+organization, or substantially all assets of one, or subdividing an
+organization, or merging organizations.  If propagation of a covered
+work results from an entity transaction, each party to that
+transaction who receives a copy of the work also receives whatever
+licenses to the work the party's predecessor in interest had or could
+give under the previous paragraph, plus a right to possession of the
+Corresponding Source of the work from the predecessor in interest, if
+the predecessor has it or can get it with reasonable efforts.
+
+  You may not impose any further restrictions on the exercise of the
+rights granted or affirmed under this License.  For example, you may
+not impose a license fee, royalty, or other charge for exercise of
+rights granted under this License, and you may not initiate litigation
+(including a cross-claim or counterclaim in a lawsuit) alleging that
+any patent claim is infringed by making, using, selling, offering for
+sale, or importing the Program or any portion of it.
+
+  11. Patents.
+
+  A "contributor" is a copyright holder who authorizes use under this
+License of the Program or a work on which the Program is based.  The
+work thus licensed is called the contributor's "contributor version".
+
+  A contributor's "essential patent claims" are all patent claims
+owned or controlled by the contributor, whether already acquired or
+hereafter acquired, that would be infringed by some manner, permitted
+by this License, of making, using, or selling its contributor version,
+but do not include claims that would be infringed only as a
+consequence of further modification of the contributor version.  For
+purposes of this definition, "control" includes the right to grant
+patent sublicenses in a manner consistent with the requirements of
+this License.
+
+  Each contributor grants you a non-exclusive, worldwide, royalty-free
+patent license under the contributor's essential patent claims, to
+make, use, sell, offer for sale, import and otherwise run, modify and
+propagate the contents of its contributor version.
+
+  In the following three paragraphs, a "patent license" is any express
+agreement or commitment, however denominated, not to enforce a patent
+(such as an express permission to practice a patent or covenant not to
+sue for patent infringement).  To "grant" such a patent license to a
+party means to make such an agreement or commitment not to enforce a
+patent against the party.
+
+  If you convey a covered work, knowingly relying on a patent license,
+and the Corresponding Source of the work is not available for anyone
+to copy, free of charge and under the terms of this License, through a
+publicly available network server or other readily accessible means,
+then you must either (1) cause the Corresponding Source to be so
+available, or (2) arrange to deprive yourself of the benefit of the
+patent license for this particular work, or (3) arrange, in a manner
+consistent with the requirements of this License, to extend the patent
+license to downstream recipients.  "Knowingly relying" means you have
+actual knowledge that, but for the patent license, your conveying the
+covered work in a country, or your recipient's use of the covered work
+in a country, would infringe one or more identifiable patents in that
+country that you have reason to believe are valid.
+
+  If, pursuant to or in connection with a single transaction or
+arrangement, you convey, or propagate by procuring conveyance of, a
+covered work, and grant a patent license to some of the parties
+receiving the covered work authorizing them to use, propagate, modify
+or convey a specific copy of the covered work, then the patent license
+you grant is automatically extended to all recipients of the covered
+work and works based on it.
+
+  A patent license is "discriminatory" if it does not include within
+the scope of its coverage, prohibits the exercise of, or is
+conditioned on the non-exercise of one or more of the rights that are
+specifically granted under this License.  You may not convey a covered
+work if you are a party to an arrangement with a third party that is
+in the business of distributing software, under which you make payment
+to the third party based on the extent of your activity of conveying
+the work, and under which the third party grants, to any of the
+parties who would receive the covered work from you, a discriminatory
+patent license (a) in connection with copies of the covered work
+conveyed by you (or copies made from those copies), or (b) primarily
+for and in connection with specific products or compilations that
+contain the covered work, unless you entered into that arrangement,
+or that patent license was granted, prior to 28 March 2007.
+
+  Nothing in this License shall be construed as excluding or limiting
+any implied license or other defenses to infringement that may
+otherwise be available to you under applicable patent law.
+
+  12. No Surrender of Others' Freedom.
+
+  If conditions are imposed on you (whether by court order, agreement or
+otherwise) that contradict the conditions of this License, they do not
+excuse you from the conditions of this License.  If you cannot convey a
+covered work so as to satisfy simultaneously your obligations under this
+License and any other pertinent obligations, then as a consequence you may
+not convey it at all.  For example, if you agree to terms that obligate you
+to collect a royalty for further conveying from those to whom you convey
+the Program, the only way you could satisfy both those terms and this
+License would be to refrain entirely from conveying the Program.
+
+  13. Use with the GNU Affero General Public License.
+
+  Notwithstanding any other provision of this License, you have
+permission to link or combine any covered work with a work licensed
+under version 3 of the GNU Affero General Public License into a single
+combined work, and to convey the resulting work.  The terms of this
+License will continue to apply to the part which is the covered work,
+but the special requirements of the GNU Affero General Public License,
+section 13, concerning interaction through a network will apply to the
+combination as such.
+
+  14. Revised Versions of this License.
+
+  The Free Software Foundation may publish revised and/or new versions of
+the GNU General Public License from time to time.  Such new versions will
+be similar in spirit to the present version, but may differ in detail to
+address new problems or concerns.
+
+  Each version is given a distinguishing version number.  If the
+Program specifies that a certain numbered version of the GNU General
+Public License "or any later version" applies to it, you have the
+option of following the terms and conditions either of that numbered
+version or of any later version published by the Free Software
+Foundation.  If the Program does not specify a version number of the
+GNU General Public License, you may choose any version ever published
+by the Free Software Foundation.
+
+  If the Program specifies that a proxy can decide which future
+versions of the GNU General Public License can be used, that proxy's
+public statement of acceptance of a version permanently authorizes you
+to choose that version for the Program.
+
+  Later license versions may give you additional or different
+permissions.  However, no additional obligations are imposed on any
+author or copyright holder as a result of your choosing to follow a
+later version.
+
+  15. Disclaimer of Warranty.
+
+  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY
+APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
+HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY
+OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM
+IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
+ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+  16. Limitation of Liability.
+
+  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
+THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
+GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
+USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
+DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
+PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
+EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
+
+  17. Interpretation of Sections 15 and 16.
+
+  If the disclaimer of warranty and limitation of liability provided
+above cannot be given local legal effect according to their terms,
+reviewing courts shall apply local law that most closely approximates
+an absolute waiver of all civil liability in connection with the
+Program, unless a warranty or assumption of liability accompanies a
+copy of the Program in return for a fee.
+
+                     END OF TERMS AND CONDITIONS
+
+            How to Apply These Terms to Your New Programs
+
+  If you develop a new program, and you want it to be of the greatest
+possible use to the public, the best way to achieve this is to make it
+free software which everyone can redistribute and change under these terms.
+
+  To do so, attach the following notices to the program.  It is safest
+to attach them to the start of each source file to most effectively
+state the exclusion of warranty; and each file should have at least
+the "copyright" line and a pointer to where the full notice is found.
+
+    <one line to give the program's name and a brief idea of what it does.>
+    Copyright (C) <year>  <name of author>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Also add information on how to contact you by electronic and paper mail.
+
+  If the program does terminal interaction, make it output a short
+notice like this when it starts in an interactive mode:
+
+    <program>  Copyright (C) <year>  <name of author>
+    This program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
+    This is free software, and you are welcome to redistribute it
+    under certain conditions; type `show c' for details.
+
+The hypothetical commands `show w' and `show c' should show the appropriate
+parts of the General Public License.  Of course, your program's commands
+might be different; for a GUI interface, you would use an "about box".
+
+  You should also get your employer (if you work as a programmer) or school,
+if any, to sign a "copyright disclaimer" for the program, if necessary.
+For more information on this, and how to apply and follow the GNU GPL, see
+<https://www.gnu.org/licenses/>.
+
+  The GNU General Public License does not permit incorporating your program
+into proprietary programs.  If your program is a subroutine library, you
+may consider it more useful to permit linking proprietary applications with
+the library.  If this is what you want to do, use the GNU Lesser General
+Public License instead of this License.  But first, please read
+<https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+
+=== FILE: medium\jamisonderek-sao\README.md ===
+
+# flipper-zero-sao
+
+## Description
+This project is for using the Flipper Zero to debug [SAO devices](https://hackaday.io/search?term=SAO). We use JavaScript on the Flipper Zero to interact with the various SAO devices. JavaScript is 500-800 times slower than C, but it has the advantage that we can update our script without needing a computer to compile our code!
+
+You can update scripts using a bluetooth connected mobile phone (run the Flipper Zero [mobile app](https://flipperzero.one/downloads) and choose `Options/File Manager/ext/apps/Scripts/SAO`), or using a text editor directly on the Flipper Zero. This is especially useful for quickly iterating or making minor tweaks to existing scripts.
+
+You can use [BadgeLife SAO Debug Tool](https://github.com/flummer/flipper-zero-sao-debug) from [Thomas Flummer](https://hackaday.io/tf)! I recommend adding a jumper between pins 3 and 5 so that SPI output can be used. I validated that SK9822 LEDs can be controlled when pin 3 and 5 are connected together.
+
+## Features
+- I2C
+  - Connect SDA to Flipper pin 15
+  - Connect SCL to Flipper pin 16
+- SPI OUTPUT
+  - Connect USER1 (aka GPIO1) to Flipper pin 2 (aka MOSI)
+  - Connect USER2 (aka GPIO2) to Flipper pin 5 (aka SCK)
+- GPIO
+  - Connect USER1 (aka GPIO1) to Flipper pin 2
+  - Connect USER2 (aka GPIO2) to Flipper pin 5
+
+Supported modules:
+- AS1115 - I2C display driver for Spiral Matrix Petal
+- AT24C32 - 32K I2C EEPROM
+- ATtiny816 - As configured in Touchwheel app. :)
+- LIS2DH12 - Accelerometer
+- MCP23017 - 16-bit GPIO expander
+- NXP NT3H2211W0FT1 - NFC module
+- SK9822 - Addressable RGB LEDs
+- WS2812B - Addressable RGB LEDs (required rebuulding the firmware)
+
+Future modules:
+- SSD1306 - OLED display (under development)
+- LPUART
+  - Not encouraged, multiple SAO may have issue.
+  - Uses same pins as I2C
+
+## Installation
+- Install the latest dev branch of [Momentum firmware](https://momentum-fw.dev/update/).
+- Copy the [SAO](./js_app/examples/apps/Scripts/) folder to your Flipper Zero (e.g. `SD Card/apps/Scripts` folder).
+- NOTE: For controlling WS2812B you will need to build custom Momentum firmware. I hope to submit a PR to Momentum in late November 2024, so that you won't have to do this step. Please see the [custom firmware](#custom-firmware) section below!
+
+## Running Samples
+- [sao_at24_w_sao69.js](./js_app/examples/apps/Scripts/SAO/sao_at24_w_sao69.js) - Program the AT24C32 EEPROM with a SAO.69 formatted message.
+- [sao_at24_w_life.js](./js_app/examples/apps/Scripts/SAO/sao_at24_w_life.js) - Program the AT24C32 EEPROM with a [Badge.team LIFE](https://badge.team/docs/standards/sao/binary_descriptor/) formatted message.
+- [sao_at24_read.js](./js_app/examples/apps/Scripts/SAO/sao_at24_read.js) - Read the AT24C32 EEPROM.
+- [sao_badge_tag_nfc.js](./js_app/examples/apps/Scripts/SAO/sao_badge_tag_nfc.js) - Programs URL to NFC tag and then reads UID and URL from tag.
+- [sao_blinky_loop.js](./js_app/examples/apps/Scripts/SAO/sao_blinky_loop.js) - Blinks the 12 WS2812B LEDs on the [Blinky Loop SAO](https://hackaday.io/project/198163-blinky-loop-sao) by [Thomas Flummer](https://hackaday.io/tf) based on the angle of the SAO. Currently requires [custom firmware](#custom-firmware).
+- [sao_sk9822.js](./js_app/examples/apps/Scripts/SAO/sao_sk9822.js) - Control SK9822 RGB LEDs.
+- [sao_lis2dh12.js](./js_app/examples/apps/Scripts/SAO/sao_lis2dh12.js) - Read the LIS2DH12 accelerometer.
+- [sao_mcp_out.js](./js_app/examples/apps/Scripts/SAO/sao_mcp_out.js) - Control a MCP23017 GPIO expander (Blinks GPIOA0-GPIOA5).
+- [sao_mcp_matrix.js](./js_app/examples/apps/Scripts/SAO/sao_mcp_matrix.js) - Control a MCP23017 GPIO expander (Input using a 4x4 button matrix on GPIOB0-7).
+- [sao_spiral_matrix_petal.js](./js_app/examples/apps/Scripts/SAO/sao_spiral_matrix_petal.js) - Control the [Sprial Matrix Petal SAO](https://github.com/Hack-a-Day/2024-Supercon-8-Add-On-Badge/tree/main/hardware/sao/petal_matrix), sets the inner RGB LED and creates a spiral pattern from outer LEDs.
+- [sao_touchwheel.js](./js_app/examples/apps/Scripts/SAO/sao_touchwheel.js) - Sets RGB LED and reads touchwheel position from the [Touchwheel SAO](https://github.com/todbot/TouchwheelSAO).
+- [sao_ws2812b.js](./js_app/examples/apps/Scripts/SAO/sao_ws2812b.js) - Control WS2812B RGB LEDs. Currently requires [custom firmware](#custom-firmware).
+
+## Custom Firmware
+**NOTE: These steps are only required if you want to control WS2812B RGB LEDs!**
+
+First clone and build the Momentum firmware:
+
+_(NOTE: If you are running a Windows Command Prompt, use `fbt` instead of `./fbt`)_
+
+```bash
+git clone --recursive https://github.com/next-Flip/Momentum-Firmware.git
+cd Momentum-Firmware
+./fbt vscode_dist
+./fbt updater_package
+```
+
+Next, overlay the files from the [js_app](./js_app/) folder in this repository to the Momentum firmware files in the `applications/system/js_app` folder.
+
+Make sure your Flipper Zero is plugged in to your computer, and that qFlipper and lab.flipper.net are not running. Then the following command to build and deploy the firmware to your Flipper Zero:
+
+```bash
+./fbt COMPACT=1 DEBUG=0 FORCE=1 flash_usb_full 
+```
+
+## Support
+Feel free to reach out to me on Discord. My username is `@codeallnight` and you can also tag me on any of the Flipper Firmware servers.
+
+Support my work by [buying me a coffee](https://www.ko-fi.com/codeallnight)!

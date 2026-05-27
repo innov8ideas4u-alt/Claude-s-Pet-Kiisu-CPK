@@ -1,0 +1,51 @@
+# Bundle: 43_cross_firmware_diffs.txt
+# 3 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: medium\cross-firmware-rpc-diffs\js_modules_c_diff.txt ===
+
+=== MOMENTUM vs OFW ===
+<=     // extra modules
+<=     "blebeacon",
+<=     "i2c",
+<=     "spi",
+<=     "infrared-send",
+<=     "subghz",
+<=     "usbdisk",
+<=     "vgm",
+<=     // extra features
+<=     "gui-textinput-illegalsymbols",
+<=     "storage-virtual",
+<=     "usbdisk-createimage",
+<= 
+<= 
+
+=== MOMENTUM vs UNLEASHED ===
+=>     "gpio-pwm",
+=>     "gui-widget",
+=>     "serial-framing",
+=>     "gui-widget-extras",
+<=     // extra features
+<=     "gui-textinput-illegalsymbols",
+<=     "storage-virtual",
+<=     "usbdisk-createimage",
+<= 
+
+
+=== FILE: medium\cross-firmware-rpc-diffs\rpc_app_c_diff.txt ===
+
+=== MOMENTUM vs OFW ===
+IDENTICAL
+
+=== MOMENTUM vs UNLEASHED ===
+IDENTICAL
+
+
+=== FILE: medium\cross-firmware-rpc-diffs\rpc_app_h_diff.txt ===
+
+=== MOMENTUM vs OFW ===
+IDENTICAL
+
+=== MOMENTUM vs UNLEASHED ===
+IDENTICAL

@@ -1,0 +1,2898 @@
+# Bundle: 32_js_module_gui.txt
+# 20 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\button_menu.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/button_menu.h>
+#include <toolbox/str_buffer.h>
+
+typedef struct {
+    int32_t next_index;
+    StrBuffer str_buffer;
+
+    FuriMessageQueue* input_queue;
+    JsEventLoopContract contract;
+} JsBtnMenuContext;
+
+typedef struct {
+    int32_t index;
+    InputType input_type;
+} JsBtnMenuEvent;
+
+static const char* js_input_type_to_str(InputType type) {
+    switch(type) {
+    case InputTypePress:
+        return "press";
+    case InputTypeRelease:
+        return "release";
+    case InputTypeShort:
+        return "short";
+    case InputTypeLong:
+        return "long";
+    case InputTypeRepeat:
+        return "repeat";
+    default:
+        furi_crash();
+    }
+}
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriMessageQueue* queue, JsBtnMenuContext* context) {
+    UNUSED(context);
+    JsBtnMenuEvent event;
+    furi_check(furi_message_queue_get(queue, &event, 0) == FuriStatusOk);
+
+    mjs_val_t event_obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, event_obj) {
+        JS_FIELD("index", mjs_mk_number(mjs, event.index));
+        JS_FIELD("type", mjs_mk_string(mjs, js_input_type_to_str(event.input_type), ~0, false));
+    }
+
+    return event_obj;
+}
+
+static void input_callback(void* ctx, int32_t index, InputType type) {
+    JsBtnMenuContext* context = ctx;
+    JsBtnMenuEvent event = {
+        .index = index,
+        .input_type = type,
+    };
+    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+}
+
+static bool matrix_header_assign(
+    struct mjs* mjs,
+    ButtonMenu* menu,
+    JsViewPropValue value,
+    JsBtnMenuContext* context) {
+    UNUSED(mjs);
+    button_menu_set_header(menu, str_buffer_make_owned_clone(&context->str_buffer, value.string));
+    return true;
+}
+
+static bool js_button_menu_add_child(
+    struct mjs* mjs,
+    ButtonMenu* menu,
+    JsBtnMenuContext* context,
+    mjs_val_t child_obj) {
+    static const JsValueEnumVariant js_button_menu_item_type_variants[] = {
+        {"common", ButtonMenuItemTypeCommon},
+        {"control", ButtonMenuItemTypeControl},
+    };
+    static const JsValueDeclaration js_button_menu_item_type =
+        JS_VALUE_ENUM(ButtonMenuItemType, js_button_menu_item_type_variants);
+
+    static const JsValueDeclaration js_button_menu_string = JS_VALUE_SIMPLE(JsValueTypeString);
+
+    static const JsValueObjectField js_button_menu_child_fields[] = {
+        {"type", &js_button_menu_item_type},
+        {"label", &js_button_menu_string},
+    };
+    static const JsValueDeclaration js_button_menu_child =
+        JS_VALUE_OBJECT(js_button_menu_child_fields);
+
+    ButtonMenuItemType item_type;
+    const char* label;
+    JsValueParseStatus status;
+    JS_VALUE_PARSE(
+        mjs,
+        JS_VALUE_PARSE_SOURCE_VALUE(&js_button_menu_child),
+        JsValueParseFlagReturnOnError,
+        &status,
+        &child_obj,
+        &item_type,
+        &label);
+    if(status != JsValueParseStatusOk) return false;
+
+    button_menu_add_item(
+        menu,
+        str_buffer_make_owned_clone(&context->str_buffer, label),
+        context->next_index++,
+        input_callback,
+        item_type,
+        context);
+
+    return true;
+}
+
+static void js_button_menu_reset_children(ButtonMenu* menu, JsBtnMenuContext* context) {
+    context->next_index = 0;
+    button_menu_reset(menu);
+    str_buffer_clear_all_clones(&context->str_buffer);
+}
+
+static JsBtnMenuContext* ctx_make(struct mjs* mjs, ButtonMenu* menu, mjs_val_t view_obj) {
+    UNUSED(menu);
+    JsBtnMenuContext* context = malloc(sizeof(JsBtnMenuContext));
+    *context = (JsBtnMenuContext){
+        .next_index = 0,
+        .str_buffer = {0},
+        .input_queue = furi_message_queue_alloc(1, sizeof(JsBtnMenuEvent)),
+    };
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->input_queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(ButtonMenu* input, JsBtnMenuContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_queue);
+    furi_message_queue_free(context->input_queue);
+    str_buffer_clear_all_clones(&context->str_buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)button_menu_alloc,
+    .free = (JsViewFree)button_menu_free,
+    .get_view = (JsViewGetView)button_menu_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .add_child = (JsViewAddChild)js_button_menu_add_child,
+    .reset_children = (JsViewResetChildren)js_button_menu_reset_children,
+    .prop_cnt = 1,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)matrix_header_assign},
+    }};
+
+JS_GUI_VIEW_DEF(button_menu, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\button_panel.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/button_panel.h>
+#include <toolbox/str_buffer.h>
+
+typedef struct {
+    size_t matrix_x, matrix_y;
+    int32_t next_index;
+    StrBuffer str_buffer;
+
+    FuriMessageQueue* input_queue;
+    JsEventLoopContract contract;
+} JsBtnPanelContext;
+
+typedef struct {
+    int32_t index;
+    InputType input_type;
+} JsBtnPanelEvent;
+
+static const char* js_input_type_to_str(InputType type) {
+    switch(type) {
+    case InputTypePress:
+        return "press";
+    case InputTypeRelease:
+        return "release";
+    case InputTypeShort:
+        return "short";
+    case InputTypeLong:
+        return "long";
+    case InputTypeRepeat:
+        return "repeat";
+    default:
+        furi_crash();
+    }
+}
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriMessageQueue* queue, JsBtnPanelContext* context) {
+    UNUSED(context);
+    JsBtnPanelEvent event;
+    furi_check(furi_message_queue_get(queue, &event, 0) == FuriStatusOk);
+
+    mjs_val_t event_obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, event_obj) {
+        JS_FIELD("index", mjs_mk_number(mjs, event.index));
+        JS_FIELD("type", mjs_mk_string(mjs, js_input_type_to_str(event.input_type), ~0, false));
+    }
+
+    return event_obj;
+}
+
+static void input_callback(void* ctx, int32_t index, InputType type) {
+    JsBtnPanelContext* context = ctx;
+    JsBtnPanelEvent event = {
+        .index = index,
+        .input_type = type,
+    };
+    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+}
+
+static bool matrix_size_x_assign(
+    struct mjs* mjs,
+    ButtonPanel* panel,
+    JsViewPropValue value,
+    JsBtnPanelContext* context) {
+    UNUSED(mjs);
+    context->matrix_x = value.number;
+    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    return true;
+}
+
+static bool matrix_size_y_assign(
+    struct mjs* mjs,
+    ButtonPanel* panel,
+    JsViewPropValue value,
+    JsBtnPanelContext* context) {
+    UNUSED(mjs);
+    context->matrix_y = value.number;
+    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    return true;
+}
+
+static bool js_button_panel_add_child(
+    struct mjs* mjs,
+    ButtonPanel* panel,
+    JsBtnPanelContext* context,
+    mjs_val_t child_obj) {
+    typedef enum {
+        JsButtonPanelChildTypeButton,
+        JsButtonPanelChildTypeLabel,
+        JsButtonPanelChildTypeIcon,
+    } JsButtonPanelChildType;
+    static const JsValueEnumVariant js_button_panel_child_type_variants[] = {
+        {"button", JsButtonPanelChildTypeButton},
+        {"label", JsButtonPanelChildTypeLabel},
+        {"icon", JsButtonPanelChildTypeIcon},
+    };
+    static const JsValueDeclaration js_button_panel_child_type =
+        JS_VALUE_ENUM(JsButtonPanelChildType, js_button_panel_child_type_variants);
+
+    static const JsValueDeclaration js_button_panel_number = JS_VALUE_SIMPLE(JsValueTypeInt32);
+    static const JsValueObjectField js_button_panel_common_fields[] = {
+        {"type", &js_button_panel_child_type},
+        {"x", &js_button_panel_number},
+        {"y", &js_button_panel_number},
+    };
+    static const JsValueDeclaration js_button_panel_common =
+        JS_VALUE_OBJECT(js_button_panel_common_fields);
+
+    static const JsValueDeclaration js_button_panel_pointer =
+        JS_VALUE_SIMPLE(JsValueTypeRawPointer);
+    static const JsValueObjectField js_button_panel_button_fields[] = {
+        {"matrixX", &js_button_panel_number},
+        {"matrixY", &js_button_panel_number},
+        {"icon", &js_button_panel_pointer},
+        {"iconSelected", &js_button_panel_pointer},
+    };
+    static const JsValueDeclaration js_button_panel_button =
+        JS_VALUE_OBJECT(js_button_panel_button_fields);
+
+    static const JsValueDeclaration js_button_panel_string = JS_VALUE_SIMPLE(JsValueTypeString);
+    static const JsValueObjectField js_button_panel_label_fields[] = {
+        {"text", &js_button_panel_string},
+        {"font", &js_gui_font_declaration},
+    };
+    static const JsValueDeclaration js_button_panel_label =
+        JS_VALUE_OBJECT(js_button_panel_label_fields);
+
+    static const JsValueObjectField js_button_panel_icon_fields[] = {
+        {"icon", &js_button_panel_pointer},
+    };
+    static const JsValueDeclaration js_button_panel_icon =
+        JS_VALUE_OBJECT(js_button_panel_icon_fields);
+
+    JsButtonPanelChildType child_type;
+    int32_t x, y;
+    JsValueParseStatus status;
+    JS_VALUE_PARSE(
+        mjs,
+        JS_VALUE_PARSE_SOURCE_VALUE(&js_button_panel_common),
+        JsValueParseFlagReturnOnError,
+        &status,
+        &child_obj,
+        &child_type,
+        &x,
+        &y);
+    if(status != JsValueParseStatusOk) return false;
+
+    switch(child_type) {
+    case JsButtonPanelChildTypeButton: {
+        int32_t matrix_x, matrix_y;
+        const Icon *icon, *icon_selected;
+        JS_VALUE_PARSE(
+            mjs,
+            JS_VALUE_PARSE_SOURCE_VALUE(&js_button_panel_button),
+            JsValueParseFlagReturnOnError,
+            &status,
+            &child_obj,
+            &matrix_x,
+            &matrix_y,
+            &icon,
+            &icon_selected);
+        if(status != JsValueParseStatusOk) return false;
+        button_panel_add_item(
+            panel,
+            context->next_index++,
+            matrix_x,
+            matrix_y,
+            x,
+            y,
+            icon,
+            icon_selected,
+            (ButtonItemCallback)input_callback,
+            context);
+        break;
+    }
+
+    case JsButtonPanelChildTypeLabel: {
+        const char* text;
+        Font font;
+        JS_VALUE_PARSE(
+            mjs,
+            JS_VALUE_PARSE_SOURCE_VALUE(&js_button_panel_label),
+            JsValueParseFlagReturnOnError,
+            &status,
+            &child_obj,
+            &text,
+            &font);
+        if(status != JsValueParseStatusOk) return false;
+        button_panel_add_label(
+            panel, x, y, font, str_buffer_make_owned_clone(&context->str_buffer, text));
+        break;
+    }
+
+    case JsButtonPanelChildTypeIcon: {
+        const Icon* icon;
+        JS_VALUE_PARSE(
+            mjs,
+            JS_VALUE_PARSE_SOURCE_VALUE(&js_button_panel_icon),
+            JsValueParseFlagReturnOnError,
+            &status,
+            &child_obj,
+            &icon);
+        if(status != JsValueParseStatusOk) return false;
+        button_panel_add_icon(panel, x, y, icon);
+        break;
+    }
+    }
+
+    return true;
+}
+
+static void js_button_panel_reset_children(ButtonPanel* panel, JsBtnPanelContext* context) {
+    context->next_index = 0;
+    button_panel_reset(panel);
+    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    str_buffer_clear_all_clones(&context->str_buffer);
+}
+
+static JsBtnPanelContext* ctx_make(struct mjs* mjs, ButtonPanel* panel, mjs_val_t view_obj) {
+    UNUSED(panel);
+    JsBtnPanelContext* context = malloc(sizeof(JsBtnPanelContext));
+    *context = (JsBtnPanelContext){
+        .matrix_x = 1,
+        .matrix_y = 1,
+        .next_index = 0,
+        .str_buffer = {0},
+        .input_queue = furi_message_queue_alloc(1, sizeof(JsBtnPanelEvent)),
+    };
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->input_queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(ButtonPanel* input, JsBtnPanelContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_queue);
+    furi_message_queue_free(context->input_queue);
+    str_buffer_clear_all_clones(&context->str_buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)button_panel_alloc,
+    .free = (JsViewFree)button_panel_free,
+    .get_view = (JsViewGetView)button_panel_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .add_child = (JsViewAddChild)js_button_panel_add_child,
+    .reset_children = (JsViewResetChildren)js_button_panel_reset_children,
+    .prop_cnt = 2,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "matrixSizeX",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)matrix_size_x_assign},
+        (JsViewPropDescriptor){
+            .name = "matrixSizeY",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)matrix_size_y_assign},
+    }};
+
+JS_GUI_VIEW_DEF(button_panel, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\byte_input.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/byte_input.h>
+
+#define DEFAULT_BUF_SZ 4
+
+typedef struct {
+    uint8_t* buffer;
+    size_t buffer_size;
+    size_t default_data_size;
+    FuriString* header;
+    FuriSemaphore* input_semaphore;
+    JsEventLoopContract contract;
+} JsByteKbContext;
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriSemaphore* semaphore, JsByteKbContext* context) {
+    furi_check(furi_semaphore_acquire(semaphore, 0) == FuriStatusOk);
+    return mjs_mk_array_buf(mjs, (char*)context->buffer, context->buffer_size);
+}
+
+static void input_callback(JsByteKbContext* context) {
+    furi_semaphore_release(context->input_semaphore);
+}
+
+static bool header_assign(
+    struct mjs* mjs,
+    ByteInput* input,
+    JsViewPropValue value,
+    JsByteKbContext* context) {
+    UNUSED(mjs);
+    furi_string_set(context->header, value.string);
+    byte_input_set_header_text(input, furi_string_get_cstr(context->header));
+    return true;
+}
+
+static bool
+    len_assign(struct mjs* mjs, ByteInput* input, JsViewPropValue value, JsByteKbContext* context) {
+    UNUSED(mjs);
+    UNUSED(input);
+    size_t new_buffer_size = value.number;
+    if(new_buffer_size < context->default_data_size) {
+        // Avoid confusing parameters from user
+        mjs_prepend_errorf(
+            mjs, MJS_BAD_ARGS_ERROR, "length must be larger than defaultData length");
+        return false;
+    }
+    context->buffer_size = new_buffer_size;
+    context->buffer = realloc(context->buffer, context->buffer_size); //-V701
+    byte_input_set_result_callback(
+        input,
+        (ByteInputCallback)input_callback,
+        NULL,
+        context,
+        context->buffer,
+        context->buffer_size);
+    return true;
+}
+
+static bool default_data_assign(
+    struct mjs* mjs,
+    ByteInput* input,
+    JsViewPropValue value,
+    JsByteKbContext* context) {
+    UNUSED(mjs);
+
+    mjs_val_t array_buf = value.term;
+    if(mjs_is_data_view(array_buf)) {
+        array_buf = mjs_dataview_get_buf(mjs, array_buf);
+    }
+    char* default_data = mjs_array_buf_get_ptr(mjs, array_buf, &context->default_data_size);
+    if(context->buffer_size < context->default_data_size) {
+        // Ensure buffer is large enough for defaultData
+        context->buffer_size = context->default_data_size;
+        context->buffer = realloc(context->buffer, context->buffer_size); //-V701
+    }
+    memcpy(context->buffer, (uint8_t*)default_data, context->default_data_size);
+    if(context->buffer_size > context->default_data_size) {
+        // Reset previous data after defaultData
+        memset(
+            context->buffer + context->default_data_size,
+            0x00,
+            context->buffer_size - context->default_data_size);
+    }
+
+    byte_input_set_result_callback(
+        input,
+        (ByteInputCallback)input_callback,
+        NULL,
+        context,
+        context->buffer,
+        context->buffer_size);
+    return true;
+}
+
+static JsByteKbContext* ctx_make(struct mjs* mjs, ByteInput* input, mjs_val_t view_obj) {
+    JsByteKbContext* context = malloc(sizeof(JsByteKbContext));
+    *context = (JsByteKbContext){
+        .buffer_size = DEFAULT_BUF_SZ,
+        .buffer = malloc(DEFAULT_BUF_SZ),
+        .header = furi_string_alloc(),
+        .input_semaphore = furi_semaphore_alloc(1, 0),
+    };
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeSemaphore,
+        .object = context->input_semaphore,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    byte_input_set_result_callback(
+        input,
+        (ByteInputCallback)input_callback,
+        NULL,
+        context,
+        context->buffer,
+        context->buffer_size);
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(ByteInput* input, JsByteKbContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_semaphore);
+    furi_semaphore_free(context->input_semaphore);
+    furi_string_free(context->header);
+    free(context->buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)byte_input_alloc,
+    .free = (JsViewFree)byte_input_free,
+    .get_view = (JsViewGetView)byte_input_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 3,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+        (JsViewPropDescriptor){
+            .name = "length",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)len_assign},
+        (JsViewPropDescriptor){
+            .name = "defaultData",
+            .type = JsViewPropTypeTypedArr,
+            .assign = (JsViewPropAssign)default_data_assign},
+    }};
+
+JS_GUI_VIEW_DEF(byte_input, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\dialog.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/dialog_ex.h>
+
+#define QUEUE_LEN 2
+
+typedef struct {
+    FuriMessageQueue* queue;
+    JsEventLoopContract contract;
+} JsDialogCtx;
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriMessageQueue* queue, JsDialogCtx* context) {
+    UNUSED(context);
+    DialogExResult result;
+    furi_check(furi_message_queue_get(queue, &result, 0) == FuriStatusOk);
+    const char* string;
+    if(result == DialogExResultLeft) {
+        string = "left";
+    } else if(result == DialogExResultCenter) {
+        string = "center";
+    } else if(result == DialogExResultRight) {
+        string = "right";
+    } else {
+        furi_crash();
+    }
+    return mjs_mk_string(mjs, string, ~0, false);
+}
+
+static void input_callback(DialogExResult result, JsDialogCtx* context) {
+    furi_check(furi_message_queue_put(context->queue, &result, 0) == FuriStatusOk);
+}
+
+static bool
+    header_assign(struct mjs* mjs, DialogEx* dialog, JsViewPropValue value, JsDialogCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    dialog_ex_set_header(dialog, value.string, 64, 0, AlignCenter, AlignTop);
+    return true;
+}
+
+static bool
+    text_assign(struct mjs* mjs, DialogEx* dialog, JsViewPropValue value, JsDialogCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    dialog_ex_set_text(dialog, value.string, 64, 32, AlignCenter, AlignCenter);
+    return true;
+}
+
+static bool
+    left_assign(struct mjs* mjs, DialogEx* dialog, JsViewPropValue value, JsDialogCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    dialog_ex_set_left_button_text(dialog, value.string);
+    return true;
+}
+static bool
+    center_assign(struct mjs* mjs, DialogEx* dialog, JsViewPropValue value, JsDialogCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    dialog_ex_set_center_button_text(dialog, value.string);
+    return true;
+}
+static bool
+    right_assign(struct mjs* mjs, DialogEx* dialog, JsViewPropValue value, JsDialogCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    dialog_ex_set_right_button_text(dialog, value.string);
+    return true;
+}
+
+static JsDialogCtx* ctx_make(struct mjs* mjs, DialogEx* dialog, mjs_val_t view_obj) {
+    JsDialogCtx* context = malloc(sizeof(JsDialogCtx));
+    context->queue = furi_message_queue_alloc(QUEUE_LEN, sizeof(DialogExResult));
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+            },
+    };
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    dialog_ex_set_result_callback(dialog, (DialogExResultCallback)input_callback);
+    dialog_ex_set_context(dialog, context);
+    return context;
+}
+
+static void ctx_destroy(DialogEx* input, JsDialogCtx* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->queue);
+    furi_message_queue_free(context->queue);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)dialog_ex_alloc,
+    .free = (JsViewFree)dialog_ex_free,
+    .get_view = (JsViewGetView)dialog_ex_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 5,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+        (JsViewPropDescriptor){
+            .name = "text",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)text_assign},
+        (JsViewPropDescriptor){
+            .name = "left",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)left_assign},
+        (JsViewPropDescriptor){
+            .name = "center",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)center_assign},
+        (JsViewPropDescriptor){
+            .name = "right",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)right_assign},
+    }};
+
+JS_GUI_VIEW_DEF(dialog, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\empty_screen.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include <gui/modules/empty_screen.h>
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)empty_screen_alloc,
+    .free = (JsViewFree)empty_screen_free,
+    .get_view = (JsViewGetView)empty_screen_get_view,
+    .prop_cnt = 0,
+    .props = {},
+};
+JS_GUI_VIEW_DEF(empty_screen, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\file_picker.c ===
+
+#include "../../js_modules.h"
+#include <dialogs/dialogs.h>
+#include <assets_icons.h>
+
+static void js_gui_file_picker_pick_file(struct mjs* mjs) {
+    static const JsValueDeclaration js_picker_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeString),
+        JS_VALUE_SIMPLE(JsValueTypeString),
+    };
+    static const JsValueArguments js_picker_args = JS_VALUE_ARGS(js_picker_arg_list);
+
+    const char *base_path, *extension;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_picker_args, &base_path, &extension);
+
+    DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+    const DialogsFileBrowserOptions browser_options = {
+        .extension = extension,
+        .icon = &I_file_10px,
+        .base_path = base_path,
+    };
+    FuriString* path = furi_string_alloc_set(base_path);
+    if(dialog_file_browser_show(dialogs, path, path, &browser_options)) {
+        mjs_return(mjs, mjs_mk_string(mjs, furi_string_get_cstr(path), ~0, true));
+    } else {
+        mjs_return(mjs, MJS_UNDEFINED);
+    }
+    furi_string_free(path);
+    furi_record_close(RECORD_DIALOGS);
+}
+
+static void* js_gui_file_picker_create(struct mjs* mjs, mjs_val_t* object, JsModules* modules) {
+    UNUSED(modules);
+    *object = mjs_mk_object(mjs);
+    mjs_set(mjs, *object, "pickFile", ~0, MJS_MK_FN(js_gui_file_picker_pick_file));
+    return NULL;
+}
+
+static const JsModuleDescriptor js_gui_file_picker_desc = {
+    "gui__file_picker",
+    js_gui_file_picker_create,
+    NULL,
+    NULL,
+};
+
+static const FlipperAppPluginDescriptor plugin_descriptor = {
+    .appid = PLUGIN_APP_ID,
+    .ep_api_version = PLUGIN_API_VERSION,
+    .entry_point = &js_gui_file_picker_desc,
+};
+
+const FlipperAppPluginDescriptor* js_gui_file_picker_ep(void) {
+    return &plugin_descriptor;
+}
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\icon.c ===
+
+#include "../../js_modules.h"
+#include <assets_icons.h>
+#include <core/dangerous_defines.h>
+#include <gui/icon_i.h>
+#include <m-list.h>
+
+// Firmware's Icon struct needs a frames array, and uses a small CompressHeader
+// Here we use a variable size allocation to add the uncompressed data in same allocation
+// Also use a one-long array pointing to later in the same struct as the frames array
+// CompressHeader includes a first is_compressed byte so we don't need to compress (.fxbm is uncompressed)
+typedef struct FURI_PACKED {
+    Icon icon;
+    uint8_t* frames[1];
+    struct {
+        uint8_t is_compressed;
+        uint8_t uncompressed_data[];
+    } frame;
+} FxbmIconWrapper;
+
+LIST_DEF(FxbmIconWrapperList, FxbmIconWrapper*, M_PTR_OPLIST); // NOLINT
+#define M_OPL_FxbmIconWrapperList_t() LIST_OPLIST(FxbmIconWrapperList)
+
+typedef struct {
+    FxbmIconWrapperList_t fxbm_list;
+} JsGuiIconInst;
+
+static const JsValueDeclaration js_icon_get_arg_list[] = {
+    JS_VALUE_SIMPLE(JsValueTypeString),
+};
+static const JsValueArguments js_icon_get_args = JS_VALUE_ARGS(js_icon_get_arg_list);
+
+static void js_gui_icon_get_builtin(struct mjs* mjs) {
+    const char* icon_name;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_icon_get_args, &icon_name);
+
+    for(size_t i = 0; i < ICON_PATHS_COUNT; i++) {
+        if(ICON_PATHS[i].path == NULL) continue;
+        const char* iter_name = strrchr(ICON_PATHS[i].path, '/');
+        if(iter_name++ == NULL) continue;
+        if(strcmp(icon_name, iter_name) == 0) {
+            mjs_return(mjs, mjs_mk_foreign(mjs, (void*)ICON_PATHS[i].icon));
+            return;
+        }
+    }
+
+    JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "no such built-in icon");
+}
+
+static void js_gui_icon_load_fxbm(struct mjs* mjs) {
+    const char* fxbm_path;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_icon_get_args, &fxbm_path);
+
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+    FxbmIconWrapper* fxbm = NULL;
+
+    do {
+        if(!storage_file_open(file, fxbm_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
+            break;
+        }
+
+        struct {
+            uint32_t size; // Total following size including width and height values
+            uint32_t width;
+            uint32_t height;
+        } fxbm_header;
+        if(storage_file_read(file, &fxbm_header, sizeof(fxbm_header)) != sizeof(fxbm_header)) {
+            break;
+        }
+
+        size_t frame_size = fxbm_header.size - sizeof(uint32_t) * 2;
+        fxbm = malloc(sizeof(FxbmIconWrapper) + frame_size);
+        if(storage_file_read(file, fxbm->frame.uncompressed_data, frame_size) != frame_size) {
+            free(fxbm);
+            fxbm = NULL;
+            break;
+        }
+
+        FURI_CONST_ASSIGN(fxbm->icon.width, fxbm_header.width);
+        FURI_CONST_ASSIGN(fxbm->icon.height, fxbm_header.height);
+        FURI_CONST_ASSIGN(fxbm->icon.frame_count, 1);
+        FURI_CONST_ASSIGN(fxbm->icon.frame_rate, 1);
+        FURI_CONST_ASSIGN_PTR(fxbm->icon.frames, fxbm->frames);
+        fxbm->frames[0] = (void*)&fxbm->frame;
+        fxbm->frame.is_compressed = false;
+    } while(false);
+
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+
+    if(!fxbm) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "could not load .fxbm icon");
+    }
+
+    JsGuiIconInst* js_icon = JS_GET_CONTEXT(mjs);
+    FxbmIconWrapperList_push_back(js_icon->fxbm_list, fxbm);
+    mjs_return(mjs, mjs_mk_foreign(mjs, (void*)&fxbm->icon));
+}
+
+static void* js_gui_icon_create(struct mjs* mjs, mjs_val_t* object, JsModules* modules) {
+    UNUSED(modules);
+    JsGuiIconInst* js_icon = malloc(sizeof(JsGuiIconInst));
+    FxbmIconWrapperList_init(js_icon->fxbm_list);
+    *object = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, *object) {
+        JS_FIELD(INST_PROP_NAME, mjs_mk_foreign(mjs, js_icon));
+        JS_FIELD("getBuiltin", MJS_MK_FN(js_gui_icon_get_builtin));
+        JS_FIELD("loadFxbm", MJS_MK_FN(js_gui_icon_load_fxbm));
+    }
+    return js_icon;
+}
+
+static void js_gui_icon_destroy(void* inst) {
+    JsGuiIconInst* js_icon = inst;
+    for
+        M_EACH(fxbm, js_icon->fxbm_list, FxbmIconWrapperList_t) {
+            free(*fxbm);
+        }
+    FxbmIconWrapperList_clear(js_icon->fxbm_list);
+    free(js_icon);
+}
+
+static const JsModuleDescriptor js_gui_icon_desc = {
+    "gui__icon",
+    js_gui_icon_create,
+    js_gui_icon_destroy,
+    NULL,
+};
+
+static const FlipperAppPluginDescriptor plugin_descriptor = {
+    .appid = PLUGIN_APP_ID,
+    .ep_api_version = PLUGIN_API_VERSION,
+    .entry_point = &js_gui_icon_desc,
+};
+
+const FlipperAppPluginDescriptor* js_gui_icon_ep(void) {
+    return &plugin_descriptor;
+}
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\js_gui.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "./js_gui.h"
+#include <furi.h>
+#include <mlib/m-array.h>
+#include <gui/view_dispatcher.h>
+#include "../js_event_loop/js_event_loop.h"
+#include <m-array.h>
+
+#define EVENT_QUEUE_SIZE 16
+
+typedef struct {
+    uint32_t next_view_id;
+    FuriEventLoop* loop;
+    Gui* gui;
+    ViewDispatcher* dispatcher;
+    // event stuff
+    JsEventLoopContract custom_contract;
+    FuriMessageQueue* custom;
+    JsEventLoopContract navigation_contract;
+    FuriSemaphore*
+        navigation; // FIXME: (-nofl) convert into callback once FuriEventLoop starts supporting this
+} JsGui;
+
+// Useful for factories
+static JsGui* js_gui;
+
+typedef struct {
+    uint32_t id;
+    const JsViewDescriptor* descriptor;
+    void* specific_view;
+    void* custom_data;
+} JsGuiViewData;
+
+static const JsValueEnumVariant js_gui_font_variants[] = {
+    {"primary", FontPrimary},
+    {"secondary", FontSecondary},
+    {"keyboard", FontKeyboard},
+    {"bit_numbers", FontBigNumbers},
+};
+const JsValueDeclaration js_gui_font_declaration = JS_VALUE_ENUM(Font, js_gui_font_variants);
+
+/**
+ * @brief Transformer for custom events
+ */
+static mjs_val_t
+    js_gui_vd_custom_transformer(struct mjs* mjs, FuriEventLoopObject* object, void* context) {
+    UNUSED(context);
+    furi_check(object);
+    FuriMessageQueue* queue = object;
+    uint32_t event;
+    furi_check(furi_message_queue_get(queue, &event, 0) == FuriStatusOk);
+    return mjs_mk_number(mjs, (double)event);
+}
+
+/**
+ * @brief ViewDispatcher custom event callback
+ */
+static bool js_gui_vd_custom_callback(void* context, uint32_t event) {
+    furi_check(context);
+    JsGui* module = context;
+    furi_check(furi_message_queue_put(module->custom, &event, 0) == FuriStatusOk);
+    return true;
+}
+
+/**
+ * @brief ViewDispatcher navigation event callback
+ */
+static bool js_gui_vd_nav_callback(void* context) {
+    furi_check(context);
+    JsGui* module = context;
+    furi_semaphore_release(module->navigation);
+    return true;
+}
+
+/**
+ * @brief `viewDispatcher.sendCustom`
+ */
+static void js_gui_vd_send_custom(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_vd_send_custom_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeInt32),
+    };
+    static const JsValueArguments js_gui_vd_send_custom_args =
+        JS_VALUE_ARGS(js_gui_vd_send_custom_arg_list);
+
+    int32_t event;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vd_send_custom_args, &event);
+
+    JsGui* module = JS_GET_CONTEXT(mjs);
+    view_dispatcher_send_custom_event(module->dispatcher, (uint32_t)event);
+}
+
+/**
+ * @brief `viewDispatcher.sendTo`
+ */
+static void js_gui_vd_send_to(struct mjs* mjs) {
+    typedef enum {
+        JsSendDirToFront,
+        JsSendDirToBack,
+    } JsSendDir;
+    static const JsValueEnumVariant js_send_dir_variants[] = {
+        {"front", JsSendDirToFront},
+        {"back", JsSendDirToBack},
+    };
+    static const JsValueDeclaration js_gui_vd_send_to_arg_list[] = {
+        JS_VALUE_ENUM(JsSendDir, js_send_dir_variants),
+    };
+    static const JsValueArguments js_gui_vd_send_to_args =
+        JS_VALUE_ARGS(js_gui_vd_send_to_arg_list);
+
+    JsSendDir send_direction;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vd_send_to_args, &send_direction);
+
+    JsGui* module = JS_GET_CONTEXT(mjs);
+    if(send_direction == JsSendDirToBack) {
+        view_dispatcher_send_to_back(module->dispatcher);
+    } else {
+        view_dispatcher_send_to_front(module->dispatcher);
+    }
+}
+
+/**
+ * @brief `viewDispatcher.switchTo`
+ */
+static void js_gui_vd_switch_to(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_vd_switch_to_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeAny),
+    };
+    static const JsValueArguments js_gui_vd_switch_to_args =
+        JS_VALUE_ARGS(js_gui_vd_switch_to_arg_list);
+
+    mjs_val_t view;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vd_switch_to_args, &view);
+
+    JsGuiViewData* view_data = JS_GET_INST(mjs, view);
+    mjs_val_t vd_obj = mjs_get_this(mjs);
+    JsGui* module = JS_GET_INST(mjs, vd_obj);
+    view_dispatcher_switch_to_view(module->dispatcher, (uint32_t)view_data->id);
+    mjs_set(mjs, vd_obj, "currentView", ~0, view);
+}
+
+static void* js_gui_create(struct mjs* mjs, mjs_val_t* object, JsModules* modules) {
+    // get event loop
+    JsEventLoop* js_loop = js_module_get(modules, "event_loop");
+    if(M_UNLIKELY(!js_loop)) return NULL;
+    FuriEventLoop* loop = js_event_loop_get_loop(js_loop);
+
+    // create C object
+    JsGui* module = malloc(sizeof(JsGui));
+    module->loop = loop;
+    module->gui = furi_record_open(RECORD_GUI);
+    module->dispatcher = view_dispatcher_alloc_ex(loop);
+    module->custom = furi_message_queue_alloc(EVENT_QUEUE_SIZE, sizeof(uint32_t));
+    module->navigation = furi_semaphore_alloc(EVENT_QUEUE_SIZE, 0);
+    view_dispatcher_attach_to_gui(module->dispatcher, module->gui, ViewDispatcherTypeFullscreen);
+    view_dispatcher_send_to_front(module->dispatcher);
+
+    // subscribe to events and create contracts
+    view_dispatcher_set_event_callback_context(module->dispatcher, module);
+    view_dispatcher_set_custom_event_callback(module->dispatcher, js_gui_vd_custom_callback);
+    view_dispatcher_set_navigation_event_callback(module->dispatcher, js_gui_vd_nav_callback);
+    module->custom_contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object = module->custom,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = js_gui_vd_custom_transformer,
+            },
+    };
+    module->navigation_contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object = module->navigation,
+        .object_type = JsEventLoopObjectTypeSemaphore,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+            },
+    };
+
+    // create viewDispatcher object
+    mjs_val_t view_dispatcher = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, view_dispatcher) {
+        JS_FIELD(INST_PROP_NAME, mjs_mk_foreign(mjs, module));
+        JS_FIELD("sendCustom", MJS_MK_FN(js_gui_vd_send_custom));
+        JS_FIELD("sendTo", MJS_MK_FN(js_gui_vd_send_to));
+        JS_FIELD("switchTo", MJS_MK_FN(js_gui_vd_switch_to));
+        JS_FIELD("custom", mjs_mk_foreign(mjs, &module->custom_contract));
+        JS_FIELD("navigation", mjs_mk_foreign(mjs, &module->navigation_contract));
+        JS_FIELD("currentView", MJS_NULL);
+    }
+
+    // create API object
+    mjs_val_t api = mjs_mk_object(mjs);
+    mjs_set(mjs, api, "viewDispatcher", ~0, view_dispatcher);
+
+    *object = api;
+    js_gui = module;
+    return module;
+}
+
+static void js_gui_destroy(void* inst) {
+    furi_assert(inst);
+    JsGui* module = inst;
+
+    view_dispatcher_free(module->dispatcher);
+    furi_event_loop_maybe_unsubscribe(module->loop, module->custom);
+    furi_event_loop_maybe_unsubscribe(module->loop, module->navigation);
+    furi_message_queue_free(module->custom);
+    furi_semaphore_free(module->navigation);
+
+    furi_record_close(RECORD_GUI);
+    free(module);
+    js_gui = NULL;
+}
+
+/**
+ * @brief Assigns a `View` property. Not available from JS.
+ */
+static bool
+    js_gui_view_assign(struct mjs* mjs, const char* name, mjs_val_t value, JsGuiViewData* data) {
+    const JsViewDescriptor* descriptor = data->descriptor;
+    for(size_t i = 0; i < descriptor->prop_cnt; i++) {
+        JsViewPropDescriptor prop = descriptor->props[i];
+        if(strcmp(prop.name, name) != 0) continue;
+
+        // convert JS value to C
+        JsViewPropValue c_value;
+        const char* expected_type = NULL;
+        switch(prop.type) {
+        case JsViewPropTypeNumber: {
+            if(!mjs_is_number(value)) {
+                expected_type = "number";
+                break;
+            }
+            c_value = (JsViewPropValue){.number = mjs_get_int32(mjs, value)};
+        } break;
+        case JsViewPropTypeString: {
+            if(!mjs_is_string(value)) {
+                expected_type = "string";
+                break;
+            }
+            c_value = (JsViewPropValue){.string = mjs_get_string(mjs, &value, NULL)};
+        } break;
+        case JsViewPropTypeArr: {
+            if(!mjs_is_array(value)) {
+                expected_type = "array";
+                break;
+            }
+            c_value = (JsViewPropValue){.term = value};
+        } break;
+        case JsViewPropTypeTypedArr: {
+            if(!mjs_is_typed_array(value)) {
+                expected_type = "typed_array";
+                break;
+            }
+            c_value = (JsViewPropValue){.term = value};
+        } break;
+        case JsViewPropTypeBool: {
+            if(!mjs_is_boolean(value)) {
+                expected_type = "bool";
+                break;
+            }
+            c_value = (JsViewPropValue){.boolean = mjs_get_bool(mjs, value)};
+        } break;
+        }
+
+        if(expected_type) {
+            mjs_prepend_errorf(
+                mjs, MJS_BAD_ARGS_ERROR, "view prop \"%s\" requires %s value", name, expected_type);
+            return false;
+        } else {
+            return prop.assign(mjs, data->specific_view, c_value, data->custom_data);
+        }
+    }
+
+    mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "view has no prop named \"%s\"", name);
+    return false;
+}
+
+/**
+ * @brief Sets the list of children. Not available from JS.
+ */
+static bool js_gui_view_internal_set_children(
+    struct mjs* mjs,
+    mjs_val_t children,
+    JsGuiViewData* data,
+    bool do_reset) {
+    if(do_reset) data->descriptor->reset_children(data->specific_view, data->custom_data);
+
+    for(size_t i = 0; i < mjs_array_length(mjs, children); i++) {
+        mjs_val_t child = mjs_array_get(mjs, children, i);
+        if(!data->descriptor->add_child(mjs, data->specific_view, data->custom_data, child))
+            return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief `View.set`
+ */
+static void js_gui_view_set(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_view_set_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeString),
+        JS_VALUE_SIMPLE(JsValueTypeAny),
+    };
+    static const JsValueArguments js_gui_view_set_args = JS_VALUE_ARGS(js_gui_view_set_arg_list);
+
+    const char* name;
+    mjs_val_t value;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_set_args, &name, &value);
+
+    JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    bool success = js_gui_view_assign(mjs, name, value, data);
+    UNUSED(success);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+/**
+ * @brief `View.addChild`
+ */
+static void js_gui_view_add_child(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_view_add_child_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeAny),
+    };
+    static const JsValueArguments js_gui_view_add_child_args =
+        JS_VALUE_ARGS(js_gui_view_add_child_arg_list);
+
+    mjs_val_t child;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_add_child_args, &child);
+
+    JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data->descriptor->add_child || !data->descriptor->reset_children)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
+
+    bool success = data->descriptor->add_child(mjs, data->specific_view, data->custom_data, child);
+    UNUSED(success);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+/**
+ * @brief `View.resetChildren`
+ */
+static void js_gui_view_reset_children(struct mjs* mjs) {
+    JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data->descriptor->add_child || !data->descriptor->reset_children)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
+
+    data->descriptor->reset_children(data->specific_view, data->custom_data);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+/**
+ * @brief `View.setChildren`
+ */
+static void js_gui_view_set_children(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_view_set_children_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeAnyArray),
+    };
+    static const JsValueArguments js_gui_view_set_children_args =
+        JS_VALUE_ARGS(js_gui_view_set_children_arg_list);
+
+    mjs_val_t children;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_set_children_args, &children);
+
+    JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data->descriptor->add_child || !data->descriptor->reset_children)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
+
+    js_gui_view_internal_set_children(mjs, children, data, true);
+}
+
+/**
+ * @brief `View` destructor
+ */
+static void js_gui_view_destructor(struct mjs* mjs, mjs_val_t obj) {
+    JsGuiViewData* data = JS_GET_INST(mjs, obj);
+    view_dispatcher_remove_view(js_gui->dispatcher, data->id);
+    if(data->descriptor->custom_destroy)
+        data->descriptor->custom_destroy(data->specific_view, data->custom_data, js_gui->loop);
+    data->descriptor->free(data->specific_view);
+    free(data);
+}
+
+/**
+ * @brief Creates a `View` object from a descriptor. Not available from JS.
+ */
+static mjs_val_t js_gui_make_view(struct mjs* mjs, const JsViewDescriptor* descriptor) {
+    void* specific_view = descriptor->alloc();
+    View* view = descriptor->get_view(specific_view);
+    uint32_t view_id = js_gui->next_view_id++;
+    view_dispatcher_add_view(js_gui->dispatcher, view_id, view);
+
+    // generic view API
+    mjs_val_t view_obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, view_obj) {
+        JS_FIELD("set", MJS_MK_FN(js_gui_view_set));
+        JS_FIELD("addChild", MJS_MK_FN(js_gui_view_add_child));
+        JS_FIELD("resetChildren", MJS_MK_FN(js_gui_view_reset_children));
+        JS_FIELD("setChildren", MJS_MK_FN(js_gui_view_set_children));
+    }
+
+    // object data
+    JsGuiViewData* data = malloc(sizeof(JsGuiViewData));
+    *data = (JsGuiViewData){
+        .descriptor = descriptor,
+        .id = view_id,
+        .specific_view = specific_view,
+        .custom_data =
+            descriptor->custom_make ? descriptor->custom_make(mjs, specific_view, view_obj) : NULL,
+    };
+    mjs_set(mjs, view_obj, INST_PROP_NAME, ~0, mjs_mk_foreign(mjs, data));
+    mjs_set(mjs, view_obj, MJS_DESTRUCTOR_PROP_NAME, ~0, MJS_MK_FN(js_gui_view_destructor));
+
+    return view_obj;
+}
+
+/**
+ * @brief `ViewFactory.make`
+ */
+static void js_gui_vf_make(struct mjs* mjs) {
+    const JsViewDescriptor* descriptor = JS_GET_CONTEXT(mjs);
+    mjs_return(mjs, js_gui_make_view(mjs, descriptor));
+}
+
+/**
+ * @brief `ViewFactory.makeWith`
+ */
+static void js_gui_vf_make_with(struct mjs* mjs) {
+    static const JsValueDeclaration js_gui_vf_make_with_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeAnyObject),
+        JS_VALUE_SIMPLE(JsValueTypeAny),
+    };
+    static const JsValueArguments js_gui_vf_make_with_args =
+        JS_VALUE_ARGS(js_gui_vf_make_with_arg_list);
+
+    mjs_val_t props, children;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vf_make_with_args, &props, &children);
+    const JsViewDescriptor* descriptor = JS_GET_CONTEXT(mjs);
+
+    // make the object like normal
+    mjs_val_t view_obj = js_gui_make_view(mjs, descriptor);
+    JsGuiViewData* data = JS_GET_INST(mjs, view_obj);
+
+    // assign properties one by one
+    mjs_val_t key, iter = MJS_UNDEFINED;
+    while((key = mjs_next(mjs, props, &iter)) != MJS_UNDEFINED) {
+        furi_check(mjs_is_string(key));
+        const char* name = mjs_get_string(mjs, &key, NULL);
+        mjs_val_t value = mjs_get(mjs, props, name, ~0);
+
+        if(!js_gui_view_assign(mjs, name, value, data)) {
+            mjs_return(mjs, MJS_UNDEFINED);
+            return;
+        }
+    }
+
+    // assign children
+    if(mjs_is_array(children)) {
+        if(!data->descriptor->add_child || !data->descriptor->reset_children)
+            JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
+
+        if(!js_gui_view_internal_set_children(mjs, children, data, false)) return;
+    }
+
+    mjs_return(mjs, view_obj);
+}
+
+mjs_val_t js_gui_make_view_factory(struct mjs* mjs, const JsViewDescriptor* view_descriptor) {
+    mjs_val_t factory = mjs_mk_object(mjs);
+    mjs_set(mjs, factory, INST_PROP_NAME, ~0, mjs_mk_foreign(mjs, (void*)view_descriptor));
+    mjs_set(mjs, factory, "make", ~0, MJS_MK_FN(js_gui_vf_make));
+    mjs_set(mjs, factory, "makeWith", ~0, MJS_MK_FN(js_gui_vf_make_with));
+    return factory;
+}
+
+extern const ElfApiInterface js_gui_hashtable_api_interface;
+
+static const JsModuleDescriptor js_gui_desc = {
+    "gui",
+    js_gui_create,
+    js_gui_destroy,
+    &js_gui_hashtable_api_interface,
+};
+
+static const FlipperAppPluginDescriptor plugin_descriptor = {
+    .appid = PLUGIN_APP_ID,
+    .ep_api_version = PLUGIN_API_VERSION,
+    .entry_point = &js_gui_desc,
+};
+
+const FlipperAppPluginDescriptor* js_gui_ep(void) {
+    return &plugin_descriptor;
+}
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\js_gui.h ===
+
+#include "../../js_modules.h"
+#include <gui/view.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    JsViewPropTypeString,
+    JsViewPropTypeNumber,
+    JsViewPropTypeArr,
+    JsViewPropTypeTypedArr,
+    JsViewPropTypeBool,
+} JsViewPropType;
+
+typedef union {
+    const char* string;
+    int32_t number;
+    bool boolean;
+    mjs_val_t term;
+} JsViewPropValue;
+
+/**
+ * JS-to-C font enum mapping
+ */
+extern const JsValueDeclaration js_gui_font_declaration;
+
+/**
+ * @brief Assigns a value to a view property
+ * 
+ * The name and the type are implicit and defined in the property descriptor
+ */
+typedef bool (
+    *JsViewPropAssign)(struct mjs* mjs, void* specific_view, JsViewPropValue value, void* context);
+
+/** @brief Property descriptor */
+typedef struct {
+    const char* name; //<! Property name, as visible from JS
+    JsViewPropType type; // <! Property type, ensured by the GUI module
+    JsViewPropAssign assign; // <! Property assignment callback
+} JsViewPropDescriptor;
+
+// View method signatures
+
+/** @brief View's `_alloc` method */
+typedef void* (*JsViewAlloc)(void);
+/** @brief View's `_get_view` method */
+typedef View* (*JsViewGetView)(void* specific_view);
+/** @brief View's `_free` method */
+typedef void (*JsViewFree)(void* specific_view);
+
+// Glue code method signatures
+
+/** @brief Context instantiation for glue code */
+typedef void* (*JsViewCustomMake)(struct mjs* mjs, void* specific_view, mjs_val_t view_obj);
+/** @brief Context destruction for glue code */
+typedef void (*JsViewCustomDestroy)(void* specific_view, void* custom_state, FuriEventLoop* loop);
+/** @brief `addChild` callback for glue code */
+typedef bool (
+    *JsViewAddChild)(struct mjs* mjs, void* specific_view, void* custom_state, mjs_val_t child_obj);
+/** @brief `resetChildren` callback for glue code */
+typedef void (*JsViewResetChildren)(void* specific_view, void* custom_state);
+
+/**
+ * @brief Descriptor for a JS view
+ * 
+ * Contains:
+ *   - Pointers to generic view methods (`alloc`, `get_view` and `free`)
+ *   - Pointers to glue code context ctor/dtor methods (`custom_make`,
+ *     `custom_destroy`)
+ *   - Descriptors of properties visible from JS (`prop_cnt`, `props`)
+ * 
+ * `js_gui` uses this descriptor to produce view factories and views.
+ */
+typedef struct {
+    JsViewAlloc alloc;
+    JsViewGetView get_view;
+    JsViewFree free;
+
+    JsViewCustomMake custom_make; // <! May be NULL
+    JsViewCustomDestroy custom_destroy; // <! May be NULL
+
+    JsViewAddChild add_child; // <! May be NULL
+    JsViewResetChildren reset_children; // <! May be NULL
+
+    size_t prop_cnt; //<! Number of properties visible from JS
+    JsViewPropDescriptor props[]; // <! Descriptors of properties visible from JS
+} JsViewDescriptor;
+
+// Callback ordering:
+//                                   +-> add_child       -+
+//                                   +-> reset_children  -+
+// alloc -> get_view -> custom_make -+-> props[i].assign -+> custom_destroy -> free
+// \__________ creation __________/      \____ use ____/     \___ destruction ____/
+
+/**
+ * @brief Creates a JS `ViewFactory` object
+ * 
+ * This function is intended to be used by individual view adapter modules that
+ * wish to create a unified JS API interface in a declarative way. Usually this
+ * is done via the `JS_GUI_VIEW_DEF` macro which hides all the boilerplate.
+ * 
+ * The `ViewFactory` object exposes two methods, `make` and `makeWith`, each
+ * returning a `View` object. These objects fully comply with the expectations
+ * of the `ViewDispatcher`, TS type definitions and the proposed Flipper JS
+ * coding style.
+ */
+mjs_val_t js_gui_make_view_factory(struct mjs* mjs, const JsViewDescriptor* view_descriptor);
+
+/**
+ * @brief Defines a module implementing `View` glue code
+ */
+#define JS_GUI_VIEW_DEF(name, descriptor)                                                \
+    static void* view_mod_ctor(struct mjs* mjs, mjs_val_t* object, JsModules* modules) { \
+        UNUSED(modules);                                                                 \
+        *object = js_gui_make_view_factory(mjs, descriptor);                             \
+        return NULL;                                                                     \
+    }                                                                                    \
+    static const JsModuleDescriptor js_mod_desc = {                                      \
+        "gui__" #name,                                                                   \
+        view_mod_ctor,                                                                   \
+        NULL,                                                                            \
+        NULL,                                                                            \
+    };                                                                                   \
+    static const FlipperAppPluginDescriptor plugin_descriptor = {                        \
+        .appid = PLUGIN_APP_ID,                                                          \
+        .ep_api_version = PLUGIN_API_VERSION,                                            \
+        .entry_point = &js_mod_desc,                                                     \
+    };                                                                                   \
+    const FlipperAppPluginDescriptor* js_view_##name##_ep(void) {                        \
+        return &plugin_descriptor;                                                       \
+    }
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\js_gui_api_table.cpp ===
+
+#include <flipper_application/api_hashtable/api_hashtable.h>
+#include <flipper_application/api_hashtable/compilesort.hpp>
+
+#include "js_gui_api_table_i.h"
+
+static_assert(!has_hash_collisions(js_gui_api_table), "Detected API method hash collision!");
+
+extern "C" constexpr HashtableApiInterface js_gui_hashtable_api_interface{
+    {
+        .api_version_major = 0,
+        .api_version_minor = 0,
+        .resolver_callback = &elf_resolve_from_hashtable,
+    },
+    js_gui_api_table.cbegin(),
+    js_gui_api_table.cend(),
+};
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\js_gui_api_table_i.h ===
+
+#include "js_gui.h"
+
+static constexpr auto js_gui_api_table = sort(create_array_t<sym_entry>(
+    API_METHOD(js_gui_make_view_factory, mjs_val_t, (struct mjs*, const JsViewDescriptor*)),
+    API_VARIABLE(js_gui_font_declaration, const JsValueDeclaration)));
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\loading.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include <gui/modules/loading.h>
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)loading_alloc,
+    .free = (JsViewFree)loading_free,
+    .get_view = (JsViewGetView)loading_get_view,
+    .prop_cnt = 0,
+    .props = {},
+};
+JS_GUI_VIEW_DEF(loading, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\menu.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/menu.h>
+#include <toolbox/str_buffer.h>
+
+typedef struct {
+    int32_t next_index;
+    StrBuffer str_buffer;
+
+    FuriMessageQueue* queue;
+    JsEventLoopContract contract;
+} JsMenuCtx;
+
+static mjs_val_t choose_transformer(struct mjs* mjs, FuriMessageQueue* queue, void* context) {
+    UNUSED(context);
+    uint32_t index;
+    furi_check(furi_message_queue_get(queue, &index, 0) == FuriStatusOk);
+    return mjs_mk_number(mjs, (double)index);
+}
+
+static void choose_callback(void* context, uint32_t index) {
+    JsMenuCtx* ctx = context;
+    furi_check(furi_message_queue_put(ctx->queue, &index, 0) == FuriStatusOk);
+}
+
+static bool
+    js_menu_add_child(struct mjs* mjs, Menu* menu, JsMenuCtx* context, mjs_val_t child_obj) {
+    static const JsValueDeclaration js_menu_string = JS_VALUE_SIMPLE(JsValueTypeString);
+    static const JsValueDeclaration js_menu_pointer = JS_VALUE_SIMPLE(JsValueTypeRawPointer);
+
+    static const JsValueObjectField js_menu_child_fields[] = {
+        {"icon", &js_menu_pointer},
+        {"label", &js_menu_string},
+    };
+    static const JsValueDeclaration js_menu_child = JS_VALUE_OBJECT(js_menu_child_fields);
+
+    const Icon* icon;
+    const char* label;
+    JsValueParseStatus status;
+    JS_VALUE_PARSE(
+        mjs,
+        JS_VALUE_PARSE_SOURCE_VALUE(&js_menu_child),
+        JsValueParseFlagReturnOnError,
+        &status,
+        &child_obj,
+        &icon,
+        &label);
+    if(status != JsValueParseStatusOk) return false;
+
+    menu_add_item(
+        menu,
+        str_buffer_make_owned_clone(&context->str_buffer, label),
+        icon,
+        context->next_index++,
+        choose_callback,
+        context);
+
+    return true;
+}
+
+static void js_menu_reset_children(Menu* menu, JsMenuCtx* context) {
+    context->next_index = 0;
+    menu_reset(menu);
+    str_buffer_clear_all_clones(&context->str_buffer);
+}
+
+static JsMenuCtx* ctx_make(struct mjs* mjs, Menu* input, mjs_val_t view_obj) {
+    UNUSED(input);
+    JsMenuCtx* context = malloc(sizeof(JsMenuCtx));
+    context->queue = furi_message_queue_alloc(1, sizeof(uint32_t));
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)choose_transformer,
+            },
+    };
+    mjs_set(mjs, view_obj, "chosen", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(Menu* input, JsMenuCtx* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->queue);
+    furi_message_queue_free(context->queue);
+    str_buffer_clear_all_clones(&context->str_buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)menu_alloc,
+    .free = (JsViewFree)menu_free,
+    .get_view = (JsViewGetView)menu_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .add_child = (JsViewAddChild)js_menu_add_child,
+    .reset_children = (JsViewResetChildren)js_menu_reset_children,
+    .prop_cnt = 0,
+    .props = {},
+};
+JS_GUI_VIEW_DEF(menu, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\number_input.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/number_input.h>
+
+typedef struct {
+    int32_t default_val, min_val, max_val;
+    FuriMessageQueue* input_queue;
+    JsEventLoopContract contract;
+} JsNumKbdContext;
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriMessageQueue* queue, JsNumKbdContext* context) {
+    UNUSED(context);
+    int32_t number;
+    furi_check(furi_message_queue_get(queue, &number, 0) == FuriStatusOk);
+    return mjs_mk_number(mjs, number);
+}
+
+static void input_callback(void* ctx, int32_t value) {
+    JsNumKbdContext* context = ctx;
+    furi_check(furi_message_queue_put(context->input_queue, &value, 0) == FuriStatusOk);
+}
+
+static bool header_assign(
+    struct mjs* mjs,
+    NumberInput* input,
+    JsViewPropValue value,
+    JsNumKbdContext* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    number_input_set_header_text(input, value.string);
+    return true;
+}
+
+static bool min_val_assign(
+    struct mjs* mjs,
+    NumberInput* input,
+    JsViewPropValue value,
+    JsNumKbdContext* context) {
+    UNUSED(mjs);
+    context->min_val = value.number;
+    number_input_set_result_callback(
+        input, input_callback, context, context->default_val, context->min_val, context->max_val);
+    return true;
+}
+
+static bool max_val_assign(
+    struct mjs* mjs,
+    NumberInput* input,
+    JsViewPropValue value,
+    JsNumKbdContext* context) {
+    UNUSED(mjs);
+    context->max_val = value.number;
+    number_input_set_result_callback(
+        input, input_callback, context, context->default_val, context->min_val, context->max_val);
+    return true;
+}
+
+static bool default_val_assign(
+    struct mjs* mjs,
+    NumberInput* input,
+    JsViewPropValue value,
+    JsNumKbdContext* context) {
+    UNUSED(mjs);
+    context->default_val = value.number;
+    number_input_set_result_callback(
+        input, input_callback, context, context->default_val, context->min_val, context->max_val);
+    return true;
+}
+
+static JsNumKbdContext* ctx_make(struct mjs* mjs, NumberInput* input, mjs_val_t view_obj) {
+    JsNumKbdContext* context = malloc(sizeof(JsNumKbdContext));
+    *context = (JsNumKbdContext){
+        .default_val = 0,
+        .max_val = 100,
+        .min_val = 0,
+        .input_queue = furi_message_queue_alloc(1, sizeof(int32_t)),
+    };
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->input_queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    number_input_set_result_callback(
+        input, input_callback, context, context->default_val, context->min_val, context->max_val);
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(NumberInput* input, JsNumKbdContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_queue);
+    furi_message_queue_free(context->input_queue);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)number_input_alloc,
+    .free = (JsViewFree)number_input_free,
+    .get_view = (JsViewGetView)number_input_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 4,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+        (JsViewPropDescriptor){
+            .name = "minValue",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)min_val_assign},
+        (JsViewPropDescriptor){
+            .name = "maxValue",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)max_val_assign},
+        (JsViewPropDescriptor){
+            .name = "defaultValue",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)default_val_assign},
+    }};
+
+JS_GUI_VIEW_DEF(number_input, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\popup.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/popup.h>
+#include <toolbox/str_buffer.h>
+
+typedef struct {
+    StrBuffer str_buffer;
+    FuriSemaphore* semaphore;
+    JsEventLoopContract contract;
+} JsPopupCtx;
+
+static void timeout_callback(JsPopupCtx* context) {
+    furi_check(furi_semaphore_release(context->semaphore) == FuriStatusOk);
+}
+
+static bool
+    header_assign(struct mjs* mjs, Popup* popup, JsViewPropValue value, JsPopupCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    popup_set_header(
+        popup,
+        str_buffer_make_owned_clone(&context->str_buffer, value.string),
+        64,
+        0,
+        AlignCenter,
+        AlignTop);
+    return true;
+}
+
+static bool
+    text_assign(struct mjs* mjs, Popup* popup, JsViewPropValue value, JsPopupCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    popup_set_text(
+        popup,
+        str_buffer_make_owned_clone(&context->str_buffer, value.string),
+        64,
+        32,
+        AlignCenter,
+        AlignCenter);
+    return true;
+}
+
+static bool
+    timeout_assign(struct mjs* mjs, Popup* popup, JsViewPropValue value, JsPopupCtx* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    popup_set_timeout(popup, value.number);
+    popup_enable_timeout(popup);
+    return true;
+}
+
+static JsPopupCtx* ctx_make(struct mjs* mjs, Popup* popup, mjs_val_t view_obj) {
+    JsPopupCtx* context = malloc(sizeof(JsPopupCtx));
+    context->semaphore = furi_semaphore_alloc(1, 0);
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeSemaphore,
+        .object = context->semaphore,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+            },
+    };
+    mjs_set(mjs, view_obj, "timeout", ~0, mjs_mk_foreign(mjs, &context->contract));
+    popup_set_callback(popup, (PopupCallback)timeout_callback);
+    popup_set_context(popup, context);
+    return context;
+}
+
+static void ctx_destroy(Popup* popup, JsPopupCtx* context, FuriEventLoop* loop) {
+    UNUSED(popup);
+    furi_event_loop_maybe_unsubscribe(loop, context->semaphore);
+    furi_semaphore_free(context->semaphore);
+    str_buffer_clear_all_clones(&context->str_buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)popup_alloc,
+    .free = (JsViewFree)popup_free,
+    .get_view = (JsViewGetView)popup_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 3,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+        (JsViewPropDescriptor){
+            .name = "text",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)text_assign},
+        (JsViewPropDescriptor){
+            .name = "timeout",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)timeout_assign},
+    }};
+
+JS_GUI_VIEW_DEF(popup, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\submenu.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/submenu.h>
+
+#define QUEUE_LEN 2
+
+typedef struct {
+    int32_t next_index;
+    FuriMessageQueue* queue;
+    JsEventLoopContract contract;
+} JsSubmenuCtx;
+
+static mjs_val_t choose_transformer(struct mjs* mjs, FuriMessageQueue* queue, void* context) {
+    UNUSED(context);
+    uint32_t index;
+    furi_check(furi_message_queue_get(queue, &index, 0) == FuriStatusOk);
+    return mjs_mk_number(mjs, (double)index);
+}
+
+void choose_callback(void* context, uint32_t index) {
+    JsSubmenuCtx* ctx = context;
+    furi_check(furi_message_queue_put(ctx->queue, &index, 0) == FuriStatusOk);
+}
+
+static bool
+    header_assign(struct mjs* mjs, Submenu* submenu, JsViewPropValue value, void* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    submenu_set_header(submenu, value.string);
+    return true;
+}
+
+static bool js_submenu_add_child(
+    struct mjs* mjs,
+    Submenu* submenu,
+    JsSubmenuCtx* context,
+    mjs_val_t child_obj) {
+    const char* str = mjs_get_string(mjs, &child_obj, NULL);
+    if(!str) return false;
+
+    submenu_add_item(submenu, str, context->next_index++, choose_callback, context);
+
+    return true;
+}
+
+static void js_submenu_reset_children(Submenu* submenu, JsSubmenuCtx* context) {
+    context->next_index = 0;
+    submenu_reset(submenu);
+}
+
+static JsSubmenuCtx* ctx_make(struct mjs* mjs, Submenu* input, mjs_val_t view_obj) {
+    UNUSED(input);
+    JsSubmenuCtx* context = malloc(sizeof(JsSubmenuCtx));
+    context->queue = furi_message_queue_alloc(QUEUE_LEN, sizeof(uint32_t));
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)choose_transformer,
+            },
+    };
+    mjs_set(mjs, view_obj, "chosen", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(Submenu* input, JsSubmenuCtx* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->queue);
+    furi_message_queue_free(context->queue);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)submenu_alloc,
+    .free = (JsViewFree)submenu_free,
+    .get_view = (JsViewGetView)submenu_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .add_child = (JsViewAddChild)js_submenu_add_child,
+    .reset_children = (JsViewResetChildren)js_submenu_reset_children,
+    .prop_cnt = 1,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+    }};
+JS_GUI_VIEW_DEF(submenu, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\text_box.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include <gui/modules/text_box.h>
+
+static bool
+    text_assign(struct mjs* mjs, TextBox* text_box, JsViewPropValue value, FuriString* context) {
+    UNUSED(mjs);
+    furi_string_set(context, value.string);
+    text_box_set_text(text_box, furi_string_get_cstr(context));
+    return true;
+}
+
+static bool font_assign(struct mjs* mjs, TextBox* text_box, JsViewPropValue value, void* context) {
+    UNUSED(context);
+    TextBoxFont font;
+    if(strcasecmp(value.string, "hex") == 0) {
+        font = TextBoxFontHex;
+    } else if(strcasecmp(value.string, "text") == 0) {
+        font = TextBoxFontText;
+    } else {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "must be one of: \"text\", \"hex\"");
+        return false;
+    }
+    text_box_set_font(text_box, font);
+    return true;
+}
+
+static bool
+    focus_assign(struct mjs* mjs, TextBox* text_box, JsViewPropValue value, void* context) {
+    UNUSED(context);
+    TextBoxFocus focus;
+    if(strcasecmp(value.string, "start") == 0) {
+        focus = TextBoxFocusStart;
+    } else if(strcasecmp(value.string, "end") == 0) {
+        focus = TextBoxFocusEnd;
+    } else {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "must be one of: \"start\", \"end\"");
+        return false;
+    }
+    text_box_set_focus(text_box, focus);
+    return true;
+}
+
+FuriString* ctx_make(struct mjs* mjs, TextBox* specific_view, mjs_val_t view_obj) {
+    UNUSED(mjs);
+    UNUSED(specific_view);
+    UNUSED(view_obj);
+    return furi_string_alloc();
+}
+
+void ctx_destroy(TextBox* specific_view, FuriString* context, FuriEventLoop* loop) {
+    UNUSED(specific_view);
+    UNUSED(loop);
+    furi_string_free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)text_box_alloc,
+    .free = (JsViewFree)text_box_free,
+    .get_view = (JsViewGetView)text_box_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 3,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "text",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)text_assign},
+        (JsViewPropDescriptor){
+            .name = "font",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)font_assign},
+        (JsViewPropDescriptor){
+            .name = "focus",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)focus_assign},
+    }};
+JS_GUI_VIEW_DEF(text_box, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\text_input.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/text_input.h>
+
+#define DEFAULT_BUF_SZ 33
+
+typedef struct {
+    char* buffer;
+    size_t buffer_size;
+    size_t default_text_size;
+    FuriString* header;
+    bool default_text_clear;
+    FuriSemaphore* input_semaphore;
+    JsEventLoopContract contract;
+} JsKbdContext;
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriSemaphore* semaphore, JsKbdContext* context) {
+    furi_check(furi_semaphore_acquire(semaphore, 0) == FuriStatusOk);
+    return mjs_mk_string(mjs, context->buffer, ~0, true);
+}
+
+static void input_callback(JsKbdContext* context) {
+    furi_semaphore_release(context->input_semaphore);
+}
+
+static bool
+    header_assign(struct mjs* mjs, TextInput* input, JsViewPropValue value, JsKbdContext* context) {
+    UNUSED(mjs);
+    furi_string_set(context->header, value.string);
+    text_input_set_header_text(input, furi_string_get_cstr(context->header));
+    return true;
+}
+
+static bool min_len_assign(
+    struct mjs* mjs,
+    TextInput* input,
+    JsViewPropValue value,
+    JsKbdContext* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+    text_input_set_minimum_length(input, (size_t)value.number);
+    return true;
+}
+
+static bool max_len_assign(
+    struct mjs* mjs,
+    TextInput* input,
+    JsViewPropValue value,
+    JsKbdContext* context) {
+    UNUSED(mjs);
+    size_t new_buffer_size = value.number + 1;
+    if(new_buffer_size < context->default_text_size) {
+        // Avoid confusing parameters from user
+        mjs_prepend_errorf(
+            mjs, MJS_BAD_ARGS_ERROR, "maxLength must be larger than defaultText length");
+        return false;
+    }
+    context->buffer_size = new_buffer_size;
+    context->buffer = realloc(context->buffer, context->buffer_size); //-V701
+    text_input_set_result_callback(
+        input,
+        (TextInputCallback)input_callback,
+        context,
+        context->buffer,
+        context->buffer_size,
+        context->default_text_clear);
+    return true;
+}
+
+static bool default_text_assign(
+    struct mjs* mjs,
+    TextInput* input,
+    JsViewPropValue value,
+    JsKbdContext* context) {
+    UNUSED(mjs);
+    UNUSED(input);
+
+    if(value.string) {
+        context->default_text_size = strlen(value.string) + 1;
+        if(context->buffer_size < context->default_text_size) {
+            // Ensure buffer is large enough for defaultData
+            context->buffer_size = context->default_text_size;
+            context->buffer = realloc(context->buffer, context->buffer_size); //-V701
+        }
+        // Also trim excess previous data with strlcpy()
+        strlcpy(context->buffer, value.string, context->buffer_size); //-V575
+        text_input_set_result_callback(
+            input,
+            (TextInputCallback)input_callback,
+            context,
+            context->buffer,
+            context->buffer_size,
+            context->default_text_clear);
+    }
+    return true;
+}
+
+static bool default_text_clear_assign(
+    struct mjs* mjs,
+    TextInput* input,
+    JsViewPropValue value,
+    JsKbdContext* context) {
+    UNUSED(mjs);
+
+    context->default_text_clear = value.boolean;
+    text_input_set_result_callback(
+        input,
+        (TextInputCallback)input_callback,
+        context,
+        context->buffer,
+        context->buffer_size,
+        context->default_text_clear);
+    return true;
+}
+
+static bool illegal_symbols_assign(
+    struct mjs* mjs,
+    TextInput* input,
+    JsViewPropValue value,
+    JsKbdContext* context) {
+    UNUSED(mjs);
+    UNUSED(context);
+
+    text_input_show_illegal_symbols(input, value.boolean);
+    return true;
+}
+
+static JsKbdContext* ctx_make(struct mjs* mjs, TextInput* input, mjs_val_t view_obj) {
+    JsKbdContext* context = malloc(sizeof(JsKbdContext));
+    *context = (JsKbdContext){
+        .buffer_size = DEFAULT_BUF_SZ,
+        .buffer = malloc(DEFAULT_BUF_SZ),
+        .header = furi_string_alloc(),
+        .default_text_clear = false,
+        .input_semaphore = furi_semaphore_alloc(1, 0),
+    };
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeSemaphore,
+        .object = context->input_semaphore,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    text_input_set_result_callback(
+        input,
+        (TextInputCallback)input_callback,
+        context,
+        context->buffer,
+        context->buffer_size,
+        context->default_text_clear);
+    mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(TextInput* input, JsKbdContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_semaphore);
+    furi_semaphore_free(context->input_semaphore);
+    furi_string_free(context->header);
+    free(context->buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)text_input_alloc,
+    .free = (JsViewFree)text_input_free,
+    .get_view = (JsViewGetView)text_input_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .prop_cnt = 6,
+    .props = {
+        (JsViewPropDescriptor){
+            .name = "header",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)header_assign},
+        (JsViewPropDescriptor){
+            .name = "minLength",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)min_len_assign},
+        (JsViewPropDescriptor){
+            .name = "maxLength",
+            .type = JsViewPropTypeNumber,
+            .assign = (JsViewPropAssign)max_len_assign},
+        (JsViewPropDescriptor){
+            .name = "defaultText",
+            .type = JsViewPropTypeString,
+            .assign = (JsViewPropAssign)default_text_assign},
+        (JsViewPropDescriptor){
+            .name = "defaultTextClear",
+            .type = JsViewPropTypeBool,
+            .assign = (JsViewPropAssign)default_text_clear_assign},
+        (JsViewPropDescriptor){
+            .name = "illegalSymbols",
+            .type = JsViewPropTypeBool,
+            .assign = (JsViewPropAssign)illegal_symbols_assign},
+    }};
+
+JS_GUI_VIEW_DEF(text_input, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\vi_list.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/variable_item_list.h>
+#include <toolbox/str_buffer.h>
+
+typedef struct {
+    StrBuffer str_buffer;
+
+    // let mjs do the memory management heavy lifting, store children in a js array
+    struct mjs* mjs;
+    mjs_val_t children;
+    VariableItemList* list;
+
+    FuriMessageQueue* input_queue;
+    JsEventLoopContract contract;
+} JsViListContext;
+
+typedef struct {
+    int32_t item_index;
+    int32_t value_index;
+} JsViListEvent;
+
+static mjs_val_t
+    input_transformer(struct mjs* mjs, FuriMessageQueue* queue, JsViListContext* context) {
+    UNUSED(context);
+    JsViListEvent event;
+    furi_check(furi_message_queue_get(queue, &event, 0) == FuriStatusOk);
+
+    mjs_val_t event_obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, event_obj) {
+        JS_FIELD("itemIndex", mjs_mk_number(mjs, event.item_index));
+        JS_FIELD("valueIndex", mjs_mk_number(mjs, event.value_index));
+    }
+
+    return event_obj;
+}
+
+static void js_vi_list_change_callback(VariableItem* item) {
+    JsViListContext* context = variable_item_get_context(item);
+    struct mjs* mjs = context->mjs;
+    uint8_t item_index = variable_item_list_get_selected_item_index(context->list);
+    uint8_t value_index = variable_item_get_current_value_index(item);
+
+    // type safety ensured in add_child
+    mjs_val_t variants = mjs_array_get(mjs, context->children, item_index);
+    mjs_val_t variant = mjs_array_get(mjs, variants, value_index);
+    variable_item_set_current_value_text(item, mjs_get_string(mjs, &variant, NULL));
+
+    JsViListEvent event = {
+        .item_index = item_index,
+        .value_index = value_index,
+    };
+    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+}
+
+static bool js_vi_list_add_child(
+    struct mjs* mjs,
+    VariableItemList* list,
+    JsViListContext* context,
+    mjs_val_t child_obj) {
+    static const JsValueDeclaration js_vi_list_string = JS_VALUE_SIMPLE(JsValueTypeString);
+    static const JsValueDeclaration js_vi_list_arr = JS_VALUE_SIMPLE(JsValueTypeAnyArray);
+    static const JsValueDeclaration js_vi_list_int_default_0 =
+        JS_VALUE_SIMPLE_W_DEFAULT(JsValueTypeInt32, int32_val, 0);
+
+    static const JsValueObjectField js_vi_list_child_fields[] = {
+        {"label", &js_vi_list_string},
+        {"variants", &js_vi_list_arr},
+        {"defaultSelected", &js_vi_list_int_default_0},
+    };
+    static const JsValueDeclaration js_vi_list_child =
+        JS_VALUE_OBJECT_W_DEFAULTS(js_vi_list_child_fields);
+
+    JsValueParseStatus status;
+    const char* label;
+    mjs_val_t variants;
+    int32_t default_selected;
+    JS_VALUE_PARSE(
+        mjs,
+        JS_VALUE_PARSE_SOURCE_VALUE(&js_vi_list_child),
+        JsValueParseFlagReturnOnError,
+        &status,
+        &child_obj,
+        &label,
+        &variants,
+        &default_selected);
+    if(status != JsValueParseStatusOk) return false;
+
+    size_t variants_cnt = mjs_array_length(mjs, variants);
+    for(size_t i = 0; i < variants_cnt; i++)
+        if(!mjs_is_string(mjs_array_get(mjs, variants, i))) return false;
+
+    VariableItem* item = variable_item_list_add(
+        list,
+        str_buffer_make_owned_clone(&context->str_buffer, label),
+        variants_cnt,
+        js_vi_list_change_callback,
+        context);
+    variable_item_set_current_value_index(item, default_selected);
+    mjs_val_t default_variant = mjs_array_get(mjs, variants, default_selected);
+    variable_item_set_current_value_text(item, mjs_get_string(mjs, &default_variant, NULL));
+
+    mjs_array_push(context->mjs, context->children, variants);
+
+    return true;
+}
+
+static void js_vi_list_reset_children(VariableItemList* list, JsViListContext* context) {
+    mjs_disown(context->mjs, &context->children);
+    context->children = mjs_mk_array(context->mjs);
+    mjs_own(context->mjs, &context->children);
+
+    variable_item_list_reset(list);
+    str_buffer_clear_all_clones(&context->str_buffer);
+}
+
+static JsViListContext* ctx_make(struct mjs* mjs, VariableItemList* list, mjs_val_t view_obj) {
+    JsViListContext* context = malloc(sizeof(JsViListContext));
+    *context = (JsViListContext){
+        .str_buffer = {0},
+        .mjs = mjs,
+        .children = mjs_mk_array(mjs),
+        .list = list,
+        .input_queue = furi_message_queue_alloc(1, sizeof(JsViListEvent)),
+    };
+    mjs_own(context->mjs, &context->children);
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->input_queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)input_transformer,
+                .transformer_context = context,
+            },
+    };
+    mjs_set(mjs, view_obj, "valueUpdate", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void ctx_destroy(VariableItemList* input, JsViListContext* context, FuriEventLoop* loop) {
+    UNUSED(input);
+    furi_event_loop_maybe_unsubscribe(loop, context->input_queue);
+    furi_message_queue_free(context->input_queue);
+    str_buffer_clear_all_clones(&context->str_buffer);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)variable_item_list_alloc,
+    .free = (JsViewFree)variable_item_list_free,
+    .get_view = (JsViewGetView)variable_item_list_get_view,
+    .custom_make = (JsViewCustomMake)ctx_make,
+    .custom_destroy = (JsViewCustomDestroy)ctx_destroy,
+    .add_child = (JsViewAddChild)js_vi_list_add_child,
+    .reset_children = (JsViewResetChildren)js_vi_list_reset_children,
+    .prop_cnt = 0,
+    .props = {},
+};
+
+JS_GUI_VIEW_DEF(vi_list, &view_descriptor);
+
+
+=== FILE: tight\momentum-js-app-modules\modules\js_gui\widget.c ===
+
+#include "../../js_modules.h" // IWYU pragma: keep
+#include "js_gui.h"
+#include "../js_event_loop/js_event_loop.h"
+#include <gui/modules/widget.h>
+
+typedef struct {
+    FuriMessageQueue* queue;
+    JsEventLoopContract contract;
+} JsWidgetCtx;
+
+#define QUEUE_LEN 2
+
+typedef struct {
+    GuiButtonType key;
+    InputType type;
+} JsWidgetButtonEvent;
+
+/**
+ * @brief Parses position (X and Y) from an element declaration object
+ */
+static bool element_get_position(struct mjs* mjs, mjs_val_t element, int32_t* x, int32_t* y) {
+    mjs_val_t x_in = mjs_get(mjs, element, "x", ~0);
+    mjs_val_t y_in = mjs_get(mjs, element, "y", ~0);
+    if(!mjs_is_number(x_in) || !mjs_is_number(y_in)) return false;
+    *x = mjs_get_int32(mjs, x_in);
+    *y = mjs_get_int32(mjs, y_in);
+    return true;
+}
+
+/**
+ * @brief Parses size (W and h) from an element declaration object
+ */
+static bool element_get_size(struct mjs* mjs, mjs_val_t element, int32_t* w, int32_t* h) {
+    mjs_val_t w_in = mjs_get(mjs, element, "w", ~0);
+    mjs_val_t h_in = mjs_get(mjs, element, "h", ~0);
+    if(!mjs_is_number(w_in) || !mjs_is_number(h_in)) return false;
+    *w = mjs_get_int32(mjs, w_in);
+    *h = mjs_get_int32(mjs, h_in);
+    return true;
+}
+
+/**
+ * @brief Parses alignment (V and H) from an element declaration object
+ */
+static bool
+    element_get_alignment(struct mjs* mjs, mjs_val_t element, Align* align_v, Align* align_h) {
+    mjs_val_t align_in = mjs_get(mjs, element, "align", ~0);
+    const char* align = mjs_get_string(mjs, &align_in, NULL);
+    if(!align) return false;
+    if(strlen(align) != 2) return false;
+
+    if(align[0] == 't') {
+        *align_v = AlignTop;
+    } else if(align[0] == 'c') {
+        *align_v = AlignCenter;
+    } else if(align[0] == 'b') {
+        *align_v = AlignBottom;
+    } else {
+        return false;
+    }
+
+    if(align[1] == 'l') {
+        *align_h = AlignLeft;
+    } else if(align[1] == 'm') { // m = middle
+        *align_h = AlignCenter;
+    } else if(align[1] == 'r') {
+        *align_h = AlignRight;
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Parses font from an element declaration object
+ */
+static bool element_get_font(struct mjs* mjs, mjs_val_t element, Font* font) {
+    mjs_val_t font_in = mjs_get(mjs, element, "font", ~0);
+    const char* font_str = mjs_get_string(mjs, &font_in, NULL);
+    if(!font_str) return false;
+
+    if(strcmp(font_str, "primary") == 0) {
+        *font = FontPrimary;
+    } else if(strcmp(font_str, "secondary") == 0) {
+        *font = FontSecondary;
+    } else if(strcmp(font_str, "keyboard") == 0) {
+        *font = FontKeyboard;
+    } else if(strcmp(font_str, "big_numbers") == 0) {
+        *font = FontBigNumbers;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Parses text from an element declaration object
+ */
+static bool element_get_text(struct mjs* mjs, mjs_val_t element, mjs_val_t* text) {
+    *text = mjs_get(mjs, element, "text", ~0);
+    return mjs_is_string(*text);
+}
+
+/**
+ * @brief Widget button element callback
+ */
+static void js_widget_button_callback(GuiButtonType result, InputType type, JsWidgetCtx* context) {
+    JsWidgetButtonEvent event = {
+        .key = result,
+        .type = type,
+    };
+    furi_check(furi_message_queue_put(context->queue, &event, 0) == FuriStatusOk);
+}
+
+#define DESTRUCTURE_OR_RETURN(mjs, child_obj, part, ...) \
+    if(!element_get_##part(mjs, child_obj, __VA_ARGS__)) \
+        JS_ERROR_AND_RETURN_VAL(mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element " #part);
+
+static bool js_widget_add_child(
+    struct mjs* mjs,
+    Widget* widget,
+    JsWidgetCtx* context,
+    mjs_val_t child_obj) {
+    UNUSED(context);
+    if(!mjs_is_object(child_obj))
+        JS_ERROR_AND_RETURN_VAL(mjs, MJS_BAD_ARGS_ERROR, false, "child must be an object");
+
+    mjs_val_t element_type_term = mjs_get(mjs, child_obj, "element", ~0);
+    const char* element_type = mjs_get_string(mjs, &element_type_term, NULL);
+    if(!element_type)
+        JS_ERROR_AND_RETURN_VAL(
+            mjs, MJS_BAD_ARGS_ERROR, false, "child object must have `element` property");
+
+    if((strcmp(element_type, "string") == 0) || (strcmp(element_type, "string_multiline") == 0)) {
+        int32_t x, y;
+        Align align_v, align_h;
+        Font font;
+        mjs_val_t text;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, alignment, &align_v, &align_h);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, font, &font);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, text, &text);
+        if(strcmp(element_type, "string") == 0) {
+            widget_add_string_element(
+                widget, x, y, align_h, align_v, font, mjs_get_string(mjs, &text, NULL));
+        } else {
+            widget_add_string_multiline_element(
+                widget, x, y, align_h, align_v, font, mjs_get_string(mjs, &text, NULL));
+        }
+
+    } else if(strcmp(element_type, "text_box") == 0) {
+        int32_t x, y, w, h;
+        Align align_v, align_h;
+        Font font;
+        mjs_val_t text;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, size, &w, &h);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, alignment, &align_v, &align_h);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, font, &font);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, text, &text);
+        mjs_val_t strip_to_dots_in = mjs_get(mjs, child_obj, "stripToDots", ~0);
+        if(!mjs_is_boolean(strip_to_dots_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element stripToDots");
+        bool strip_to_dots = mjs_get_bool(mjs, strip_to_dots_in);
+        widget_add_text_box_element(
+            widget, x, y, w, h, align_h, align_v, mjs_get_string(mjs, &text, NULL), strip_to_dots);
+
+    } else if(strcmp(element_type, "text_scroll") == 0) {
+        int32_t x, y, w, h;
+        mjs_val_t text;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, size, &w, &h);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, text, &text);
+        widget_add_text_scroll_element(widget, x, y, w, h, mjs_get_string(mjs, &text, NULL));
+
+    } else if(strcmp(element_type, "button") == 0) {
+        mjs_val_t btn_in = mjs_get(mjs, child_obj, "button", ~0);
+        const char* btn_name = mjs_get_string(mjs, &btn_in, NULL);
+        if(!btn_name)
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element button");
+        GuiButtonType btn_type;
+        if(strcmp(btn_name, "left") == 0) {
+            btn_type = GuiButtonTypeLeft;
+        } else if(strcmp(btn_name, "center") == 0) {
+            btn_type = GuiButtonTypeCenter;
+        } else if(strcmp(btn_name, "right") == 0) {
+            btn_type = GuiButtonTypeRight;
+        } else {
+            JS_ERROR_AND_RETURN_VAL(mjs, MJS_BAD_ARGS_ERROR, false, "incorrect button type");
+        }
+        mjs_val_t text;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, text, &text);
+        widget_add_button_element(
+            widget,
+            btn_type,
+            mjs_get_string(mjs, &text, NULL),
+            (ButtonCallback)js_widget_button_callback,
+            context);
+
+    } else if(strcmp(element_type, "icon") == 0) {
+        int32_t x, y;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        mjs_val_t icon_data_in = mjs_get(mjs, child_obj, "iconData", ~0);
+        if(!mjs_is_foreign(icon_data_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element iconData");
+        const Icon* icon = mjs_get_ptr(mjs, icon_data_in);
+        widget_add_icon_element(widget, x, y, icon);
+
+    } else if(strcmp(element_type, "rect") == 0) {
+        int32_t x, y, w, h;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, size, &w, &h);
+        mjs_val_t radius_in = mjs_get(mjs, child_obj, "radius", ~0);
+        if(!mjs_is_number(radius_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element radius");
+        int32_t radius = mjs_get_int32(mjs, radius_in);
+        mjs_val_t fill_in = mjs_get(mjs, child_obj, "fill", ~0);
+        if(!mjs_is_boolean(fill_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element fill");
+        int32_t fill = mjs_get_bool(mjs, fill_in);
+        widget_add_rect_element(widget, x, y, w, h, radius, fill);
+
+    } else if(strcmp(element_type, "circle") == 0) {
+        int32_t x, y;
+        DESTRUCTURE_OR_RETURN(mjs, child_obj, position, &x, &y);
+        mjs_val_t radius_in = mjs_get(mjs, child_obj, "radius", ~0);
+        if(!mjs_is_number(radius_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element radius");
+        int32_t radius = mjs_get_int32(mjs, radius_in);
+        mjs_val_t fill_in = mjs_get(mjs, child_obj, "fill", ~0);
+        if(!mjs_is_boolean(fill_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element fill");
+        int32_t fill = mjs_get_bool(mjs, fill_in);
+        widget_add_circle_element(widget, x, y, radius, fill);
+
+    } else if(strcmp(element_type, "line") == 0) {
+        int32_t x1, y1, x2, y2;
+        mjs_val_t x1_in = mjs_get(mjs, child_obj, "x1", ~0);
+        mjs_val_t y1_in = mjs_get(mjs, child_obj, "y1", ~0);
+        mjs_val_t x2_in = mjs_get(mjs, child_obj, "x2", ~0);
+        mjs_val_t y2_in = mjs_get(mjs, child_obj, "y2", ~0);
+        if(!mjs_is_number(x1_in) || !mjs_is_number(y1_in) || !mjs_is_number(x2_in) ||
+           !mjs_is_number(y2_in))
+            JS_ERROR_AND_RETURN_VAL(
+                mjs, MJS_BAD_ARGS_ERROR, false, "failed to fetch element positions");
+        x1 = mjs_get_int32(mjs, x1_in);
+        y1 = mjs_get_int32(mjs, y1_in);
+        x2 = mjs_get_int32(mjs, x2_in);
+        y2 = mjs_get_int32(mjs, y2_in);
+        widget_add_line_element(widget, x1, y1, x2, y2);
+    }
+
+    return true;
+}
+
+static void js_widget_reset_children(Widget* widget, void* state) {
+    UNUSED(state);
+    widget_reset(widget);
+}
+
+static mjs_val_t js_widget_button_event_transformer(
+    struct mjs* mjs,
+    FuriMessageQueue* queue,
+    JsWidgetCtx* context) {
+    UNUSED(context);
+    JsWidgetButtonEvent event;
+    furi_check(furi_message_queue_get(queue, &event, 0) == FuriStatusOk);
+    const char* event_key;
+    if(event.key == GuiButtonTypeLeft) {
+        event_key = "left";
+    } else if(event.key == GuiButtonTypeCenter) {
+        event_key = "center";
+    } else if(event.key == GuiButtonTypeRight) {
+        event_key = "right";
+    } else {
+        furi_crash();
+    }
+    const char* event_type;
+    if(event.type == InputTypePress) {
+        event_type = "press";
+    } else if(event.type == InputTypeRelease) {
+        event_type = "release";
+    } else if(event.type == InputTypeShort) {
+        event_type = "short";
+    } else if(event.type == InputTypeLong) {
+        event_type = "long";
+    } else if(event.type == InputTypeRepeat) {
+        event_type = "repeat";
+    } else {
+        furi_crash();
+    }
+    mjs_val_t obj = mjs_mk_object(mjs);
+    JS_ASSIGN_MULTI(mjs, obj) {
+        JS_FIELD("key", mjs_mk_string(mjs, event_key, ~0, true));
+        JS_FIELD("type", mjs_mk_string(mjs, event_type, ~0, true));
+    }
+    return obj;
+}
+
+static void* js_widget_custom_make(struct mjs* mjs, Widget* widget, mjs_val_t view_obj) {
+    UNUSED(widget);
+    JsWidgetCtx* context = malloc(sizeof(JsWidgetCtx));
+    context->queue = furi_message_queue_alloc(QUEUE_LEN, sizeof(JsWidgetButtonEvent));
+    context->contract = (JsEventLoopContract){
+        .magic = JsForeignMagic_JsEventLoopContract,
+        .object_type = JsEventLoopObjectTypeQueue,
+        .object = context->queue,
+        .non_timer =
+            {
+                .event = FuriEventLoopEventIn,
+                .transformer = (JsEventLoopTransformer)js_widget_button_event_transformer,
+            },
+    };
+    mjs_set(mjs, view_obj, "button", ~0, mjs_mk_foreign(mjs, &context->contract));
+    return context;
+}
+
+static void js_widget_custom_destroy(Widget* widget, JsWidgetCtx* context, FuriEventLoop* loop) {
+    UNUSED(widget);
+    furi_event_loop_maybe_unsubscribe(loop, context->queue);
+    furi_message_queue_free(context->queue);
+    free(context);
+}
+
+static const JsViewDescriptor view_descriptor = {
+    .alloc = (JsViewAlloc)widget_alloc,
+    .free = (JsViewFree)widget_free,
+    .get_view = (JsViewGetView)widget_get_view,
+    .custom_make = (JsViewCustomMake)js_widget_custom_make,
+    .custom_destroy = (JsViewCustomDestroy)js_widget_custom_destroy,
+    .add_child = (JsViewAddChild)js_widget_add_child,
+    .reset_children = (JsViewResetChildren)js_widget_reset_children,
+    .prop_cnt = 0,
+    .props = {},
+};
+JS_GUI_VIEW_DEF(widget, &view_descriptor);

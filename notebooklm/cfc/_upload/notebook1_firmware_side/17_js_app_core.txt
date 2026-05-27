@@ -1,0 +1,1963 @@
+# Bundle: 17_js_app_core.txt
+# 10 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: tight\momentum-js-app-modules\js_app.c ===
+
+#include <dialogs/dialogs.h>
+#include "js_thread.h"
+#include <storage/storage.h>
+#include "js_app_i.h"
+#include <toolbox/path.h>
+#include <assets_icons.h>
+#include <toolbox/cli/cli_command.h>
+#include <cli/cli_main_commands.h>
+#include <toolbox/pipe.h>
+
+#define TAG "JS app"
+
+typedef struct {
+    JsThread* js_thread;
+    Gui* gui;
+    ViewDispatcher* view_dispatcher;
+    Loading* loading;
+    JsConsoleView* console_view;
+} JsApp;
+
+static uint32_t js_view_exit(void* context) {
+    UNUSED(context);
+    return VIEW_NONE;
+}
+
+static void js_app_compact_trace(FuriString* trace_str) {
+    // Keep only first line
+    size_t line_end = furi_string_search_char(trace_str, '\n');
+    if(line_end > 0) {
+        furi_string_left(trace_str, line_end);
+    }
+
+    // Remove full path
+    FuriString* file_name = furi_string_alloc();
+    size_t filename_start = furi_string_search_rchar(trace_str, '/');
+    if(filename_start > 0) {
+        filename_start++;
+        furi_string_set_n(
+            file_name, trace_str, filename_start, furi_string_size(trace_str) - filename_start);
+        furi_string_printf(trace_str, "at %s", furi_string_get_cstr(file_name));
+    }
+
+    furi_string_free(file_name);
+}
+
+static void js_callback(JsThreadEvent event, const char* msg, void* context) {
+    JsApp* app = context;
+    furi_assert(app);
+
+    if(event == JsThreadEventDone) {
+        FURI_LOG_I(TAG, "Script done");
+        console_view_print(app->console_view, "--- DONE ---");
+    } else if(event == JsThreadEventPrint) {
+        console_view_print(app->console_view, msg);
+    } else if(event == JsThreadEventError) {
+        console_view_print(app->console_view, "--- ERROR ---");
+        console_view_print(app->console_view, msg);
+    } else if(event == JsThreadEventErrorTrace) {
+        FuriString* compact_trace = furi_string_alloc_set_str(msg);
+        js_app_compact_trace(compact_trace);
+        console_view_print(app->console_view, furi_string_get_cstr(compact_trace));
+        furi_string_free(compact_trace);
+        console_view_print(app->console_view, "See logs for full trace");
+    }
+}
+
+static JsApp* js_app_alloc(void) {
+    JsApp* app = malloc(sizeof(JsApp));
+
+    app->view_dispatcher = view_dispatcher_alloc();
+    app->loading = loading_alloc();
+
+    app->gui = furi_record_open("gui");
+    view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
+    view_dispatcher_add_view(
+        app->view_dispatcher, JsAppViewLoading, loading_get_view(app->loading));
+
+    app->console_view = console_view_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, JsAppViewConsole, console_view_get_view(app->console_view));
+    view_set_previous_callback(console_view_get_view(app->console_view), js_view_exit);
+    view_dispatcher_switch_to_view(app->view_dispatcher, JsAppViewConsole);
+
+    return app;
+}
+
+static void js_app_free(JsApp* app) {
+    console_view_free(app->console_view);
+    view_dispatcher_remove_view(app->view_dispatcher, JsAppViewConsole);
+    loading_free(app->loading);
+    view_dispatcher_remove_view(app->view_dispatcher, JsAppViewLoading);
+
+    view_dispatcher_free(app->view_dispatcher);
+    furi_record_close("gui");
+
+    free(app);
+}
+
+int32_t js_app(void* arg) {
+    JsApp* app = js_app_alloc();
+
+    FuriString* script_path = furi_string_alloc_set(EXT_PATH("apps/Scripts"));
+    do {
+        if(arg != NULL && strlen(arg) > 0) {
+            furi_string_set(script_path, (const char*)arg);
+        } else {
+            DialogsFileBrowserOptions browser_options;
+            dialog_file_browser_set_basic_options(&browser_options, ".js", &I_js_script_10px);
+            DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+            if(!dialog_file_browser_show(dialogs, script_path, script_path, &browser_options))
+                break;
+            furi_record_close(RECORD_DIALOGS);
+        }
+        FuriString* name = furi_string_alloc();
+        path_extract_filename(script_path, name, false);
+        FuriString* start_text =
+            furi_string_alloc_printf("Running %s", furi_string_get_cstr(name));
+        console_view_print(app->console_view, furi_string_get_cstr(start_text));
+        console_view_print(app->console_view, "-------------");
+        furi_string_free(name);
+        furi_string_free(start_text);
+
+        app->js_thread = js_thread_run(furi_string_get_cstr(script_path), js_callback, app);
+        view_dispatcher_run(app->view_dispatcher);
+
+        js_thread_stop(app->js_thread);
+    } while(0);
+
+    furi_string_free(script_path);
+
+    js_app_free(app);
+    return 0;
+} //-V773
+
+typedef struct {
+    PipeSide* pipe;
+    FuriSemaphore* exit_sem;
+} JsCliContext;
+
+static void js_cli_print(JsCliContext* ctx, const char* msg) {
+    UNUSED(ctx);
+    UNUSED(msg);
+    pipe_send(ctx->pipe, msg, strlen(msg));
+}
+
+static void js_cli_exit(JsCliContext* ctx) {
+    furi_check(furi_semaphore_release(ctx->exit_sem) == FuriStatusOk);
+}
+
+static void js_cli_callback(JsThreadEvent event, const char* msg, void* context) {
+    JsCliContext* ctx = context;
+    switch(event) {
+    case JsThreadEventError:
+        js_cli_print(ctx, "---- ERROR ----\r\n");
+        js_cli_print(ctx, msg);
+        js_cli_print(ctx, "\r\n");
+        break;
+    case JsThreadEventErrorTrace:
+        js_cli_print(ctx, "Trace:\r\n");
+        js_cli_print(ctx, msg);
+        js_cli_print(ctx, "\r\n");
+
+        js_cli_exit(ctx); // Exit when an error occurs
+        break;
+    case JsThreadEventPrint:
+        js_cli_print(ctx, msg);
+        js_cli_print(ctx, "\r\n");
+        break;
+    case JsThreadEventDone:
+        js_cli_print(ctx, "Script done!\r\n");
+
+        js_cli_exit(ctx);
+        break;
+    }
+}
+
+void js_cli_execute(PipeSide* pipe, FuriString* args, void* context) {
+    UNUSED(context);
+
+    const char* path = furi_string_get_cstr(args);
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+
+    do {
+        if(furi_string_size(args) == 0) {
+            printf("Usage:\r\njs <path>\r\n");
+            break;
+        }
+
+        if(!storage_file_exists(storage, path)) {
+            printf("Can not open file %s\r\n", path);
+            break;
+        }
+
+        JsCliContext ctx = {.pipe = pipe};
+        ctx.exit_sem = furi_semaphore_alloc(1, 0);
+
+        printf("Running script %s, press CTRL+C to stop\r\n", path);
+        JsThread* js_thread = js_thread_run(path, js_cli_callback, &ctx);
+
+        while(furi_semaphore_acquire(ctx.exit_sem, 100) != FuriStatusOk) {
+            if(cli_is_pipe_broken_or_is_etx_next_char(pipe)) break;
+        }
+
+        js_thread_stop(js_thread);
+        furi_semaphore_free(ctx.exit_sem);
+    } while(false);
+
+    furi_record_close(RECORD_STORAGE);
+}
+
+CLI_COMMAND_INTERFACE(js, js_cli_execute, CliCommandFlagDefault, 1024, CLI_APPID);
+
+
+=== FILE: tight\momentum-js-app-modules\js_app_i.h ===
+
+#include <furi.h>
+#include <gui/gui.h>
+#include <gui/view_dispatcher.h>
+#include <gui/modules/loading.h>
+#include "views/console_view.h"
+
+typedef enum {
+    JsAppViewConsole,
+    JsAppViewLoading,
+} JsAppView;
+
+
+=== FILE: tight\momentum-js-app-modules\js_modules.c ===
+
+#include <core/common_defines.h>
+#include "js_modules.h"
+#include <m-array.h>
+#include <dialogs/dialogs.h>
+#include <assets_icons.h>
+
+#include "modules/js_flipper.h"
+#ifdef FW_CFG_unit_tests
+#include "modules/js_tests.h"
+#endif
+
+#define TAG "JS modules"
+
+// Absolute path is used to make possible plugin load from CLI
+#define MODULES_PATH "/ext/apps_data/js_app/plugins"
+
+typedef struct {
+    FuriString* name;
+    const JsModuleConstructor create;
+    const JsModuleDestructor destroy;
+    void* context;
+} JsModuleData;
+
+// not using:
+//   - a dict because ordering is required
+//   - a bptree because it forces a sorted ordering
+//   - an rbtree because i deemed it more tedious to implement, and with the
+//     amount of modules in use (under 10 in the overwhelming majority of cases)
+//     i bet it's going to be slower than a plain array
+ARRAY_DEF(JsModuleArray, JsModuleData, M_POD_OPLIST); //-V658
+#define M_OPL_JsModuleArray_t() ARRAY_OPLIST(JsModuleArray)
+
+static const JsModuleDescriptor modules_builtin[] = {
+    {"flipper", js_flipper_create, NULL, NULL},
+#ifdef FW_CFG_unit_tests
+    {"tests", js_tests_create, NULL, NULL},
+#endif
+};
+
+struct JsModules {
+    struct mjs* mjs;
+    JsModuleArray_t modules;
+    PluginManager* plugin_manager;
+    CompositeApiResolver* resolver;
+};
+
+JsModules* js_modules_create(struct mjs* mjs, CompositeApiResolver* resolver) {
+    JsModules* modules = malloc(sizeof(JsModules));
+    modules->mjs = mjs;
+    JsModuleArray_init(modules->modules);
+
+    modules->plugin_manager = plugin_manager_alloc(
+        PLUGIN_APP_ID, PLUGIN_API_VERSION, composite_api_resolver_get(resolver));
+
+    modules->resolver = resolver;
+
+    return modules;
+}
+
+void js_modules_destroy(JsModules* instance) {
+    for
+        M_EACH(module, instance->modules, JsModuleArray_t) {
+            FURI_LOG_T(TAG, "Tearing down %s", furi_string_get_cstr(module->name));
+            if(module->destroy) module->destroy(module->context);
+            furi_string_free(module->name);
+        }
+    plugin_manager_free(instance->plugin_manager);
+    JsModuleArray_clear(instance->modules);
+    free(instance);
+}
+
+JsModuleData* js_find_loaded_module(JsModules* instance, const char* name) {
+    for
+        M_EACH(module, instance->modules, JsModuleArray_t) {
+            if(furi_string_cmp_str(module->name, name) == 0) return module;
+        }
+    return NULL;
+}
+
+mjs_val_t js_module_require(JsModules* modules, const char* name, size_t name_len) {
+    // Ignore the initial part of the module name
+    const char* optional_module_prefix = "@" JS_SDK_VENDOR "/fz-sdk/";
+    if(strncmp(name, optional_module_prefix, strlen(optional_module_prefix)) == 0) {
+        name += strlen(optional_module_prefix);
+    }
+
+    // Check if module is already installed
+    JsModuleData* module_inst = js_find_loaded_module(modules, name);
+    if(module_inst) { //-V547
+        mjs_prepend_errorf(
+            modules->mjs, MJS_BAD_ARGS_ERROR, "\"%s\" module is already installed", name);
+        return MJS_UNDEFINED;
+    }
+
+    bool module_found = false;
+    // Check built-in modules
+    for(size_t i = 0; i < COUNT_OF(modules_builtin); i++) { //-V1008
+        size_t name_compare_len = strlen(modules_builtin[i].name);
+
+        if(name_compare_len != name_len) {
+            continue;
+        }
+
+        if(strncmp(name, modules_builtin[i].name, name_compare_len) == 0) {
+            JsModuleData module = {
+                .create = modules_builtin[i].create,
+                .destroy = modules_builtin[i].destroy,
+                .name = furi_string_alloc_set_str(name),
+            };
+            JsModuleArray_push_at(modules->modules, 0, module);
+            module_found = true;
+            FURI_LOG_I(TAG, "Using built-in module %s", name);
+            break;
+        }
+    }
+
+    // External module load
+    if(!module_found) {
+        FuriString* deslashed_name = furi_string_alloc_set_str(name);
+        furi_string_replace_all_str(deslashed_name, "/", "__");
+        FuriString* module_path = furi_string_alloc();
+        furi_string_printf(
+            module_path, "%s/js_%s.fal", MODULES_PATH, furi_string_get_cstr(deslashed_name));
+        FURI_LOG_I(
+            TAG, "Loading external module %s from %s", name, furi_string_get_cstr(module_path));
+        do {
+            uint32_t plugin_cnt_last = plugin_manager_get_count(modules->plugin_manager);
+            PluginManagerError load_error = plugin_manager_load_single(
+                modules->plugin_manager, furi_string_get_cstr(module_path));
+            if(load_error != PluginManagerErrorNone) {
+                FURI_LOG_E(
+                    TAG,
+                    "Module %s load error. It may depend on other modules that are not yet loaded.",
+                    name);
+                break;
+            }
+            const JsModuleDescriptor* plugin =
+                plugin_manager_get_ep(modules->plugin_manager, plugin_cnt_last);
+            furi_assert(plugin);
+
+            if(furi_string_cmp_str(deslashed_name, plugin->name) != 0) {
+                FURI_LOG_E(TAG, "Module name mismatch %s", plugin->name);
+                break;
+            }
+            JsModuleData module = {
+                .create = plugin->create,
+                .destroy = plugin->destroy,
+                .name = furi_string_alloc_set_str(name),
+            };
+            JsModuleArray_push_at(modules->modules, 0, module);
+
+            if(plugin->api_interface) {
+                FURI_LOG_I(TAG, "Added module API to composite resolver: %s", plugin->name);
+                composite_api_resolver_add(modules->resolver, plugin->api_interface);
+            }
+
+            module_found = true;
+        } while(0);
+        furi_string_free(module_path);
+        furi_string_free(deslashed_name);
+    }
+
+    // Run module constructor
+    mjs_val_t module_object = MJS_UNDEFINED;
+    if(module_found) {
+        module_inst = js_find_loaded_module(modules, name);
+        furi_assert(module_inst);
+        if(module_inst->create) { //-V779
+            module_inst->context = module_inst->create(modules->mjs, &module_object, modules);
+        }
+    }
+
+    if(module_object == MJS_UNDEFINED) { //-V547
+        mjs_prepend_errorf(modules->mjs, MJS_BAD_ARGS_ERROR, "\"%s\" module load fail", name);
+    }
+
+    return module_object;
+}
+
+void* js_module_get(JsModules* modules, const char* name) {
+    FuriString* module_name = furi_string_alloc_set_str(name);
+    JsModuleData* module_inst = js_find_loaded_module(modules, name);
+    furi_string_free(module_name);
+    return module_inst ? module_inst->context : NULL;
+}
+
+typedef enum {
+    JsSdkCompatStatusCompatible,
+    JsSdkCompatStatusFirmwareTooOld,
+    JsSdkCompatStatusFirmwareTooNew,
+} JsSdkCompatStatus;
+
+/**
+ * @brief Checks compatibility between the firmware and the JS SDK version
+ *        expected by the script
+ */
+static JsSdkCompatStatus
+    js_internal_sdk_compatibility_status(int32_t exp_major, int32_t exp_minor) {
+    if(exp_major < JS_SDK_MAJOR) return JsSdkCompatStatusFirmwareTooNew;
+    if(exp_major > JS_SDK_MAJOR || exp_minor > JS_SDK_MINOR)
+        return JsSdkCompatStatusFirmwareTooOld;
+    return JsSdkCompatStatusCompatible;
+}
+
+static const JsValueDeclaration js_sdk_version_arg_list[] = {
+    JS_VALUE_SIMPLE(JsValueTypeInt32),
+    JS_VALUE_SIMPLE(JsValueTypeInt32),
+};
+static const JsValueArguments js_sdk_version_args = JS_VALUE_ARGS(js_sdk_version_arg_list);
+
+void js_sdk_compatibility_status(struct mjs* mjs) {
+    int32_t major, minor;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_sdk_version_args, &major, &minor);
+    JsSdkCompatStatus status = js_internal_sdk_compatibility_status(major, minor);
+    switch(status) {
+    case JsSdkCompatStatusCompatible:
+        mjs_return(mjs, mjs_mk_string(mjs, "compatible", ~0, 0));
+        return;
+    case JsSdkCompatStatusFirmwareTooOld:
+        mjs_return(mjs, mjs_mk_string(mjs, "firmwareTooOld", ~0, 0));
+        return;
+    case JsSdkCompatStatusFirmwareTooNew:
+        mjs_return(mjs, mjs_mk_string(mjs, "firmwareTooNew", ~0, 0));
+        return;
+    }
+}
+
+void js_is_sdk_compatible(struct mjs* mjs) {
+    int32_t major, minor;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_sdk_version_args, &major, &minor);
+    JsSdkCompatStatus status = js_internal_sdk_compatibility_status(major, minor);
+    mjs_return(mjs, mjs_mk_boolean(mjs, status == JsSdkCompatStatusCompatible));
+}
+
+/**
+ * @brief Asks the user whether to continue executing an incompatible script
+ */
+static bool js_internal_compat_ask_user(const char* message) {
+    DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+    DialogMessage* dialog = dialog_message_alloc();
+    dialog_message_set_header(dialog, message, 64, 0, AlignCenter, AlignTop);
+    dialog_message_set_text(
+        dialog, "This script may not\nwork as expected", 79, 32, AlignCenter, AlignCenter);
+    dialog_message_set_icon(dialog, &I_Warning_30x23, 0, 18);
+    dialog_message_set_buttons(dialog, "Go back", NULL, "Run anyway");
+    DialogMessageButton choice = dialog_message_show(dialogs, dialog);
+    dialog_message_free(dialog);
+    furi_record_close(RECORD_DIALOGS);
+    return choice == DialogMessageButtonRight;
+}
+
+void js_check_sdk_compatibility(struct mjs* mjs) {
+    int32_t major, minor;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_sdk_version_args, &major, &minor);
+    JsSdkCompatStatus status = js_internal_sdk_compatibility_status(major, minor);
+    if(status != JsSdkCompatStatusCompatible) {
+        FURI_LOG_E(
+            TAG,
+            "Script requests JS SDK %ld.%ld, firmware provides JS SDK %d.%d",
+            major,
+            minor,
+            JS_SDK_MAJOR,
+            JS_SDK_MINOR);
+
+        const char* message = (status == JsSdkCompatStatusFirmwareTooOld) ? "Outdated Firmware" :
+                                                                            "Outdated Script";
+        if(!js_internal_compat_ask_user(message)) {
+            JS_ERROR_AND_RETURN(mjs, MJS_NOT_IMPLEMENTED_ERROR, "Incompatible script");
+        }
+    }
+}
+
+static const char* extra_features[] = {
+    "baseline", // dummy "feature"
+
+    // extra modules
+    "blebeacon",
+    "i2c",
+    "spi",
+    "infrared-send",
+    "subghz",
+    "usbdisk",
+    "vgm",
+
+    // extra features
+    "gui-textinput-illegalsymbols",
+    "storage-virtual",
+    "usbdisk-createimage",
+};
+
+/**
+ * @brief Determines whether a feature is supported
+ */
+static bool js_internal_supports(const char* feature) {
+    for(size_t i = 0; i < COUNT_OF(extra_features); i++) { // -V1008
+        if(strcmp(feature, extra_features[i]) == 0) return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Determines whether all of the requested features are supported
+ */
+static bool js_internal_supports_all_of(struct mjs* mjs, mjs_val_t feature_arr) {
+    furi_assert(mjs_is_array(feature_arr));
+
+    for(size_t i = 0; i < mjs_array_length(mjs, feature_arr); i++) {
+        mjs_val_t feature = mjs_array_get(mjs, feature_arr, i);
+        const char* feature_str = mjs_get_string(mjs, &feature, NULL);
+        if(!feature_str) return false;
+
+        if(!js_internal_supports(feature_str)) return false;
+    }
+
+    return true;
+}
+
+static const JsValueDeclaration js_sdk_features_arg_list[] = {
+    JS_VALUE_SIMPLE(JsValueTypeAnyArray),
+};
+static const JsValueArguments js_sdk_features_args = JS_VALUE_ARGS(js_sdk_features_arg_list);
+
+void js_does_sdk_support(struct mjs* mjs) {
+    mjs_val_t features;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_sdk_features_args, &features);
+    mjs_return(mjs, mjs_mk_boolean(mjs, js_internal_supports_all_of(mjs, features)));
+}
+
+void js_check_sdk_features(struct mjs* mjs) {
+    mjs_val_t features;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_sdk_features_args, &features);
+    if(!js_internal_supports_all_of(mjs, features)) {
+        FURI_LOG_E(TAG, "Script requests unsupported features");
+
+        if(!js_internal_compat_ask_user("Unsupported Feature")) {
+            JS_ERROR_AND_RETURN(mjs, MJS_NOT_IMPLEMENTED_ERROR, "Incompatible script");
+        }
+    }
+}
+
+
+=== FILE: tight\momentum-js-app-modules\js_modules.h ===
+
+#pragma once
+
+#include <stdint.h>
+#include "js_thread_i.h"
+#include "js_value.h"
+#include <flipper_application/flipper_application.h>
+#include <flipper_application/plugins/plugin_manager.h>
+#include <flipper_application/plugins/composite_resolver.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define PLUGIN_APP_ID      "js"
+#define PLUGIN_API_VERSION 1
+
+#define JS_SDK_VENDOR_FIRMWARE "momentum"
+#define JS_SDK_VENDOR          "flipperdevices"
+#define JS_SDK_MAJOR           1
+#define JS_SDK_MINOR           0
+
+/**
+ * @brief Returns the foreign pointer in `obj["_"]`
+ */
+#define JS_GET_INST(mjs, obj) mjs_get_ptr(mjs, mjs_get(mjs, obj, INST_PROP_NAME, ~0))
+/**
+ * @brief Returns the foreign pointer in `this["_"]`
+ */
+#define JS_GET_CONTEXT(mjs)   JS_GET_INST(mjs, mjs_get_this(mjs))
+
+/**
+ * @brief Syntax sugar for constructing an object
+ * 
+ * Example:
+ *
+ *  mjs_val_t my_obj = mjs_mk_object(mjs);
+ *  JS_ASSIGN_MULTI(mjs, my_obj) {
+ *      JS_FIELD("method1", MJS_MK_FN(js_storage_file_is_open));
+ *      JS_FIELD("method2", MJS_MK_FN(js_storage_file_is_open));
+ *  }
+ */
+#define JS_ASSIGN_MULTI(mjs, object)     \
+    for(struct {                         \
+            struct mjs* mjs;             \
+            mjs_val_t val;               \
+            int i;                       \
+        } _ass_multi = {mjs, object, 0}; \
+        _ass_multi.i == 0;               \
+        _ass_multi.i++)
+#define JS_FIELD(name, value) mjs_set(_ass_multi.mjs, _ass_multi.val, name, ~0, value)
+
+/**
+ * @brief The first word of structures that foreign pointer JS values point to
+ * 
+ * This is used to detect situations where JS code mistakenly passes an opaque
+ * foreign pointer of one type as an argument to a native function which expects
+ * a struct of another type.
+ * 
+ * It is recommended to use this functionality in conjunction with the following
+ * convenience verification macros:
+ *   - `JS_ARG_STRUCT()`
+ *   - `JS_ARG_OBJ_WITH_STRUCT()`
+ * 
+ * @warning In order for the mechanism to work properly, your struct must store
+ * the magic value in the first word.
+ */
+typedef enum {
+    JsForeignMagicStart = 0x15BAD000,
+    JsForeignMagic_JsEventLoopContract,
+} JsForeignMagic;
+
+/**
+ * @brief Prepends an error, sets the JS return value to `undefined` and returns
+ * from the C function
+ * @warning This macro executes `return;` by design
+ */
+#define JS_ERROR_AND_RETURN(mjs, error_code, ...)         \
+    do {                                                  \
+        mjs_prepend_errorf(mjs, error_code, __VA_ARGS__); \
+        mjs_return(mjs, MJS_UNDEFINED);                   \
+        return;                                           \
+    } while(0)
+
+/**
+ * @brief Prepends an error, sets the JS return value to `undefined` and returns
+ * a value C function
+ * @warning This macro executes `return;` by design
+ */
+#define JS_ERROR_AND_RETURN_VAL(mjs, error_code, ret_val, ...) \
+    do {                                                       \
+        mjs_prepend_errorf(mjs, error_code, __VA_ARGS__);      \
+        mjs_return(mjs, MJS_UNDEFINED);                        \
+        return ret_val;                                        \
+    } while(0)
+
+typedef struct JsModules JsModules;
+
+typedef void* (*JsModuleConstructor)(struct mjs* mjs, mjs_val_t* object, JsModules* modules);
+typedef void (*JsModuleDestructor)(void* inst);
+
+typedef struct {
+    char* name;
+    JsModuleConstructor create;
+    JsModuleDestructor destroy;
+    const ElfApiInterface* api_interface;
+} JsModuleDescriptor;
+
+JsModules* js_modules_create(struct mjs* mjs, CompositeApiResolver* resolver);
+
+void js_modules_destroy(JsModules* modules);
+
+mjs_val_t js_module_require(JsModules* modules, const char* name, size_t name_len);
+
+/**
+ * @brief Gets a module instance by its name
+ * This is useful when a module wants to access a stateful API of another
+ * module.
+ * @returns Pointer to module context, NULL if the module is not instantiated
+ */
+void* js_module_get(JsModules* modules, const char* name);
+
+/**
+ * @brief `sdkCompatibilityStatus` function
+ */
+void js_sdk_compatibility_status(struct mjs* mjs);
+
+/**
+ * @brief `isSdkCompatible` function
+ */
+void js_is_sdk_compatible(struct mjs* mjs);
+
+/**
+ * @brief `checkSdkCompatibility` function
+ */
+void js_check_sdk_compatibility(struct mjs* mjs);
+
+/**
+ * @brief `doesSdkSupport` function
+ */
+void js_does_sdk_support(struct mjs* mjs);
+
+/**
+ * @brief `checkSdkFeatures` function
+ */
+void js_check_sdk_features(struct mjs* mjs);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\momentum-js-app-modules\js_thread.c ===
+
+#include <common/cs_dbg.h>
+#include <toolbox/path.h>
+#include <toolbox/stream/file_stream.h>
+#include <toolbox/strint.h>
+#include <loader/firmware_api/firmware_api.h>
+#include <flipper_application/api_hashtable/api_hashtable.h>
+#include <flipper_application/plugins/composite_resolver.h>
+#include <furi_hal.h>
+#include "plugin_api/app_api_interface.h"
+#include "js_thread.h"
+#include "js_thread_i.h"
+#include "js_modules.h"
+
+#define TAG "JS"
+
+struct JsThread {
+    FuriThread* thread;
+    FuriString* path;
+    CompositeApiResolver* resolver;
+    JsThreadCallback app_callback;
+    void* context;
+    JsModules* modules;
+};
+
+static void js_str_print(FuriString* msg_str, struct mjs* mjs) {
+    size_t num_args = mjs_nargs(mjs);
+    for(size_t i = 0; i < num_args; i++) {
+        char* name = NULL;
+        size_t name_len = 0;
+        int need_free = 0;
+        mjs_val_t arg = mjs_arg(mjs, i);
+        mjs_err_t err = mjs_to_string(mjs, &arg, &name, &name_len, &need_free);
+        if(err != MJS_OK) {
+            furi_string_cat_printf(msg_str, "err %s ", mjs_strerror(mjs, err));
+        } else {
+            furi_string_cat_printf(msg_str, "%s ", name);
+        }
+        if(need_free) {
+            free(name);
+            name = NULL;
+        }
+    }
+}
+
+static void js_print(struct mjs* mjs) {
+    FuriString* msg_str = furi_string_alloc();
+    js_str_print(msg_str, mjs);
+
+    JsThread* worker = mjs_get_context(mjs);
+    furi_assert(worker);
+    if(worker->app_callback) {
+        worker->app_callback(JsThreadEventPrint, furi_string_get_cstr(msg_str), worker->context);
+    } else {
+        FURI_LOG_D(TAG, "%s\r\n", furi_string_get_cstr(msg_str));
+    }
+
+    furi_string_free(msg_str);
+
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void js_console_log(struct mjs* mjs) {
+    FuriString* msg_str = furi_string_alloc();
+    js_str_print(msg_str, mjs);
+    FURI_LOG_I(TAG, "%s", furi_string_get_cstr(msg_str));
+    furi_string_free(msg_str);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void js_console_warn(struct mjs* mjs) {
+    FuriString* msg_str = furi_string_alloc();
+    js_str_print(msg_str, mjs);
+    FURI_LOG_W(TAG, "%s", furi_string_get_cstr(msg_str));
+    furi_string_free(msg_str);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void js_console_error(struct mjs* mjs) {
+    FuriString* msg_str = furi_string_alloc();
+    js_str_print(msg_str, mjs);
+    FURI_LOG_E(TAG, "%s", furi_string_get_cstr(msg_str));
+    furi_string_free(msg_str);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void js_console_debug(struct mjs* mjs) {
+    FuriString* msg_str = furi_string_alloc();
+    js_str_print(msg_str, mjs);
+    FURI_LOG_D(TAG, "%s", furi_string_get_cstr(msg_str));
+    furi_string_free(msg_str);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void js_exit_flag_poll(struct mjs* mjs) {
+    uint32_t flags = furi_thread_flags_wait(ThreadEventStop, FuriFlagWaitAny | FuriFlagNoClear, 0);
+    if(flags & FuriFlagError) {
+        return;
+    }
+    if(flags & ThreadEventStop) {
+        mjs_exit(mjs);
+    }
+}
+
+bool js_delay_with_flags(struct mjs* mjs, uint32_t time) {
+    uint32_t flags =
+        furi_thread_flags_wait(ThreadEventStop, FuriFlagWaitAny | FuriFlagNoClear, time);
+    if(flags & FuriFlagError) {
+        return false;
+    }
+    if(flags & ThreadEventStop) {
+        mjs_exit(mjs);
+        return true;
+    }
+    return false;
+}
+
+void js_flags_set(struct mjs* mjs, uint32_t flags) {
+    JsThread* worker = mjs_get_context(mjs);
+    furi_assert(worker);
+    furi_thread_flags_set(furi_thread_get_id(worker->thread), flags);
+}
+
+uint32_t js_flags_wait(struct mjs* mjs, uint32_t flags_mask, uint32_t timeout) {
+    flags_mask |= ThreadEventStop;
+    uint32_t flags = furi_thread_flags_get();
+    furi_check((flags & FuriFlagError) == 0);
+    if(flags == 0) {
+        flags = furi_thread_flags_wait(flags_mask, FuriFlagWaitAny | FuriFlagNoClear, timeout);
+    } else {
+        uint32_t state = furi_thread_flags_clear(flags & flags_mask);
+        furi_check((state & FuriFlagError) == 0);
+    }
+
+    if(flags & FuriFlagError) {
+        return 0;
+    }
+    if(flags & ThreadEventStop) {
+        mjs_exit(mjs);
+    }
+    return flags;
+}
+
+static void js_delay(struct mjs* mjs) {
+    bool args_correct = false;
+    int ms = 0;
+
+    if(mjs_nargs(mjs) == 1) {
+        mjs_val_t arg = mjs_arg(mjs, 0);
+        if(mjs_is_number(arg)) {
+            ms = mjs_get_int(mjs, arg);
+            args_correct = true;
+        }
+    }
+    if(!args_correct) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "");
+        mjs_return(mjs, MJS_UNDEFINED);
+        return;
+    }
+    js_delay_with_flags(mjs, ms);
+    mjs_return(mjs, MJS_UNDEFINED);
+}
+
+static void* js_dlsym(void* handle, const char* name) {
+    CompositeApiResolver* resolver = handle;
+    Elf32_Addr addr = 0;
+    uint32_t hash = elf_symbolname_hash(name);
+    const ElfApiInterface* api = composite_api_resolver_get(resolver);
+
+    if(!api->resolver_callback(api, hash, &addr)) {
+        FURI_LOG_E(TAG, "FFI: cannot find \"%s\"", name);
+        return NULL;
+    }
+
+    return (void*)addr;
+}
+
+static void js_ffi_address(struct mjs* mjs) {
+    mjs_val_t name_v = mjs_arg(mjs, 0);
+    size_t len;
+    const char* name = mjs_get_string(mjs, &name_v, &len);
+    void* addr = mjs_ffi_resolve(mjs, name);
+    mjs_return(mjs, mjs_mk_foreign(mjs, addr));
+}
+
+static void js_require(struct mjs* mjs) {
+    mjs_val_t name_v = mjs_arg(mjs, 0);
+    size_t len;
+    const char* name = mjs_get_string(mjs, &name_v, &len);
+    mjs_val_t req_object = MJS_UNDEFINED;
+    if((len == 0) || (name == NULL)) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "String argument is expected");
+    } else {
+        JsThread* worker = mjs_get_context(mjs);
+        furi_assert(worker);
+        req_object = js_module_require(worker->modules, name, len);
+    }
+    mjs_return(mjs, req_object);
+}
+
+static void js_parse_int(struct mjs* mjs) {
+    static const JsValueDeclaration js_parse_int_arg_list[] = {
+        JS_VALUE_SIMPLE(JsValueTypeString),
+        JS_VALUE_SIMPLE_W_DEFAULT(JsValueTypeInt32, int32_val, 10),
+    };
+    static const JsValueArguments js_parse_int_args = JS_VALUE_ARGS(js_parse_int_arg_list);
+
+    const char* str;
+    int32_t base;
+    JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_parse_int_args, &str, &base);
+
+    int32_t num;
+    if(strint_to_int32(str, NULL, &num, base) != StrintParseNoError) {
+        num = 0;
+    }
+    mjs_return(mjs, mjs_mk_number(mjs, num));
+}
+
+#ifdef JS_DEBUG
+static void js_dump_write_callback(void* ctx, const char* format, ...) {
+    File* file = ctx;
+    furi_assert(ctx);
+
+    FuriString* str = furi_string_alloc();
+
+    va_list args;
+    va_start(args, format);
+    furi_string_vprintf(str, format, args);
+    furi_string_cat(str, "\n");
+    va_end(args);
+
+    storage_file_write(file, furi_string_get_cstr(str), furi_string_size(str));
+    furi_string_free(str);
+}
+#endif
+
+static int32_t js_thread(void* arg) {
+    JsThread* worker = arg;
+    worker->resolver = composite_api_resolver_alloc();
+    composite_api_resolver_add(worker->resolver, firmware_api_interface);
+    composite_api_resolver_add(worker->resolver, application_api_interface);
+
+    struct mjs* mjs = mjs_create(worker);
+    worker->modules = js_modules_create(mjs, worker->resolver);
+    mjs_val_t global = mjs_get_global(mjs);
+    mjs_val_t console_obj = mjs_mk_object(mjs);
+
+    if(worker->path) {
+        FuriString* dirpath = furi_string_alloc();
+        path_extract_dirname(furi_string_get_cstr(worker->path), dirpath);
+        mjs_set(
+            mjs,
+            global,
+            "__filename",
+            ~0,
+            mjs_mk_string(
+                mjs, furi_string_get_cstr(worker->path), furi_string_size(worker->path), true));
+        mjs_set(
+            mjs,
+            global,
+            "__dirname",
+            ~0,
+            mjs_mk_string(mjs, furi_string_get_cstr(dirpath), furi_string_size(dirpath), true));
+        furi_string_free(dirpath);
+    }
+
+    JS_ASSIGN_MULTI(mjs, global) {
+        JS_FIELD("print", MJS_MK_FN(js_print));
+        JS_FIELD("delay", MJS_MK_FN(js_delay));
+        JS_FIELD("parseInt", MJS_MK_FN(js_parse_int));
+        JS_FIELD("ffi_address", MJS_MK_FN(js_ffi_address));
+        JS_FIELD("require", MJS_MK_FN(js_require));
+        JS_FIELD("console", console_obj);
+
+        JS_FIELD("sdkCompatibilityStatus", MJS_MK_FN(js_sdk_compatibility_status));
+        JS_FIELD("isSdkCompatible", MJS_MK_FN(js_is_sdk_compatible));
+        JS_FIELD("checkSdkCompatibility", MJS_MK_FN(js_check_sdk_compatibility));
+        JS_FIELD("doesSdkSupport", MJS_MK_FN(js_does_sdk_support));
+        JS_FIELD("checkSdkFeatures", MJS_MK_FN(js_check_sdk_features));
+    }
+
+    JS_ASSIGN_MULTI(mjs, console_obj) {
+        JS_FIELD("log", MJS_MK_FN(js_console_log));
+        JS_FIELD("warn", MJS_MK_FN(js_console_warn));
+        JS_FIELD("error", MJS_MK_FN(js_console_error));
+        JS_FIELD("debug", MJS_MK_FN(js_console_debug));
+    }
+
+    mjs_set_ffi_resolver(mjs, js_dlsym, worker->resolver);
+
+    mjs_set_exec_flags_poller(mjs, js_exit_flag_poll);
+
+    mjs_err_t err = mjs_exec_file(mjs, furi_string_get_cstr(worker->path), NULL);
+
+#ifdef JS_DEBUG
+    if(furi_hal_rtc_is_flag_set(FuriHalRtcFlagDebug)) {
+        FuriString* dump_path = furi_string_alloc_set(worker->path);
+        furi_string_cat(dump_path, ".lst");
+
+        Storage* storage = furi_record_open(RECORD_STORAGE);
+        File* file = storage_file_alloc(storage);
+
+        if(storage_file_open(
+               file, furi_string_get_cstr(dump_path), FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+            mjs_disasm_all(mjs, js_dump_write_callback, file);
+        }
+
+        storage_file_close(file);
+        storage_file_free(file);
+        furi_record_close(RECORD_STORAGE);
+
+        furi_string_free(dump_path);
+    }
+#endif
+
+    if(err != MJS_OK) {
+        FURI_LOG_E(TAG, "Exec error: %s", mjs_strerror(mjs, err));
+        if(worker->app_callback) {
+            worker->app_callback(JsThreadEventError, mjs_strerror(mjs, err), worker->context);
+        }
+        const char* stack_trace = mjs_get_stack_trace(mjs);
+        if(stack_trace != NULL) {
+            FURI_LOG_E(TAG, "Stack trace:\r\n%s", stack_trace);
+            if(worker->app_callback) {
+                worker->app_callback(JsThreadEventErrorTrace, stack_trace, worker->context);
+            }
+        }
+    } else {
+        if(worker->app_callback) {
+            worker->app_callback(JsThreadEventDone, NULL, worker->context);
+        }
+    }
+
+    mjs_destroy(mjs);
+    js_modules_destroy(worker->modules);
+
+    composite_api_resolver_free(worker->resolver);
+
+    return 0;
+}
+
+JsThread* js_thread_run(const char* script_path, JsThreadCallback callback, void* context) {
+    JsThread* worker = malloc(sizeof(JsThread)); //-V799
+    worker->path = furi_string_alloc_set(script_path);
+    worker->thread = furi_thread_alloc_ex("JsThread", 8 * 1024, js_thread, worker);
+    worker->app_callback = callback;
+    worker->context = context;
+    furi_thread_start(worker->thread);
+    return worker;
+}
+
+void js_thread_stop(JsThread* worker) {
+    furi_thread_flags_set(furi_thread_get_id(worker->thread), ThreadEventStop);
+    furi_thread_join(worker->thread);
+    furi_thread_free(worker->thread);
+    furi_string_free(worker->path);
+    free(worker);
+}
+
+
+=== FILE: tight\momentum-js-app-modules\js_thread.h ===
+
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct JsThread JsThread;
+
+typedef enum {
+    JsThreadEventDone,
+    JsThreadEventError,
+    JsThreadEventPrint,
+    JsThreadEventErrorTrace,
+} JsThreadEvent;
+
+typedef void (*JsThreadCallback)(JsThreadEvent event, const char* msg, void* context);
+
+JsThread* js_thread_run(const char* script_path, JsThreadCallback callback, void* context);
+
+void js_thread_stop(JsThread* worker);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\momentum-js-app-modules\js_thread_i.h ===
+
+#pragma once
+
+#include <furi.h>
+#include <mjs_core_public.h>
+#include <mjs_ffi_public.h>
+#include <mjs_exec_public.h>
+#include <mjs_object_public.h>
+#include <mjs_string_public.h>
+#include <mjs_array_public.h>
+#include <mjs_util_public.h>
+#include <mjs_primitive_public.h>
+#include <mjs_array_buf_public.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define INST_PROP_NAME "_"
+
+typedef enum {
+    ThreadEventStop = (1 << 0),
+    ThreadEventCustomDataRx = (1 << 1),
+} WorkerEventFlags;
+
+bool js_delay_with_flags(struct mjs* mjs, uint32_t time);
+
+void js_flags_set(struct mjs* mjs, uint32_t flags);
+
+uint32_t js_flags_wait(struct mjs* mjs, uint32_t flags, uint32_t timeout);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\momentum-js-app-modules\js_value.c ===
+
+#include "js_value.h"
+#include <stdarg.h>
+
+#ifdef APP_UNIT_TESTS
+#define JS_VAL_DEBUG
+#endif
+
+size_t js_value_buffer_size(const JsValueParseDeclaration declaration) {
+    if(declaration.source == JsValueParseSourceValue) {
+        const JsValueDeclaration* value_decl = declaration.value_decl;
+        JsValueType type = value_decl->type & JsValueTypeMask;
+
+        if(type == JsValueTypeString) return 1;
+
+        if(type == JsValueTypeObject) {
+            size_t total = 0;
+            for(size_t i = 0; i < value_decl->n_children; i++)
+                total += js_value_buffer_size(
+                    JS_VALUE_PARSE_SOURCE_VALUE(value_decl->object_fields[i].value));
+            return total;
+        }
+
+        return 0;
+
+    } else {
+        const JsValueArguments* arg_decl = declaration.argument_decl;
+        size_t total = 0;
+        for(size_t i = 0; i < arg_decl->n_children; i++)
+            total += js_value_buffer_size(JS_VALUE_PARSE_SOURCE_VALUE(&arg_decl->arguments[i]));
+        return total;
+    }
+}
+
+static size_t js_value_resulting_c_values_count(const JsValueParseDeclaration declaration) {
+    if(declaration.source == JsValueParseSourceValue) {
+        const JsValueDeclaration* value_decl = declaration.value_decl;
+        JsValueType type = value_decl->type & JsValueTypeMask;
+
+        if(type == JsValueTypeObject) {
+            size_t total = 0;
+            for(size_t i = 0; i < value_decl->n_children; i++)
+                total += js_value_resulting_c_values_count(
+                    JS_VALUE_PARSE_SOURCE_VALUE(value_decl->object_fields[i].value));
+            return total;
+        }
+
+        return 1;
+
+    } else {
+        const JsValueArguments* arg_decl = declaration.argument_decl;
+        size_t total = 0;
+        for(size_t i = 0; i < arg_decl->n_children; i++)
+            total += js_value_resulting_c_values_count(
+                JS_VALUE_PARSE_SOURCE_VALUE(&arg_decl->arguments[i]));
+        return total;
+    }
+}
+
+#define PREPEND_JS_ERROR_AND_RETURN(mjs, flags, ...)                    \
+    do {                                                                \
+        if((flags) & JsValueParseFlagReturnOnError)                     \
+            mjs_prepend_errorf((mjs), MJS_BAD_ARGS_ERROR, __VA_ARGS__); \
+        return JsValueParseStatusJsError;                               \
+    } while(0)
+
+#define PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, type) \
+    PREPEND_JS_ERROR_AND_RETURN(mjs, flags, "expected %s", type)
+
+static void js_value_assign_enum_val(void* destination, JsValueType type_w_flags, uint32_t value) {
+    if(type_w_flags & JsValueTypeEnumSize1) {
+        *(uint8_t*)destination = value;
+    } else if(type_w_flags & JsValueTypeEnumSize2) {
+        *(uint16_t*)destination = value;
+    } else if(type_w_flags & JsValueTypeEnumSize4) {
+        *(uint32_t*)destination = value;
+    }
+}
+
+static bool js_value_is_null_or_undefined(mjs_val_t* val_ptr) {
+    return mjs_is_null(*val_ptr) || mjs_is_undefined(*val_ptr);
+}
+
+static bool js_value_maybe_assign_default(
+    const JsValueDeclaration* declaration,
+    mjs_val_t* val_ptr,
+    void* destination,
+    size_t size) {
+    if((declaration->type & JsValueTypePermitNull) && js_value_is_null_or_undefined(val_ptr)) {
+        memcpy(destination, &declaration->default_value, size);
+        return true;
+    }
+    return false;
+}
+
+typedef int (*MjsTypecheckFn)(mjs_val_t value);
+
+static JsValueParseStatus js_value_parse_literal(
+    struct mjs* mjs,
+    JsValueParseFlag flags,
+    mjs_val_t* destination,
+    mjs_val_t* source,
+    MjsTypecheckFn typecheck,
+    const char* type_name) {
+    if(!typecheck(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, type_name);
+    *destination = *source;
+    return JsValueParseStatusOk;
+}
+
+static JsValueParseStatus js_value_parse_va(
+    struct mjs* mjs,
+    const JsValueParseDeclaration declaration,
+    JsValueParseFlag flags,
+    mjs_val_t* source,
+    mjs_val_t* buffer,
+    size_t* buffer_index,
+    va_list* out_pointers) {
+    if(declaration.source == JsValueParseSourceArguments) {
+        const JsValueArguments* arg_decl = declaration.argument_decl;
+
+        for(size_t i = 0; i < arg_decl->n_children; i++) {
+            mjs_val_t arg_val = mjs_arg(mjs, i);
+            JsValueParseStatus status = js_value_parse_va(
+                mjs,
+                JS_VALUE_PARSE_SOURCE_VALUE(&arg_decl->arguments[i]),
+                flags,
+                &arg_val,
+                buffer,
+                buffer_index,
+                out_pointers);
+            if(status != JsValueParseStatusOk) return status;
+        }
+
+        return JsValueParseStatusOk;
+    }
+
+    const JsValueDeclaration* value_decl = declaration.value_decl;
+    JsValueType type_w_flags = value_decl->type;
+    JsValueType type_noflags = type_w_flags & JsValueTypeMask;
+    bool is_null_but_allowed = (type_w_flags & JsValueTypePermitNull) &&
+                               js_value_is_null_or_undefined(source);
+
+    void* destination = NULL;
+    if(type_noflags != JsValueTypeObject) destination = va_arg(*out_pointers, void*);
+
+    switch(type_noflags) {
+    // Literal terms
+    case JsValueTypeAny:
+        *(mjs_val_t*)destination = *source;
+        break;
+    case JsValueTypeAnyArray:
+        return js_value_parse_literal(mjs, flags, destination, source, mjs_is_array, "array");
+    case JsValueTypeAnyObject:
+        return js_value_parse_literal(mjs, flags, destination, source, mjs_is_object, "array");
+    case JsValueTypeFunction:
+        return js_value_parse_literal(
+            mjs, flags, destination, source, mjs_is_function, "function");
+
+    // Primitive types
+    case JsValueTypeRawPointer: {
+        if(js_value_maybe_assign_default(value_decl, source, destination, sizeof(void*))) break;
+        if(!mjs_is_foreign(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "pointer");
+        *(void**)destination = mjs_get_ptr(mjs, *source);
+        break;
+    }
+    case JsValueTypeInt32: {
+        if(js_value_maybe_assign_default(value_decl, source, destination, sizeof(int32_t))) break;
+        if(!mjs_is_number(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "number");
+        *(int32_t*)destination = mjs_get_int32(mjs, *source);
+        break;
+    }
+    case JsValueTypeDouble: {
+        if(js_value_maybe_assign_default(value_decl, source, destination, sizeof(double))) break;
+        if(!mjs_is_number(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "number");
+        *(double*)destination = mjs_get_double(mjs, *source);
+        break;
+    }
+    case JsValueTypeBool: {
+        if(js_value_maybe_assign_default(value_decl, source, destination, sizeof(bool))) break;
+        if(!mjs_is_boolean(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "bool");
+        *(bool*)destination = mjs_get_bool(mjs, *source);
+        break;
+    }
+    case JsValueTypeString: {
+        if(js_value_maybe_assign_default(value_decl, source, destination, sizeof(const char*)))
+            break;
+        if(!mjs_is_string(*source)) PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "string");
+        buffer[*buffer_index] = *source;
+        *(const char**)destination = mjs_get_string(mjs, &buffer[*buffer_index], NULL);
+        (*buffer_index)++;
+        break;
+    }
+
+    // Types with children
+    case JsValueTypeEnum: {
+        if(is_null_but_allowed) {
+            js_value_assign_enum_val(
+                destination, type_w_flags, value_decl->default_value.enum_val);
+
+        } else if(mjs_is_string(*source)) {
+            const char* str = mjs_get_string(mjs, source, NULL);
+            furi_check(str);
+
+            bool match_found = false;
+            for(size_t i = 0; i < value_decl->n_children; i++) {
+                const JsValueEnumVariant* variant = &value_decl->enum_variants[i];
+                if(strcmp(str, variant->string_value) == 0) {
+                    js_value_assign_enum_val(destination, type_w_flags, variant->num_value);
+                    match_found = true;
+                    break;
+                }
+            }
+
+            if(!match_found)
+                PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "one of permitted strings");
+
+        } else {
+            PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "string");
+        }
+        break;
+    }
+
+    case JsValueTypeObject: {
+        if(!(is_null_but_allowed || mjs_is_object(*source)))
+            PREPEND_JS_EXPECTED_ERROR_AND_RETURN(mjs, flags, "object");
+        for(size_t i = 0; i < value_decl->n_children; i++) {
+            const JsValueObjectField* field = &value_decl->object_fields[i];
+            mjs_val_t field_val = mjs_get(mjs, *source, field->field_name, ~0);
+            JsValueParseStatus status = js_value_parse_va(
+                mjs,
+                JS_VALUE_PARSE_SOURCE_VALUE(field->value),
+                flags,
+                &field_val,
+                buffer,
+                buffer_index,
+                out_pointers);
+            if(status != JsValueParseStatusOk)
+                PREPEND_JS_ERROR_AND_RETURN(mjs, flags, "field %s: ", field->field_name);
+        }
+        break;
+    }
+
+    case JsValueTypeMask:
+    case JsValueTypeEnumSize1:
+    case JsValueTypeEnumSize2:
+    case JsValueTypeEnumSize4:
+    case JsValueTypePermitNull:
+        furi_crash();
+    }
+
+    return JsValueParseStatusOk;
+}
+
+JsValueParseStatus js_value_parse(
+    struct mjs* mjs,
+    const JsValueParseDeclaration declaration,
+    JsValueParseFlag flags,
+    mjs_val_t* buffer,
+    size_t buf_size,
+    mjs_val_t* source,
+    size_t n_c_vals,
+    ...) {
+    furi_check(mjs);
+    furi_check(buffer);
+
+    if(declaration.source == JsValueParseSourceValue) {
+        furi_check(source);
+        furi_check(declaration.value_decl);
+    } else {
+        furi_check(source == NULL);
+        furi_check(declaration.argument_decl);
+    }
+
+#ifdef JS_VAL_DEBUG
+    furi_check(buf_size == js_value_buffer_size(declaration));
+    furi_check(n_c_vals == js_value_resulting_c_values_count(declaration));
+#else
+    UNUSED(js_value_resulting_c_values_count);
+#endif
+
+    va_list out_pointers;
+    va_start(out_pointers, n_c_vals);
+
+    size_t buffer_index = 0;
+    JsValueParseStatus status =
+        js_value_parse_va(mjs, declaration, flags, source, buffer, &buffer_index, &out_pointers);
+    furi_check(buffer_index <= buf_size);
+
+    va_end(out_pointers);
+
+    return status;
+}
+
+
+=== FILE: tight\momentum-js-app-modules\js_value.h ===
+
+#pragma once
+
+#include <furi.h>
+#include "js_modules.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    // literal types
+    JsValueTypeAny, //<! Literal term
+    JsValueTypeAnyArray, //<! Literal term, after ensuring that it's an array
+    JsValueTypeAnyObject, //<! Literal term, after ensuring that it's an object
+    JsValueTypeFunction, //<! Literal term, after ensuring that it's a function
+
+    // primitive types
+    JsValueTypeRawPointer, //<! Unchecked `void*`
+    JsValueTypeInt32, //<! Number cast to `int32_t`
+    JsValueTypeDouble, //<! Number cast to `double`
+    JsValueTypeString, //<! Any string cast to `const char*`
+    JsValueTypeBool, //<! Bool cast to `bool`
+
+    // types with children
+    JsValueTypeEnum, //<! String with predefined possible values cast to a C enum via a mapping
+    JsValueTypeObject, //<! Object with predefined recursive fields cast to several C values
+
+    JsValueTypeMask = 0xff,
+
+    // enum sizes
+    JsValueTypeEnumSize1 = (1 << 8),
+    JsValueTypeEnumSize2 = (2 << 8),
+    JsValueTypeEnumSize4 = (4 << 8),
+
+    // flags
+    JsValueTypePermitNull = (1 << 16), //<! If the value is absent, assign default value
+} JsValueType;
+
+#define JS_VALUE_TYPE_ENUM_SIZE(x) ((x) << 8)
+
+typedef struct {
+    const char* string_value;
+    size_t num_value;
+} JsValueEnumVariant;
+
+typedef union {
+    void* ptr_val;
+    int32_t int32_val;
+    double double_val;
+    const char* str_val;
+    size_t enum_val;
+    bool bool_val;
+} JsValueDefaultValue;
+
+typedef struct JsValueObjectField JsValueObjectField;
+
+typedef struct {
+    JsValueType type;
+    JsValueDefaultValue default_value;
+
+    size_t n_children;
+    union {
+        const JsValueEnumVariant* enum_variants;
+        const JsValueObjectField* object_fields;
+    };
+} JsValueDeclaration;
+
+struct JsValueObjectField {
+    const char* field_name;
+    const JsValueDeclaration* value;
+};
+
+typedef struct {
+    size_t n_children;
+    const JsValueDeclaration* arguments;
+} JsValueArguments;
+
+#define JS_VALUE_ENUM(c_type, variants)                                    \
+    {                                                                      \
+        .type = JsValueTypeEnum | JS_VALUE_TYPE_ENUM_SIZE(sizeof(c_type)), \
+        .n_children = COUNT_OF(variants),                                  \
+        .enum_variants = variants,                                         \
+    }
+
+#define JS_VALUE_ENUM_W_DEFAULT(c_type, variants, default) \
+    {                                                      \
+        .type = JsValueTypeEnum | JsValueTypePermitNull |  \
+                JS_VALUE_TYPE_ENUM_SIZE(sizeof(c_type)),   \
+        .default_value.enum_val = default,                 \
+        .n_children = COUNT_OF(variants),                  \
+        .enum_variants = variants,                         \
+    }
+
+#define JS_VALUE_OBJECT(fields)         \
+    {                                   \
+        .type = JsValueTypeObject,      \
+        .n_children = COUNT_OF(fields), \
+        .object_fields = fields,        \
+    }
+
+#define JS_VALUE_OBJECT_W_DEFAULTS(fields)                 \
+    {                                                      \
+        .type = JsValueTypeObject | JsValueTypePermitNull, \
+        .n_children = COUNT_OF(fields),                    \
+        .object_fields = fields,                           \
+    }
+
+#define JS_VALUE_SIMPLE(t) {.type = t}
+
+#define JS_VALUE_SIMPLE_W_DEFAULT(t, name, val) \
+    {.type = (t) | JsValueTypePermitNull, .default_value.name = (val)}
+
+#define JS_VALUE_ARGS(args)           \
+    {                                 \
+        .n_children = COUNT_OF(args), \
+        .arguments = args,            \
+    }
+
+typedef enum {
+    JsValueParseFlagNone = 0,
+    JsValueParseFlagReturnOnError =
+        (1
+         << 0), //<! Sets mjs error string to a description of the parsing error and returns from the JS function
+} JsValueParseFlag;
+
+typedef enum {
+    JsValueParseStatusOk, //<! Parsing completed successfully
+    JsValueParseStatusJsError, //<! Parsing failed due to incorrect JS input
+} JsValueParseStatus;
+
+typedef enum {
+    JsValueParseSourceValue,
+    JsValueParseSourceArguments,
+} JsValueParseSource;
+
+typedef struct {
+    JsValueParseSource source;
+    union {
+        const JsValueDeclaration* value_decl;
+        const JsValueArguments* argument_decl;
+    };
+} JsValueParseDeclaration;
+
+#define JS_VALUE_PARSE_SOURCE_VALUE(declaration) \
+    ((JsValueParseDeclaration){.source = JsValueParseSourceValue, .value_decl = declaration})
+#define JS_VALUE_PARSE_SOURCE_ARGS(declaration) \
+    ((JsValueParseDeclaration){                 \
+        .source = JsValueParseSourceArguments, .argument_decl = declaration})
+
+/**
+ * @brief Determines the size of the buffer array of `mjs_val_t`s that needs to
+ * be passed to `js_value_parse`.
+ */
+size_t js_value_buffer_size(const JsValueParseDeclaration declaration);
+
+/**
+ * @brief Converts a JS value into a series of C values.
+ * 
+ * @param[in]    mjs         mJS instance pointer
+ * @param[in]    declaration Declaration for the input value. Chooses where the
+ *                           values are to be fetched from (an `mjs_val_t` or
+ *                           function arguments)
+ * @param[in]    flags       See the corresponding enum.
+ * @param[out]   buffer      Temporary buffer for values that need to live
+ *                           longer than the function call. To determine the
+ *                           size of the buffer, use `js_value_buffer_size`.
+ *                           Values parsed by this function will become invalid
+ *                           when this buffer goes out of scope.
+ * @param[in]    buf_size    Number of entries in the temporary buffer (i.e.
+ *                           `COUNT_OF`, not `sizeof`).
+ * @param[in]    source      Source JS value that needs to be converted. May be
+ *                           NULL if `declaration.source` is
+ *                           `JsValueParseSourceArguments`.
+ * @param[in]    n_c_vals    Number of output C values
+ * @param[out]   ...         Pointers to output C values. The order in which
+ *                           these values are populated corresponds to the order
+ *                           in which the values are defined in the declaration.
+ * 
+ * @returns Parsing status
+ */
+JsValueParseStatus js_value_parse(
+    struct mjs* mjs,
+    const JsValueParseDeclaration declaration,
+    JsValueParseFlag flags,
+    mjs_val_t* buffer,
+    size_t buf_size,
+    mjs_val_t* source,
+    size_t n_c_vals,
+    ...);
+
+#define JS_VALUE_PARSE(mjs, declaration, flags, status_ptr, value_ptr, ...) \
+    void* _args[] = {__VA_ARGS__};                                          \
+    size_t _n_args = COUNT_OF(_args);                                       \
+    size_t _temp_buf_len = js_value_buffer_size(declaration);               \
+    mjs_val_t _temp_buffer[_temp_buf_len];                                  \
+    *(status_ptr) = js_value_parse(                                         \
+        mjs, declaration, flags, _temp_buffer, _temp_buf_len, value_ptr, _n_args, __VA_ARGS__);
+
+#define JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, declaration, ...) \
+    JsValueParseStatus _status;                              \
+    JS_VALUE_PARSE(                                          \
+        mjs,                                                 \
+        JS_VALUE_PARSE_SOURCE_ARGS(declaration),             \
+        JsValueParseFlagReturnOnError,                       \
+        &_status,                                            \
+        NULL,                                                \
+        __VA_ARGS__);                                        \
+    if(_status != JsValueParseStatusOk) return;
+
+#ifdef __cplusplus
+}
+#endif
+
+
+=== FILE: tight\momentum-js-app-modules\application.fam ===
+
+App(
+    appid="js_app",
+    name="JS Runner",
+    apptype=FlipperAppType.EXTERNAL,
+    cdefines=["JS_RUNNER_FAP"],
+    fap_icon="icon.png",
+    fap_category="assets",
+    fap_libs=["assets"],
+    entry_point="js_app",
+    stack_size=2 * 1024,
+    resources="examples",
+    order=10,
+    sources=[
+        "js_app.c",
+        "js_modules.c",
+        "js_thread.c",
+        "js_value.c",
+        "plugin_api/app_api_table.cpp",
+        "views/console_view.c",
+        "modules/js_flipper.c",
+        "modules/js_tests.c",
+    ],
+)
+
+App(
+    appid="cli_js",
+    targets=["f7"],
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="cli_js_ep",
+    requires=["cli"],
+    sources=[
+        "js_app.c",
+        "js_modules.c",
+        "js_thread.c",
+        "js_value.c",
+        "plugin_api/app_api_table.cpp",
+        "modules/js_flipper.c",
+        "modules/js_tests.c",
+    ],
+    fap_libs=["assets"],
+)
+
+App(
+    appid="js_event_loop",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_event_loop_ep",
+    requires=["js_app"],
+    sources=[
+        "modules/js_event_loop/js_event_loop.c",
+        "modules/js_event_loop/js_event_loop_api_table.cpp",
+    ],
+)
+
+App(
+    appid="js_gui",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gui_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/js_gui.c", "modules/js_gui/js_gui_api_table.cpp"],
+)
+
+App(
+    appid="js_gui__loading",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_loading_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/loading.c"],
+)
+
+App(
+    appid="js_gui__empty_screen",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_empty_screen_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/empty_screen.c"],
+)
+
+App(
+    appid="js_gui__submenu",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_submenu_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/submenu.c"],
+)
+
+App(
+    appid="js_gui__text_input",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_text_input_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/text_input.c"],
+)
+
+App(
+    appid="js_gui__number_input",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_number_input_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/number_input.c"],
+)
+
+App(
+    appid="js_gui__button_panel",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_button_panel_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/button_panel.c"],
+)
+
+App(
+    appid="js_gui__popup",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_popup_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/popup.c"],
+)
+
+App(
+    appid="js_gui__button_menu",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_button_menu_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/button_menu.c"],
+)
+
+App(
+    appid="js_gui__menu",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_menu_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/menu.c"],
+)
+
+App(
+    appid="js_gui__vi_list",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_vi_list_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/vi_list.c"],
+)
+
+App(
+    appid="js_gui__byte_input",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_byte_input_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/byte_input.c"],
+)
+
+App(
+    appid="js_gui__text_box",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_text_box_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/text_box.c"],
+)
+
+App(
+    appid="js_gui__dialog",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_dialog_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/dialog.c"],
+)
+
+App(
+    appid="js_gui__file_picker",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gui_file_picker_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/file_picker.c"],
+    fap_libs=[],
+)
+
+App(
+    appid="js_gui__widget",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_view_widget_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/widget.c"],
+)
+
+App(
+    appid="js_gui__icon",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gui_icon_ep",
+    requires=["js_app"],
+    sources=["modules/js_gui/icon.c"],
+    fap_libs=["assets"],
+)
+
+App(
+    appid="js_notification",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_notification_ep",
+    requires=["js_app"],
+    sources=["modules/js_notification.c"],
+)
+
+App(
+    appid="js_badusb",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_badusb_ep",
+    requires=["js_app"],
+    sources=["modules/js_badusb.c"],
+)
+
+App(
+    appid="js_serial",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_serial_ep",
+    requires=["js_app"],
+    sources=["modules/js_serial.c"],
+)
+
+App(
+    appid="js_gpio",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_gpio_ep",
+    requires=["js_app"],
+    sources=["modules/js_gpio.c"],
+)
+
+App(
+    appid="js_math",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_math_ep",
+    requires=["js_app"],
+    sources=["modules/js_math.c"],
+)
+
+App(
+    appid="js_storage",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_storage_ep",
+    requires=["js_app"],
+    sources=["modules/js_storage.c"],
+)
+
+App(
+    appid="js_vgm",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_vgm_ep",
+    requires=["js_app"],
+    sources=["modules/js_vgm/*.c", "modules/js_vgm/ICM42688P/*.c"],
+)
+
+App(
+    appid="js_subghz",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_subghz_ep",
+    requires=["js_app"],
+    sources=["modules/js_subghz/*.c"],
+)
+
+App(
+    appid="js_infrared",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_infrared_ep",
+    requires=["js_app"],
+    sources=["modules/js_infrared/*.c"],
+)
+
+App(
+    appid="js_blebeacon",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_blebeacon_ep",
+    requires=["js_app"],
+    sources=["modules/js_blebeacon.c"],
+)
+
+App(
+    appid="js_usbdisk",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_usbdisk_ep",
+    requires=["js_app"],
+    sources=["modules/js_usbdisk/*.c"],
+)
+
+App(
+    appid="js_i2c",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_i2c_ep",
+    requires=["js_app"],
+    sources=["modules/js_i2c.c"],
+)
+
+App(
+    appid="js_spi",
+    apptype=FlipperAppType.PLUGIN,
+    entry_point="js_spi_ep",
+    requires=["js_app"],
+    sources=["modules/js_spi.c"],
+)

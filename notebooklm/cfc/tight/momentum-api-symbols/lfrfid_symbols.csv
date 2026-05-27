@@ -1,0 +1,37 @@
+entry,status,name,type,params
+Header,+,lib/lfrfid/lfrfid_dict_file.h,,
+Header,+,lib/lfrfid/lfrfid_raw_file.h,,
+Header,+,lib/lfrfid/lfrfid_raw_worker.h,,
+Header,+,lib/lfrfid/lfrfid_worker.h,,
+Header,+,lib/lfrfid/protocols/lfrfid_protocols.h,,
+Function,+,em4305_write,void,LFRFIDEM4305*
+Function,+,lfrfid_dict_file_load,ProtocolId,"ProtocolDict*, const char*"
+Function,+,lfrfid_dict_file_save,_Bool,"ProtocolDict*, ProtocolId, const char*"
+Function,+,lfrfid_raw_file_alloc,LFRFIDRawFile*,Storage*
+Function,+,lfrfid_raw_file_free,void,LFRFIDRawFile*
+Function,+,lfrfid_raw_file_open_read,_Bool,"LFRFIDRawFile*, const char*"
+Function,+,lfrfid_raw_file_open_write,_Bool,"LFRFIDRawFile*, const char*"
+Function,+,lfrfid_raw_file_read_header,_Bool,"LFRFIDRawFile*, float*, float*"
+Function,+,lfrfid_raw_file_read_pair,_Bool,"LFRFIDRawFile*, uint32_t*, uint32_t*, _Bool*"
+Function,+,lfrfid_raw_file_write_buffer,_Bool,"LFRFIDRawFile*, uint8_t*, size_t"
+Function,+,lfrfid_raw_file_write_header,_Bool,"LFRFIDRawFile*, float, float, uint32_t"
+Function,+,lfrfid_raw_worker_alloc,LFRFIDRawWorker*,
+Function,+,lfrfid_raw_worker_free,void,LFRFIDRawWorker*
+Function,+,lfrfid_raw_worker_start_emulate,void,"LFRFIDRawWorker*, const char*, LFRFIDWorkerEmulateRawCallback, void*"
+Function,+,lfrfid_raw_worker_start_read,void,"LFRFIDRawWorker*, const char*, float, float, LFRFIDWorkerReadRawCallback, void*"
+Function,+,lfrfid_raw_worker_stop,void,LFRFIDRawWorker*
+Function,+,lfrfid_worker_alloc,LFRFIDWorker*,ProtocolDict*
+Function,+,lfrfid_worker_emulate_raw_start,void,"LFRFIDWorker*, const char*, LFRFIDWorkerEmulateRawCallback, void*"
+Function,+,lfrfid_worker_emulate_start,void,"LFRFIDWorker*, LFRFIDProtocol"
+Function,+,lfrfid_worker_free,void,LFRFIDWorker*
+Function,+,lfrfid_worker_read_raw_start,void,"LFRFIDWorker*, const char*, LFRFIDWorkerReadType, LFRFIDWorkerReadRawCallback, void*"
+Function,+,lfrfid_worker_read_start,void,"LFRFIDWorker*, LFRFIDWorkerReadType, LFRFIDWorkerReadCallback, void*"
+Function,+,lfrfid_worker_start_thread,void,LFRFIDWorker*
+Function,+,lfrfid_worker_stop,void,LFRFIDWorker*
+Function,+,lfrfid_worker_stop_thread,void,LFRFIDWorker*
+Function,+,lfrfid_worker_write_and_set_pass_start,void,"LFRFIDWorker*, LFRFIDProtocol, LFRFIDWorkerWriteCallback, void*"
+Function,+,lfrfid_worker_write_start,void,"LFRFIDWorker*, LFRFIDProtocol, LFRFIDWorkerWriteCallback, void*"
+Function,+,t5577_write,void,LFRFIDT5577*
+Function,+,t5577_write_with_mask,void,"LFRFIDT5577*, uint8_t, _Bool, uint32_t"
+Function,+,t5577_write_with_pass,void,"LFRFIDT5577*, uint32_t"
+Variable,+,lfrfid_protocols,const ProtocolBase* const[],

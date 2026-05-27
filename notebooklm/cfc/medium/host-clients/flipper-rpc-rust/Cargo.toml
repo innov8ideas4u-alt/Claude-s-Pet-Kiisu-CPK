@@ -1,0 +1,79 @@
+[package]
+name = "flipper-rpc"
+version = "0.9.5"
+edition = "2024"
+description = "Rust bindings and serial transport helpers for the Flipper Zero RPC protocol."
+repository = "https://github.com/elijah629/flipper-rpc"
+documentation = "https://docs.rs/flipper-rpc"
+readme = "README.md"
+license = "MIT"
+rust-version = "1.86.0"
+keywords = ["flipperzero", "rpc", "protobuf", "serial", "qflipper"]
+categories = ["api-bindings", "development-tools", "encoding"]
+
+[dependencies]
+document-features = { version = "0.2.11", optional = true }
+hex = { version = "0.4.3", optional = true }
+md5 = { version = "0.8.0", optional = true }
+memchr = { version = "2.7.4", optional = true }
+prost = { version = "0.14.1", optional = true }
+serialport = { version = "4.7.2", default-features = false, optional = true }
+thiserror = "2.0.12"
+tracing = { version = "0.1.41", optional = true }
+
+[features]
+default = ["minimal"]
+
+minimal = ["proto"]
+full = ["fs-all", "transport-all"] # broad convenience feature; prefer selecting only what you need
+
+proto = ["dep:prost"]
+easy-rpc = ["proto"] # ergonomic request/response wrappers over proto::Main
+
+# Filesystem wrappers
+fs-any = ["easy-rpc"]
+fs-all = [
+    "fs-createdir",
+    "fs-md5",
+    "fs-metadata",
+    "fs-read",
+    "fs-read-metadata",
+    "fs-readdir",
+    "fs-remove",
+    "fs-tar-extract",
+    "fs-write",
+]
+fs-read = ["fs-any"]
+fs-read-metadata = ["fs-read"]
+fs-read-progress-mpsc = ["fs-read-metadata"]
+fs-write = ["fs-any", "dep:hex", "dep:md5"]
+fs-write-progress-mpsc = ["fs-write"]
+fs-readdir = ["fs-any"]
+fs-remove = ["fs-any"]
+fs-createdir = ["fs-any"]
+fs-metadata = ["fs-any"]
+fs-md5 = ["fs-any"]
+fs-tar-extract = ["fs-any"]
+fs-progress-mpsc = ["fs-read-progress-mpsc", "fs-write-progress-mpsc"]
+
+transport-any = ["proto"]
+transport-all = ["transport-serial-optimized"]
+transport-serial = ["transport-any", "dep:memchr", "dep:serialport"]
+transport-serial-optimized = ["transport-serial"]
+transport-serial-optimized-large-stack-limit = ["transport-serial-optimized"]
+
+tracing = ["dep:tracing"]
+
+[[example]]
+name = "serial-av"
+path = "examples/serial/av.rs"
+required-features = ["transport-serial-optimized", "easy-rpc"]
+
+[[example]]
+name = "serial-file"
+path = "examples/serial/file.rs"
+required-features = ["transport-serial-optimized", "fs-write", "fs-readdir", "fs-remove", "fs-progress-mpsc"]
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["document-features"]

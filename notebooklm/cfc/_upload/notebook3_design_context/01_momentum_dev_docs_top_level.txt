@@ -1,0 +1,2394 @@
+# Bundle: 01_momentum_dev_docs_top_level.txt
+# 24 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: wide\momentum-docs\AppManifests.md ===
+
+# FAM (Flipper App Manifests) {#app_manifests}
+
+All components of Flipper Zero firmware — services, user applications, and system settings — are developed independently. Each component has a build system manifest file named `application.fam`, which defines the basic properties of that component and its relations to other parts of the system.
+
+When building firmware, `fbt` collects all app manifests and processes their dependencies. Then it builds only those components referenced in the current build configuration. See [FBT docs](fbt.md) for details on build configurations.
+
+## App definition
+
+A firmware component's properties are declared in a Python code snippet, forming a call to the `App()` function with various parameters.
+
+Only two parameters are mandatory: **appid** and **apptype**. Others are optional and may only be meaningful for certain app types.
+
+### Parameters
+
+- **appid**: string, app ID within the build system. It is used to specify which app to include in the build configuration and resolve dependencies and conflicts.
+
+- **apptype**: member of FlipperAppType.\* enumeration. Valid values are:
+
+| Enum member | Firmware component type                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| SERVICE     | System service, created at early startup                                                    |
+| SYSTEM      | App is not being shown in any menus. It can be started by other apps or from CLI    |
+| APP         | Regular app for the main menu                                                       |
+| PLUGIN      | App to be built as a part of the firmware and to be placed in the Plugins menu      |
+| DEBUG       | App only visible in Debug menu with debug mode enabled                              |
+| ARCHIVE     | One and only Archive app                                                                    |
+| SETTINGS    | App to be placed in the system settings menu                                        |
+| STARTUP     | Callback function to run at system startup. Does not define a separate app                  |
+| EXTERNAL    | App to be built as `.fap` plugin                                                    |
+| METAPACKAGE | Does not define any code to be run, used for declaring dependencies and app bundles |
+
+- **name**: name displayed in menus.
+- **entry_point**: C function to be used as the app's entry point. Note that C++ function names are mangled, so you need to wrap them in `extern "C"` to use them as entry points.
+- **flags**: internal flags for system apps. Do not use.
+- **cdefines**: C preprocessor definitions to declare globally for other apps when the current app is included in the active build configuration. **For external apps**: specified definitions are used when building the app itself.
+- **requires**: list of app IDs to include in the build configuration when the current app is referenced in the list of apps to build.
+- **conflicts**: list of app IDs with which the current app conflicts. If any of them is found in the constructed app list, `fbt` will abort the firmware build process.
+- **provides**: functionally identical to **_requires_** field.
+- **stack_size**: stack size in bytes to allocate for an app on its startup. Note that allocating a stack too small for an app to run will cause a system crash due to stack overflow, and allocating too much stack space will reduce usable heap memory size for apps to process data. _Note: you can use `top` and `free` CLI commands to profile your app's memory usage._
+- **icon**: animated icon name from built-in assets to be used when building the app as a part of the firmware.
+- **order**: order of an app within its group when sorting entries in it. The lower the order is, the closer to the start of the list the item is placed. _Used for ordering startup hooks and menu entries._
+- **sdk_headers**: list of C header files from this app's code to include in API definitions for external apps.
+- **targets**: list of strings and target names with which this app is compatible. If not specified, the app is built for all targets. The default value is `["all"]`.
+- **resources**: name of a folder within the app's source folder to be used for packacking SD card resources for this app. They will only be used if app is included in build configuration. The default value is `""`, meaning no resources are packaged.
+
+#### Parameters for external apps
+
+The following parameters are used only for [FAPs](./AppsOnSDCard.md):
+
+- **sources**: list of strings, file name masks used for gathering sources within the app folder. The default value of `["*.c*"]` includes C and C++ source files. Apps cannot use the `"lib"` folder for their own source code, as it is reserved for **fap_private_libs**. Paths starting with `"!"` are excluded from the list of sources. They can also include wildcard characters and directory names. For example, a value of `["*.c*", "!plugins"]` will include all C and C++ source files in the app folder except those in the `plugins` (and `lib`) folders. Paths with no wildcards (`*, ?`) are treated as full literal paths for both inclusion and exclusion.
+- **fap_version**: string, app version. The default value is "0.1". You can also use a tuple of 2 numbers in the form of (x,y) to specify the version. It is also possible to add more dot-separated parts to the version, like patch number, but only major and minor version numbers are stored in the built .fap.
+- **fap_icon**: name of a `.png` file, 1-bit color depth, 10x10px, to be embedded within `.fap` file.
+- **fap_libs**: list of extra libraries to link the app against. Provides access to extra functions that are not exported as a part of main firmware at the expense of increased `.fap` file size and RAM consumption.
+- **fap_category**: string, may be empty. App subcategory, also determines the path of the FAP within the apps folder in the file system.
+- **fap_description**: string, may be empty. Short app description.
+- **fap_author**: string, may be empty. App's author.
+- **fap_weburl**: string, may be empty. App's homepage.
+- **fap_icon_assets**: string. If present, it defines a folder name to be used for gathering image assets for this app. These images will be preprocessed and built alongside the app. See [FAP assets](AppsOnSDCard.md) for details.
+- **fap_extbuild**: provides support for parts of app sources to be built by external tools. Contains a list of `ExtFile(path="file name", command="shell command")` definitions. `fbt` will run the specified command for each file in the list.
+- **fal_embedded**: boolean, default `False`. Applies only to PLUGIN type. If `True`, the plugin will be embedded into host app's .fap file as a resource and extracted to `apps_assets/APPID` folder on its start. This allows plugins to be distributed as a part of the host app.
+
+Note that commands are executed at the firmware root folder, and all intermediate files must be placed in an app's temporary build folder. For that, you can use pattern expansion by `fbt`: `${FAP_WORK_DIR}` will be replaced with the path to the app's temporary build folder, and `${FAP_SRC_DIR}` will be replaced with the path to the app's source folder. You can also use other variables defined internally by `fbt`.
+
+Example for building an app from Rust sources:
+
+```python
+    sources=["target/thumbv7em-none-eabihf/release/libhello_rust.a"],
+    fap_extbuild=(
+        ExtFile(
+            path="${FAP_WORK_DIR}/target/thumbv7em-none-eabihf/release/libhello_rust.a",
+            command="cargo build --release --verbose --target thumbv7em-none-eabihf --target-dir ${FAP_WORK_DIR}/target --manifest-path ${FAP_SRC_DIR}/Cargo.toml",
+        ),
+    ),
+```
+
+- **fap_private_libs**: list of additional libraries distributed as sources alongside the app. These libraries will be built as a part of the app build process.
+  Library sources must be placed in a subfolder of the `lib` folder within the app's source folder.
+  Each library is defined as a call to the `Lib()` function, accepting the following parameters:
+
+  - **name**: name of the library's folder. Required.
+  - **fap_include_paths**: list of the library's relative paths to add to the parent fap's include path list. The default value is `["."]`, meaning the library's source root.
+  - **sources**: list of filename masks to be used for gathering include files for this library. Paths are relative to the library's source root. The default value is `["*.c*"]`.
+  - **cflags**: list of additional compiler flags to be used for building this library. The default value is `[]`.
+  - **cdefines**: list of additional preprocessor definitions to be used for building this library. The default value is `[]`.
+  - **cincludes**: list of additional include paths to be used for building this library. Paths are relative to the app's root. This can be used for providing external search paths for this library's code — for configuration headers. The default value is `[]`.
+
+Example for building an app with a private library:
+
+```python
+    fap_private_libs=[
+            Lib(
+                name="mbedtls",
+                fap_include_paths=["include"],
+                sources=[
+                    "library/des.c",
+                    "library/sha1.c",
+                    "library/platform_util.c",
+                ],
+                cdefines=["MBEDTLS_ERROR_C"],
+            ),
+            Lib(
+                name="loclass",
+                cflags=["-Wno-error"],
+            ),
+        ],
+```
+
+For that snippet, `fbt` will build 2 libraries: one from sources in `lib/mbedtls` folder and another from sources in the `lib/loclass` folder. For the `mbedtls` library, `fbt` will add `lib/mbedtls/include` to the list of include paths for the app and compile only the files specified in the `sources` list. Additionally, `fbt` will enable `MBEDTLS_ERROR_C` preprocessor definition for `mbedtls` sources.
+For the `loclass` library, `fbt` will add `lib/loclass` to the list of the included paths for the app and build all sources in that folder. Also, `fbt` will disable treating compiler warnings as errors for the `loclass` library, which can be useful when compiling large 3rd-party codebases.
+
+Both libraries will be linked with the app.
+
+## .fam file contents
+
+The `.fam` file contains one or more app definitions. For example, here's a part of `applications/service/bt/application.fam`:
+
+```python
+App(
+    appid="bt_start",
+    apptype=FlipperAppType.STARTUP,
+    entry_point="bt_on_system_start",
+    order=70,
+)
+
+App(
+    appid="bt_settings",
+    name="Bluetooth",
+    apptype=FlipperAppType.SETTINGS,
+    entry_point="bt_settings_app",
+    stack_size=1 * 1024,
+    requires=[
+        "bt",
+        "gui",
+    ],
+    order=10,
+)
+```
+
+For more examples, see `.fam` files from various firmware parts.
+
+
+=== FILE: wide\momentum-docs\AppsOnSDCard.md ===
+
+# FAP (Flipper App Package) {#apps_on_sd_card}
+
+[fbt](./fbt.md) supports building apps as FAP files. FAPs are essentially `.elf` executables with extra metadata and resources bundled in.
+
+FAPs are built with the `faps` target. They can also be deployed to the `dist` folder with the `fap_dist` target.
+
+FAPs do not depend on being run on a specific firmware version. Compatibility is determined by the FAP's metadata, which includes the required [API version](#api-versioning).
+
+## How to set up an app to be built as a FAP {#fap-howto}
+
+FAPs are created and developed the same way as internal apps that are part of the firmware.
+
+To build your app as a FAP, create a folder with your app's source code in `applications_user`, then write its code the way you'd do when creating a regular built-in app. Then configure its `application.fam` manifest, and set its `apptype` to `FlipperAppType.EXTERNAL`. See [Flipper App Manifests](AppManifests.md) for more details.
+
+- To build your app, run `./fbt fap_{APPID}`, where APPID is your app's ID in its manifest.
+- To build your app and upload it over USB to run on Flipper, use `./fbt launch APPSRC=applications_user/path/to/app`. This command is configured in the default [VS Code profile](../.vscode/ReadMe.md) as a "Launch App on Flipper" build action (Ctrl+Shift+B menu).
+- To build an app without uploading it to Flipper, use `./fbt build APPSRC=applications_user/path/to/app`. This command is also available in VSCode configuration as "Build App".
+- To build all FAPs, run `./fbt faps` or `./fbt fap_dist`.
+
+## FAP assets
+
+FAPs can include static and animated images as private assets. They will be automatically compiled alongside app sources and can be referenced the same way as assets from the main firmware.
+
+To use that feature, put your images in a subfolder inside your app's folder, then reference that folder in your app's manifest in the `fap_icon_assets` field. See [Flipper App Manifests](AppManifests.md) for more details.
+
+To use these assets in your app, put `#include "{APPID}_icons.h"` in your app's source code, where `{APPID}` is the `appid` value field from your app's manifest. Then you can use all icons from your app's assets the same way as if they were a part of `assets_icons.h` of the main firmware.
+
+Images and animated icons should follow the same [naming convention](../assets/ReadMe.md) as those from the main firmware.
+
+## Debugging FAPs
+
+`fbt` includes a script for gdb-py to provide debugging support for FAPs, `debug/flipperapps.py`. It is loaded in default debugging configurations by `fbt` and stock VS Code configurations.
+
+With it, you can debug FAPs as if they were a part of the main firmware — inspect variables, set breakpoints, step through the code, etc.
+
+If debugging session is active, firmware will trigger a breakpoint after loading a FAP into memory, but before running any code from it. This allows you to set breakpoints in the FAP's code. Note that any breakpoints set before the FAP is loaded may need re-setting after the FAP is actually loaded, since the debugger cannot know the exact address of the FAP's code before loading the FAP.
+
+### Setting up debugging environment
+
+The debugging support script looks up debugging information in the latest firmware build directory (`build/latest`). That directory is symlinked by `fbt` to the latest firmware configuration (Debug or Release) build directory when you run `./fbt` for the chosen configuration. See [fbt docs](fbt.md) for details.
+
+To debug FAPs, do the following:
+
+1. Build firmware with `./fbt`
+2. Flash it with `./fbt flash`
+3. [Build your FAP](#fap-howto) and run it on Flipper
+
+After that, you can attach the debugger to the target MCU with `./fbt debug` or VS Code and use all debug features.
+
+It is **important** that firmware and app build type (debug/release) match and that the matching firmware folder is linked as `build/latest`. Otherwise, debugging will not work.
+
+## How Flipper runs an app from an SD card
+
+Flipper's MCU cannot run code directly from external storage, so it needs to be copied to RAM first. That is done by the App Loader responsible for loading the FAP from the SD card, verifying its integrity and compatibility, copying it to RAM, and adjusting it for its new location.
+
+Since the FAP has to be loaded to RAM to be executed, the amount of RAM available for allocations from heap is reduced compared to running the same app from flash, as a part of the firmware. Note that the amount of occupied RAM is less than the total FAP file size since only code and data sections are allocated, while the FAP file includes extra information only used at app load time.
+
+Apps are built for a specific API version. It is a part of the hardware target's definition and contains a major and minor version number. The App Loader checks if the app's major API version matches the firmware's major API version.
+
+The App Loader allocates memory for the app and copies it to RAM, processing relocations and providing concrete addresses for imported symbols using the [symbol table](#symbol-table). Then it starts the app.
+
+## API versioning {#api-versioning}
+
+Not all parts of firmware are available for external apps. A subset of available functions and variables is defined in the "api_symbols.csv" file, which is a part of the firmware target definition in the `targets/` directory.
+
+`fbt` uses semantic versioning for the API. The major version is incremented when there are breaking changes in the API. The minor version is incremented when new features are added.
+
+Breaking changes include:
+
+- Removing a function or a global variable
+- Changing the signature of a function
+
+API versioning is mostly automated by `fbt`. When rebuilding the firmware, `fbt` checks if there are any changes in the API exposed by headers gathered from `SDK_HEADERS`. If so, it stops the build, adjusts the API version, and asks the user to go through the changes in the `.csv` file. New entries are marked with a "`?`" mark, and the user is supposed to change the mark to "`+`" for the entry to be exposed for FAPs, or to "`-`" for it to be unavailable.
+
+`fbt` will not allow building a firmware until all "`?`" entries are changed to "`+`" or "`-`".
+
+**NB:** `fbt` automatically manages the API version. The only case where manually incrementing the major API version is allowed (and required) is when existing "`+`" entries are to be changed to "`-`".
+
+### Symbol table {#symbol-table}
+
+The symbol table is a list of symbols exported by firmware and available for external apps. It is generated by `fbt` from the API symbols file and is used by the App Loader to resolve addresses of imported symbols. It is build as a part of the `fap_loader` app.
+
+`fbt` also checks if all imported symbols are present in the symbol table. If there are any missing symbols, it will issue a warning listing them. The app won't be able to run on the device until all required symbols are provided in the symbol table.
+
+
+=== FILE: wide\momentum-docs\CustomFlipperName.md ===
+
+# How to change Flipper name:
+
+## Instruction
+1. Go to Momentum -> Misc -> Spoofing Options -> Flipper Name
+2. Enter your new custom name for your flipper and click `Save`, **name will be saved on microSD card, and will stay same after firmware updates**
+3. You will need to exit from Momentum app and Flipper will automatically reboot!
+4. After reboot you will see your new custom name in device info and right screen `passport`
+5. Done!
+
+**To reset device name to default - do same steps but do not enter any characters, leave it empty and click** `Save`
+
+Currently, changing Flipper name on Momentum Firmware also affects:
+- Bluetooth device name
+- Bluetooth MAC address (3 bytes of Flipper ID + 3 bytes of ASCII from custom name)
+- USB device name
+- Serial number (ASCII from custom name)
+
+=== FILE: wide\momentum-docs\ExpansionModules.md ===
+
+# Expansion Module Protocol {#expansion_protocol}
+
+## Terms and definitions
+
+- Expansion Module: A third-party hardware unit meant for use with Flipper Zero by connecting it to its GPIO header.
+- Expansion Module Protocol: A serial-based, byte-oriented, synchronous communication protocol described in this document.
+- Host: Hardware unit tasked with serving requests. Used interchangeably with Flipper, Server, Host etc. throughout this document.
+- Device: Used interchangeably with Expansion Module, Module, Client, etc.
+- RPC: Remote Procedure Call, a protobuf-based communication protocol widely used by Flipper Zero companion applications.
+- Timeout Interval: Period of inactivity to be treated as a loss of connection, also denoted as Tto. Equals to 250 ms.
+- Baud Rate Switch Dead Time: Period of time after baud rate change during which no communication is allowed, also denoted Tdt. Equals to 25 ms.
+
+## Features
+
+- Automatic expansion module detection
+- Baud rate negotiation
+- Basic error detection
+- Request-response communication flow
+- Integration with Flipper RPC protocol
+
+## Hardware
+
+Depending on the UART selected for communication, the following pins area available for the expansion modules to connect to:
+
+| UART   | Tx pin | Rx pin |
+|--------|--------|--------|
+| USART  | 13     | 14     |
+| LPUART | 15     | 16     |
+
+## Frame structure
+
+Each frame consists of a header (1 byte), contents (size depends on frame type) and checksum (1 byte) fields:
+
+| Header (1 byte) | Contents (0 or more bytes) | Checksum (1 byte) |
+|-----------------|----------------------------|-------------------|
+| Frame type      | Frame payload              | XOR checksum      |
+
+### Heartbeat frame
+
+HEARTBEAT frames are used to maintain an idle connection. In the event of not receiving any frames within Tto, either side must cease all communications and be ready to initiate the connection again.
+
+| Header (1 byte) | Checksum (1 byte) |
+|-----------------|-------------------|
+| 0x01            | XOR checksum      |
+
+Note that the contents field is not present (0 bytes length).
+
+### Status frame
+
+STATUS frames are used to report the status of a transaction. Every received frame MUST be confirmed by a matching STATUS response.
+
+| Header (1 byte) | Contents (1 byte) | Checksum (1 byte) |
+|-----------------|-------------------|-------------------|
+| 0x02            | Error code        | XOR checksum      |
+
+The `Error code` field SHALL have one of the following values:
+
+| Error code | Meaning                 |
+|------------|-------------------------|
+| 0x00       | OK (No error)           |
+| 0x01       | Unknown error           |
+| 0x02       | Baud rate not supported |
+
+### Baud rate frame
+
+BAUD RATE frames are used to negotiate communication speed. The initial connection SHALL always happen at 9600 baud. The first message sent by the module MUST be a BAUD RATE frame, even if a different speed is not required.
+
+| Header (1 byte) | Contents (4 bytes) | Checksum (1 byte) |
+|-----------------|--------------------|-------------------|
+| 0x03            | Baud rate          | XOR checksum      |
+
+If the requested baud rate is supported by the host, it SHALL respond with a STATUS frame with an OK error code, otherwise the error code SHALL be 0x02 (Baud rate not supported). Until the negotiation succeeds, the speed SHALL remain at 9600 baud. The module MAY send additional BAUD RATE frames with alternative speeds in case the initial request was refused. No other frames are allowed until the speed negotiation succeeds.
+
+### Control frame
+
+CONTROL frames are used to control various aspects of the communication and enable/disable various device features.
+
+| Header (1 byte) | Contents (1 byte) | Checksum (1 byte) |
+|-----------------|-------------------|-------------------|
+| 0x04            | Command           | XOR checksum      |
+
+The `Command` field SHALL have one of the following values:
+
+| Command | Meaning                  | Note |
+|---------|--------------------------|:----:|
+| 0x00    | Start RPC session        | 1    |
+| 0x01    | Stop RPC session         | 2    |
+| 0x02    | Enable OTG (5V) on GPIO  | 3    |
+| 0x03    | Disable OTG (5V) on GPIO | 3    |
+
+Notes:
+
+1. Must only be used while the RPC session NOT active.
+2. Must only be used while the RPC session IS active.
+3. See 1, otherwise OTG is to be controlled via RPC messages.
+
+### Data frame
+
+DATA frames are used to transmit arbitrary data in either direction. Each DATA frame can hold up to 64 bytes. If an RPC session is currently open, all received bytes are forwarded to it.
+
+| Header (1 byte) | Contents (1 to 65 byte(s)) | Checksum (1 byte) |
+|-----------------|----------------------------|-------------------|
+| 0x05            | Data                       | XOR checksum      |
+
+The `Data` field SHALL have the following structure:
+
+| Data size (1 byte) | Data (0 to 64 bytes) |
+|--------------------|----------------------|
+| 0x00 ... 0x40      | Arbitrary data       |
+
+## Communication flow
+
+In order for the host to be able to detect the module, the respective feature must be enabled first. This can be done via the GUI by going to `Settings → Expansion Modules` and selecting the required `Listen UART` or programmatically by calling `expansion_enable()`. Likewise, disabling this feature via the same GUI or by calling `expansion_disable()` will result in ceasing all communications and not being able to detect any connected modules.
+
+The communication is always initiated by the module by the means of shortly pulling the RX pin down. The host SHALL respond with a HEARTBEAT frame indicating that it is ready to receive requests. The module then MUST issue a BAUDRATE request within Tto. Failure to do so will result in the host dropping the connection and returning to its initial state.
+
+```
+        MODULE               |            FLIPPER
+-----------------------------+---------------------------
+                             |        (Start)
+Pull down RX                -->
+                            <--       Heartbeat
+Baud Rate                   -->
+                            <--       Status [OK | Error]
+                             |
+(Module changes baud rate    |        (Flipper changes 
+ and waits for Tdt)          |         baud rate)
+                             |
+Control [Start RPC]         -->
+                            <--       Status [OK | Error]
+-----------------------------+--------------------------- (1)
+Data [RPC Request]          -->
+                            <--       Status [OK | Error]
+                            <--       Data [RPC Response]
+Status [OK | Error]         -->
+-----------------------------+--------------------------- (2)
+Data [RPC Request pt.1]     -->
+                            <--       Status [OK | Error]
+Data [RPC Request pt.2]     -->
+                            <--       Status [OK | Error]
+Data [RPC Request pt.3]     -->
+                            <--       Status [OK | Error]
+                            <--       Data [RPC Response]
+Status [OK | Error]         -->
+-----------------------------+--------------------------- (3)
+Heartbeat                   -->
+                            <--       Heartbeat
+Heartbeat                   -->
+                            <--       Heartbeat
+-----------------------------+---------------------------
+Control [Stop RPC]          -->
+                            <--       Status [OK | Error]
+(Module disconnected)        |
+                             |        (No activity within Tto
+                             |            return to start)
+
+(1) The module MUST confirm all implicitly requested frames (e.g. DATA frames containing RPC responses) with a STATUS frame.
+(2) RPC requests larger than 64 bytes are split into multiple frames. Every DATA frame MUST be confirmed with a STATUS frame.
+(3) When the module has no data to send, it MUST send HEARTBEAT frames with a period < Tto in order to maintain the connection.
+    The host SHALL respond with a HEARTBEAT frame each time.
+```
+
+## Error detection
+
+Error detection is implemented via adding an extra checksum byte to every frame (see above).
+
+The checksum is calculated by bitwise XOR-ing every byte in the frame (excluding the checksum byte itself), with an initial value of 0.
+
+### Error recovery behaviour
+
+In the event of a detected error, the concerned side MUST cease all communications and reset to initial state. The other side will then experience
+a communication timeout and the connection will be re-established automatically.
+
+
+=== FILE: wide\momentum-docs\fbt.md ===
+
+# Flipper Build Tool {#fbt}
+
+FBT is the entry point for firmware-related commands and utilities.
+It is invoked by `./fbt` in the firmware project root directory. Internally, it is a wrapper around [scons](https://scons.org/) build system.
+
+If you don't need all features of `fbt` — like building the whole firmware — and only want to build and debug a single app, you can use [ufbt](https://pypi.org/project/ufbt/).
+
+## Environment
+
+To use `fbt`, you only need `git` installed in your system.
+
+`fbt` by default downloads and unpacks a pre-built toolchain, and then modifies environment variables for itself to use it. It does not contaminate your global system's path with the toolchain.
+ > However, if you wish to use tools supplied with the toolchain outside `fbt`, you can open an *fbt shell*, with properly configured environment.
+ >    - On Windows, simply run `scripts/toolchain/fbtenv.cmd`.
+ >    - On Linux & MacOS, run `source scripts/toolchain/fbtenv.sh` in a new shell.
+ >    - You can also type ```. `./fbt -s env` ``` in your shell. (Keep  the "." at the beginning.)
+ 
+ If your system is not supported by pre-built toolchain variants or you want to use custom versions of dependencies, you can `set FBT_NOENV=1`. `fbt` will skip toolchain & environment configuration and will expect all tools to be available on your system's `PATH`. *(this option is not available on Windows)*
+ 
+ If `FBT_TOOLCHAIN_PATH` variable is set, `fbt` will use that directory to unpack toolchain into. By default, it downloads toolchain into `toolchain` subdirectory repo's root.
+
+If you want to enable extra debug output for `fbt` and toolchain management scripts, you can `set FBT_VERBOSE=1`.
+
+`fbt` always performs `git submodule update --init` on start, unless you set `FBT_NO_SYNC=1` in the environment:
+  - On Windows, it's `set "FBT_NO_SYNC=1"` in the shell you're running `fbt` from
+  - On \*nix, it's `$ FBT_NO_SYNC=1 ./fbt ...`
+
+ > There are more variables controlling basic `fbt` behavior. See `fbt` & `fbtenv` scripts' sources for details.
+
+
+## Invoking FBT
+
+To build with FBT, call it and specify configuration options & targets to build. For example:
+
+`./fbt COMPACT=1 DEBUG=0 VERBOSE=1 updater_package copro_dist`
+
+To run cleanup (think of `make clean`) for specified targets, add the `-c` option.
+
+## Build directories
+
+`fbt` builds updater & firmware in separate subdirectories in `build`, and their names depend on optimization settings (`COMPACT` & `DEBUG` options). However, for ease of integration with IDEs, the latest built variant's directory is always linked as `built/latest`. Additionally, `compile_commands.json` is generated in that folder (it is used for code completion support in IDEs).
+ 
+`build/latest` symlink & compilation database are only updated upon *firmware build targets* — that is, when you're re-building the firmware itself. Running other tasks, like firmware flashing or building update bundles *for a different debug/release configuration or hardware target*, does not update `built/latest` dir to point to that configuration.
+
+## VSCode integration
+
+`fbt` includes basic development environment configuration for VS Code. Run `./fbt vscode_dist` to deploy it. That will copy the initial environment configuration to the `.vscode` folder. After that, you can use that configuration by starting VS Code and choosing the firmware root folder in the "File > Open Folder" menu.
+
+To use language servers other than the default VS Code C/C++ language server, use `./fbt vscode_dist LANG_SERVER=<language-server>` instead. Currently `fbt` supports the default language server (`cpptools`) and `clangd`.
+
+- On the first start, you'll be prompted to install recommended plugins. We highly recommend installing them for the best development experience. _You can find a list of them in `.vscode/extensions.json`._
+- Basic build tasks are invoked in the Ctrl+Shift+B menu.
+- Debugging requires a supported probe. That includes:
+  - Wi-Fi Devboard with stock firmware (blackmagic).
+  - ST-Link and compatible devices.
+  - J-Link for flashing and debugging (in VSCode only). _Note that J-Link tools are not included with our toolchain and you have to [download](https://www.segger.com/downloads/jlink/) them yourself and put them on your system's PATH._
+- Without a supported probe, you can install firmware on Flipper using the USB installation method.
+
+## FBT targets
+
+`fbt` keeps track of internal dependencies, so you only need to build the highest-level target you need, and `fbt` will make sure everything they depend on is up-to-date.
+
+### High-level (what you most likely need)
+
+- `fw_dist` — build & publish firmware to the `dist` folder. This is a default target when no others are specified.
+- `fap_dist` — build external plugins & publish to the `dist` folder.
+- `updater_package`, `updater_minpackage` — build a self-update package. The minimal version only includes the firmware's DFU file; the full version also includes a radio stack & resources for the SD card.
+- `copro_dist` — bundle Core2 FUS+stack binaries for qFlipper.
+- `flash` — flash the attached device over SWD interface with supported probes. Probe is detected automatically; you can override it with `SWD_TRANSPORT=...` variable. If multiple probes are attached, you can specify the serial number of the probe to use with `SWD_TRANSPORT_SERIAL=...`.
+- `flash_usb`, `flash_usb_full` — build, upload and install the update package to the device over USB. See details on `updater_package` and `updater_minpackage`.
+- `debug` — build and flash firmware, then attach with gdb with firmware's .elf loaded.
+- `debug_other`, `debug_other_blackmagic` — attach GDB without loading any `.elf`. It will allow you to manually add external `.elf` files with `add-symbol-file` in GDB.
+- `updater_debug` — attach GDB with the updater's `.elf` loaded.
+- `devboard_flash` — Update WiFi dev board. Supports `ARGS="..."` to pass extra arguments to the update script, e.g. `ARGS="-c dev"`.
+- `blackmagic` — debug firmware with Blackmagic probe (WiFi dev board).
+- `openocd` — just start OpenOCD. You can pass extra arguments with `ARGS="..."`.
+- `get_blackmagic` — output the blackmagic address in the GDB remote format. Useful for IDE integration.
+- `get_stlink` — output serial numbers for attached STLink probes. Used for specifying an adapter with `SWD_TRANSPORT_SERIAL=...`.
+- `lint`, `format` — run clang-format on the C source code to check and reformat it according to the `.clang-format` specs. Supports `ARGS="..."` to pass extra arguments to clang-format.
+- `lint_py`, `format_py` — run [black](https://black.readthedocs.io/en/stable/index.html) on the Python source code, build system files & app manifests. Supports `ARGS="..."` to pass extra arguments to black.
+- `lint_img`, `format_img` — check the image assets for errors and format them. Enforces color depth and strips metadata.
+- `lint_all`, `format_all` — run all linters and formatters.
+- `firmware_pvs` — generate a PVS Studio report for the firmware. Requires PVS Studio to be available on your system's `PATH`.
+- `doxygen` — generate Doxygen documentation for the firmware. `doxy` target also opens web browser to view the generated documentation.
+- `cli` — start a Flipper CLI session over USB.
+
+### Firmware targets
+
+- `faps` — build all external & plugin apps as [`.faps`](AppsOnSDCard.md).
+- `fbt` also defines per-app targets. For example, for an app with `appid=snake_game` target names are:
+  - `fap_snake_game`, etc. — build single app as `.fap` by its app ID.
+  - Check out [--extra-ext-apps](#command-line-parameters) for force adding extra apps to external build.
+  - `fap_snake_game_list`, etc — generate source + assembler listing for app's `.fap`.
+- `flash`, `firmware_flash` — flash the current version to the attached device over SWD.
+- `jflash` — flash the current version to the attached device with JFlash using a J-Link probe. The JFlash executable must be on your `$PATH`.
+- `firmware_all`, `updater_all` — build a basic set of binaries.
+- `firmware_list`, `updater_list` — generate source + assembler listing.
+- `firmware_cdb`, `updater_cdb` — generate a `compilation_database.json` file for external tools and IDEs. It can be created without actually building the firmware.
+
+### Assets
+
+- `resources` — build resources and their manifest files
+  - `dolphin_ext` — process dolphin animations for the SD card
+- `icons` — generate `.c+.h` for icons from PNG assets
+- `proto` — generate `.pb.c+.pb.h` for `.proto` sources
+- `proto_ver` — generate `.h` with a protobuf version
+- `dolphin_internal`, `dolphin_blocking` — generate `.c+.h` for corresponding dolphin assets
+
+## Command-line parameters {#command-line-parameters}
+
+- `--options optionfile.py` (default value `fbt_options.py`) — load a file with multiple configuration values
+- `--extra-int-apps=app1,app2,appN` — force listed apps to be built as internal with the `firmware` target
+- `--extra-ext-apps=app1,app2,appN` — force listed apps to be built as external with the `firmware_extapps` target
+- `--extra-define=A --extra-define=B=C ` — extra global defines that will be passed to the C/C++ compiler, can be specified multiple times
+- `--proxy-env=VAR1,VAR2` — additional environment variables to expose to subprocesses spawned by `fbt`. By default, `fbt` sanitizes the execution environment and doesn't forward all inherited environment variables. You can find the list of variables that are always forwarded in the `environ.scons` file.
+
+## Configuration
+
+Default configuration variables are set in the configuration file: `fbt_options.py`.
+Values set in the command line have higher precedence over the configuration file.
+
+You can also create a file called `fbt_options_local.py` that will be evaluated when loading default options file, enabling persistent overriding of  default options without modifying default configuration.
+
+You can find out available options with `./fbt -h`.
+
+### Firmware application set
+
+You can create customized firmware builds by modifying the list of apps to be included in the build. App presets are configured with the `FIRMWARE_APPS` option, which is a `map(configuration_name:str → application_list:tuple(str))`. To specify an app set to use in the build, set `FIRMWARE_APP_SET` to its name.
+For example, to build a firmware image with unit tests, run `./fbt FIRMWARE_APP_SET=unit_tests`.
+
+Check out `fbt_options.py` for details.
+
+
+=== FILE: wide\momentum-docs\FuriCheck.md ===
+
+# Run time checks and forced system crash {#furi_check}
+
+The best way to protect system integrity is to reduce amount cases that we must handle and crash the system as early as possible.
+For that purpose, we have a bunch of helpers located in Furi Core `check.h`.
+
+## Couple notes before start
+
+- Definition of Crash — log event, save crash information in RTC and reboot the system.
+- Definition of Halt — log event, stall the system.
+- Debug and production builds behave differently: debug build will never reset system in order to preserve state for debugging.
+- If you have debugger connected we will stop before reboot automatically.
+- All helpers accept optional MESSAGE_CSTR: it can be in RAM or Flash memory, but only messages from Flash will be shown after system reboot.
+- MESSAGE_CSTR can be NULL, but macros magic already doing it for you, so just don't.
+
+## `furi_assert(CONDITION)` or `furi_assert(CONDITION, MESSAGE_CSTR)`
+
+Assert condition in development environment and crash the system if CONDITION is false.
+
+- Should be used at development stage in apps and services.
+- Keep in mind that release never contains this check.
+- Keep in mind that libraries never contain this check by default, use `LIB_DEBUG=1` if you need it.
+- Avoid putting function calls into CONDITION, since it may be omitted in some builds.
+
+## `furi_check(CONDITION)` or `furi_check(CONDITION, MESSAGE_CSTR)`
+
+Always assert condition and crash the system if CONDITION is false.
+
+- Use it if you always need to check conditions
+
+## `furi_crash()` or `furi_crash(MESSAGE_CSTR)`
+
+Crash the system.
+
+- Use it to crash the system. For example, if an abnormal condition is detected.
+
+## `furi_halt()` or `furi_halt(MESSAGE_CSTR)`
+
+Halt the system.
+
+- We use it internally to shutdown Flipper if poweroff is not possible.
+
+
+=== FILE: wide\momentum-docs\FuriHalBus.md ===
+
+# Using FuriHalBus API {#furi_hal_bus}
+
+## Basic info
+
+On system startup, most of the peripheral devices are under reset and not clocked by default. This is done to reduce power consumption and to guarantee that the device will always be in the same state before use.
+Some crucial peripherals are enabled right away by the system, others must be explicitly enabled by the user code.
+
+**NOTE:** Here and afterwards, the word *"system"* refers to any code belonging to the operating system, hardware drivers or built-in apps.
+
+To **ENABLE** a peripheral, call `furi_hal_bus_enable()`. At the time of the call, the peripheral in question MUST be disabled, otherwise a crash will occur to indicate improper use. This means that any given peripheral cannot be enabled twice or more without disabling it first.
+
+To **DISABLE** a peripheral, call `furi_hal_bus_disable()`. Likewise, the peripheral in question MUST be enabled, otherwise a crash will occur.
+
+To **RESET** a peripheral, call `furi_hal_bus_reset()`. The peripheral in question MUST be enabled, otherwise a crash will occur. This method is used whenever it is necessary to reset all the peripheral's registers to their initial states without disabling it.
+
+## Peripherals
+
+Built-in peripherals are divided into three categories: 
+- Enabled by the system on startup, never disabled;
+- Enabled and disabled by the system on demand;
+- Enabled and disabled by the user code.
+
+### Always-on peripherals
+
+Below is the list of peripherals that are enabled by the system. The user code must NEVER attempt to disable them. If a corresponding API is provided, the user code must employ it in order to access the peripheral.
+
+*Table 1* — Peripherals enabled by the system
+
+| Peripheral    | Enabled at                |
+| :-----------: | :-----------------------: |
+| DMA1          | `furi_hal_dma.c`          |
+| DMA2          | --                        |
+| DMAMUX        | --                        |
+| GPIOA         | `furi_hal_resources.c`    |
+| GPIOB         | --                        |
+| GPIOC         | --                        |
+| GPIOD         | --                        |
+| GPIOE         | --                        |
+| GPIOH         | --                        |
+| PKA           | `furi_hal_bt.c`           |
+| AES2          | --                        |
+| HSEM          | --                        |
+| IPCC          | --                        |
+| FLASH         | enabled by hardware       |
+
+### On-demand system peripherals
+
+Below is the list of peripherals that are enabled and disabled by the system. The user code must avoid using them directly, preferring the respective APIs instead.
+
+When not using the API, these peripherals MUST be enabled by the user code and then disabled when not needed anymore.
+
+*Table 2* — Peripherals enabled and disabled by the system
+
+| Peripheral    | API header file       |
+| :-----------: | :-------------------: |
+| RNG           | `furi_hal_random.h`   |
+| SPI1          | `furi_hal_spi.h`      |
+| SPI2          | --                    |
+| I2C1          | `furi_hal_i2c.h`      |
+| I2C3          | --                    |
+| USART1        | `furi_hal_serial.h`   |
+| LPUART1       | --                    |
+| USB           | `furi_hal_usb.h`      |
+
+### On-demand shared peripherals
+
+Below is the list of peripherals that are not enabled by default and MUST be enabled by the user code each time it accesses them. 
+
+Note that some of these peripherals may also be used by the system to implement its certain features.
+The system will take over any given peripheral only when the respective feature is in use.
+
+*Table 3* — Peripherals enabled and disabled by user
+
+| Peripheral    | System    | Purpose                               |
+| :-----------: | :-------: | ------------------------------------- |
+| CRC           |           |                                       |
+| TSC           |           |                                       |
+| ADC           |           |                                       |
+| QUADSPI       |           |                                       |
+| TIM1          | yes       | subghz, lfrfid, nfc, infrared, etc... |
+| TIM2          | yes       | subghz, infrared, etc...              |
+| TIM16         | yes       | speaker                               |
+| TIM17         | yes       | cc1101_ext                            |
+| LPTIM1        | yes       | tickless idle timer                   |
+| LPTIM2        | yes       | pwm                                   |
+| SAI1          |           |                                       |
+| LCD           |           |                                       |
+
+
+## DMA
+
+The DMA1,2 peripherals are a special case in that they have multiple independent channels. Some of the channels may be in use by the system.
+
+Below is the list of DMA channels and their usage by the system.
+
+*Table 4* — DMA channels
+
+| DMA   | Channel   | System    | Purpose                   |
+| :---: | :-------: | :-------: | ------------------------- |
+| DMA1  | 1         | yes       | digital signal            |
+|  --   | 2         | yes       | --                        |
+|  --   | 3         |           |                           |
+|  --   | 4         | yes       | pulse reader              |
+|  --   | 5         |           |                           |
+|  --   | 6         | yes       | USART_Rx                  |
+|  --   | 7         | yes       | LPUART_Rx                 |
+| DMA2  | 1         | yes       | infrared, lfrfid, subghz, |
+|  --   | 2         | yes       | --                        |
+|  --   | 3         | yes       | cc1101_ext                |
+|  --   | 4         | yes       | cc1101_ext                |
+|  --   | 5         | yes       | cc1101_ext                |
+|  --   | 6         | yes       | SPI                       |
+|  --   | 7         | yes       | SPI                       |
+
+
+=== FILE: wide\momentum-docs\FuriHalDebugging.md ===
+
+# Furi HAL Debugging {#furi_hal_debugging}
+
+Some Furi subsystems have additional debugging features that can be enabled by adding additional defines to firmware compilation.
+Usually, they are used for low level tracing and profiling or signal redirection/duplication.
+
+
+## FuriHalOs
+
+`--extra-define=FURI_HAL_OS_DEBUG` enables tick, tick suppression, idle and time flow.
+
+There are 3 signals that will be exposed to external GPIO pins:
+
+- `AWAKE`   — `PA7` — High when system is busy with computations, low when sleeping. Can be used to track transitions to sleep mode.
+- `TICK`    — `PA6` — Flipped on system tick, only flips when no tick suppression in progress. Can be used to track tick skew and abnormal task scheduling.
+- `SECOND`  — `PA4` — Flipped each second. Can be used for tracing RT issue: time flow disturbance means system doesn't conform Hard RT.
+
+
+
+## FuriHalPower
+
+`--extra-define=FURI_HAL_POWER_DEBUG` enables power subsystem mode transitions tracing.
+
+There are 2 signals that will be exposed to external GPIO pins:
+
+- `WFI`     — `PB2` — Light sleep (wait for interrupt) used. Basically, this is the lightest and most non-breaking things power save mode. All functions and debug should work correctly in this mode.
+- `STOP`    — `PC3` — STOP mode used. Platform deep sleep mode. Extremely fragile mode where most of the silicon is disabled or in unusable state. Debugging MCU in this mode is nearly impossible.
+
+## FuriHalSD
+
+`--extra-define=FURI_HAL_SD_SPI_DEBUG` enables SD card SPI bus logging.
+
+
+=== FILE: wide\momentum-docs\HardwareTargets.md ===
+
+## What a Firmware Target is {#hardware_targets}
+
+Flipper's firmware is modular and supports different hardware configurations in a common code base. It encapsulates hardware-specific differences in `furi_hal`, board initialization code, linker files, SDK data and other information in a _target definition_.
+
+Target-specific files are placed in a single sub-folder in `targets`. It must contain a target definition file, `target.json`, and may contain other files if they are referenced by current target's definition. By default, `fbt` gathers all source files in target folder, unless they are explicitly excluded.
+
+Targets can inherit most code parts from other targets, to reduce common code duplication.
+
+
+## Target Definition File
+
+A target definition file, `target.json`, is a JSON file that can contain the following fields:
+
+* `include_paths`: list of strings, folder paths relative to current target folder to add to global C/C++ header path lookup list.
+* `sdk_header_paths`: list of strings, folder paths relative to current target folder to gather headers from for including in SDK.
+* `startup_script`: filename of a startup script, performing initial hardware initialization.
+* `linker_script_flash`: filename of a linker script for creating the main firmware image.
+* `linker_script_ram`: filename of a linker script to use in "updater" build configuration.
+* `linker_script_app`: filename of a linker script to use for linking .fap files.
+* `sdk_symbols`: filename of a .csv file containing current SDK configuration for this target.
+* `linker_dependencies`: list of libraries to link the firmware with. Note that those not in the list won't be built by `fbt`. Also several link passes might be needed, in such case you may need to specify same library name twice.
+* `inherit`: string, specifies hardware target to borrow main configuration from. Current configuration may specify additional values for parameters that are lists of strings, or override values that are not lists.
+* `excluded_sources`: list of filenames from the inherited configuration(s) NOT to be built.
+* `excluded_headers`: list of headers from the inherited configuration(s) NOT to be included in generated SDK.
+* `excluded_modules`: list of strings specifying fbt library (module) names to exclude from being used to configure build environment.
+
+
+## Apps & Hardware
+
+Not all apps are available on different hardware targets. 
+
+* For apps built into the firmware, you have to specify a compatible app set using `FIRMWARE_APP_SET=...` fbt option. See [fbt docs](./fbt.md) for details on build configurations.
+
+* For apps built as external FAPs, you have to explicitly specify compatible targets in the app's manifest, `application.fam`. For example, to limit the app to a single target, add `targets=["f7"],` to the manifest. It won't be built for other targets.
+
+For details on app manifests, check out [their docs page](./AppManifests.md).
+
+
+## Building Firmware for a Specific Target
+
+You have to specify TARGET_HW (and, optionally, FIRMWARE_APP_SET) for `fbt` to build firmware for a non-default target. For example, building and flashing debug firmware for f18 can be done with
+
+    ./fbt TARGET_HW=18 flash_usb_full
+
+
+
+=== FILE: wide\momentum-docs\InfraredCaptures.md ===
+
+# Infrared Captures
+
+**Credits go to @gsurkov, @skotopes, @knrn-ai, @DrZlo13 and @ahumeniy for making and contributing to the original `UniversalRemotes.md` Documentation located [Here](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/documentation/UniversalRemotes.md).** 
+
+**slightly adapted by @amec0e**
+
+## Televisions, Fans, Audio and Projectors
+
+Each signal is recorded using the following process:
+
+1. Get the remote and point it to Flipper's IR receiver.
+2. Start learning a new remote if it's the first button or press `+` to add a new button otherwise.
+3. Do a Quick Press of a remote button and save it under a corresponding name. **(NOTE: Don't hold the remote button down, this will result in long captures and long playbacks ultimately slowing down the universal remotes performance)**
+4. Repeat steps 2-3 until all required signals are saved.
+
+The signal names are self-explanatory. Remember to make sure that every recorded signal does what it's supposed to.
+
+**NOTE:** It's possible some devices around you will cause interference and may force your capture into raw data instead of a parsed code. 
+If you notice you get a parsed code when capturing it's best to click "Retry" a few times on the flipper when capturing to ensure the device is not suffering from any interference, and that the cleanest capture is possible.
+
+## Types of data
+
+**Parsed data**
+
+This is the cleanest type of data because it means it is a recognized code.
+
+```
+name: EXAMPLE
+type: parsed
+protocol: NEC
+address: 07 00 00 00
+command: 02 00 00 00
+```
+
+**Raw Data**
+
+With raw data its important not to hold the remotes button down when capturing on your flipper as this increases not only the size of the capture but the repeats and also how long it takes to send the signal back. Below is an ideal button capture.
+
+```
+# 
+name: EXAMPLE
+type: raw
+frequency: 38000
+duty_cycle: 0.330000
+data: 2410 597 1189 599 592 600 1186 602 589 603 1183 606 595 597 593 598 1208 605 596 596 594 597 593 599 592 25604 2403 604 1182 606 595 597 1189 599 591 601 1185 603 618 573 617 575 1211 602 588 603 588 605 596 596 594 25605 2402 604 1192 596 594 597 1189 599 592 601 1185 628 593 598 593 600 1186 602 589 603 588 604 597 595 596
+```
+
+**Capturing Raw Data:**
+
+If you are sure your remote is using raw data the best way to capture it will be to do a quick button press **(don't hold the remotes button down)** and look at how many samples you get, the general idea here is to get the lowest amount of raw data samples captured (around 100 samples is about right) while making sure that the playback on the device is still working. This is usually accomplished by doing a quick button press on the remote when capturing.
+
+## Air Conditioners
+
+Air conditioners differ from most other infrared-controlled devices because their state is tracked by the remote.
+The majority of A/C remotes have a small display that shows the current mode, temperature, and other settings.
+When the user presses a button, a whole set of parameters is transmitted to the device, which must be recorded and used as a whole.
+
+In order to capture a particular air conditioner, there is a particular process require to capturing and this is done using the following process:
+
+1. Get the remote and press the **Power Button** so that the display shows that A/C is ON.
+2. Set the A/C to the corresponding mode (see table below), leaving other parameters such as fan speed or vane on **AUTO** (if applicable).
+3. Press the **POWER** button to switch the A/C off.
+4. Start learning a new remote on Flipper if it's the first button or press `+` to add a new button otherwise.
+5. Point the remote to Flipper's IR receiver as directed and press **POWER** button once again.
+6. Save the resulting signal under the specified name.
+7. Repeat steps 2-6 for each signal from the table below.
+
+| Signal  |    Mode    | Temperature | Note                                |
+| :-----: | :--------: | :---------: | ----------------------------------- |
+|   Dh    | Dehumidify |     N/A     |                                     |
+| Cool_hi |  Cooling   |  See note   | Lowest temperature in cooling mode  |
+| Cool_lo |  Cooling   |    23°C     |                                     |
+| Heat_hi |  Heating   |  See note   | Highest temperature in heating mode |
+| Heat_lo |  Heating   |    23°C     |                                     |
+
+Finally, record the `Off` signal:
+
+1. Make sure the display shows that the A/C is ON.
+2. Start learning a new signal on Flipper and point the remote towards the IR receiver.
+3. Press the **POWER** button so that the remote shows the OFF state.
+4. Save the resulting signal under the name `Off`.
+
+Test the file against the actual device. Make sure that every signal does what it's supposed to.
+
+
+=== FILE: wide\momentum-docs\KeyCombo.md ===
+
+# Key Combos {#key_combos}
+
+There are times when your Flipper feels blue and doesn't respond to any of your commands due to a software issue. This guide will help you solve this problem.
+
+## Basic combos
+
+### Hardware reset
+
+- Press `LEFT` and `BACK` and hold for a couple of seconds
+- Release `LEFT` and `BACK`
+
+This combo performs a hardware reset by pulling the MCU reset line down.
+Main components involved: Keys → DD8(NC7SZ32M5X, OR-gate) → DD1(STM32WB55, MCU).
+
+It won't work only in one case:
+
+- The MCU debug block is active and holding the reset line from inside.
+
+### Hardware Power Reset
+
+- Disconnect the USB cable and any external power supplies
+- Disconnect the USB once again
+- Make sure you've disconnected the USB and any external power supplies
+- Press `BACK` and hold for 30 seconds (this will only work with the USB disconnected)
+- If you haven't disconnected the USB, then disconnect it and repeat the previous step
+- Release the `BACK` key
+
+This combo performs a reset by switching SYS power line off and then on.
+Main components involved: Keys → DD6(bq25896, charger).
+
+It won't work only in one case:
+
+- Power supply is connected to USB or 5V_ext
+
+### Software DFU
+
+- Press `LEFT` on boot to enter DFU with Flipper boot-loader
+
+It won't work only in one case:
+
+- Flipper boot-loader is damaged or absent
+
+### Hardware DFU
+
+- Press `OK` on boot to enter DFU with ST boot-loader
+
+It won't work only in one case:
+
+- Option Bytes are damaged or set to ignore the `OK` key
+
+## DFU combos
+
+### Hardware Reset + Software DFU
+
+- Press `LEFT` and `BACK` and hold for a couple of seconds
+- Release `BACK`
+- Device will enter DFU with an indication (Blue LED + DFU Screen)
+- Release `LEFT`
+
+This combo performs a hardware reset by pulling the MCU reset line down. Then, the `LEFT` key indicates to the boot-loader that DFU mode is requested.
+
+It won't work in two cases:
+
+- The MCU debug block is active and holding the reset line from inside
+- Flipper boot-loader is damaged or absent
+
+### Hardware Reset + Hardware DFU
+
+- Press `LEFT`, `BACK` and `OK` and hold for a couple of seconds
+- Release `BACK` and `LEFT`
+- The device will enter DFU without an indication
+
+This combo performs a hardware reset by pulling the MCU reset line down. Then, the `OK` key forces MCU to load the internal boot-loader.
+
+It won't work in two cases:
+
+- The MCU debug block is active and holding the reset line from inside
+- Option Bytes are damaged or set to ignore the `OK` key
+
+### Hardware Power Reset + Software DFU
+
+- Disconnect the USB and any external power supplies
+- Press `BACK` and `LEFT` for 30 seconds
+- Release `BACK`
+- The device will enter DFU with an indication (Blue LED + DFU Screen)
+- Release `LEFT`
+- Plug in the USB
+
+This combo performs a reset by switching the SYS power line off and then on. Next, the `LEFT` key indicates to the boot-loader that DFU mode is requested.
+
+It won't work in two cases:
+
+- Power supply is connected to USB or 5V_ext
+- Flipper boot-loader is damaged or absent
+
+### Hardware Power Reset + Hardware DFU
+
+- Disconnect the USB and any external power supplies
+- Press `BACK` and `OK` and hold for 30 seconds
+- Release `BACK` and `OK`
+- The device will enter DFU without indication
+- Plug in the USB
+
+This combo performs a reset by switching the SYS power line off and then on. Next, the `OK` key forces MCU to load the internal boot-loader.
+
+It won't work in two cases:
+
+- Power supply is connected to USB or 5V_ext
+- Option Bytes are damaged or set to ignore the `OK` key
+
+# Alternative ways to recover your device
+
+If none of the described methods helped you:
+
+- Make sure the battery charged
+- Disconnect the battery and connect again (requires disassembly)
+- Try to flash the device with ST-Link or another programmer that supports SWD
+
+If you're still here and your device is not working: it's not a software issue.
+
+
+=== FILE: wide\momentum-docs\LFRFIDRaw.md ===
+
+# Reading RAW RFID data {#lfrfid_raw}
+
+Flipper Zero has the option to read RAW data from 125 kHz cards that allows you to record the card's data and save it, similar to how a dictaphone records sound.
+
+To use this function, you need to activate the Debug mode on your Flipper Zero by doing the following:
+
+1. Go to **Main Menu** → **Settings** → **System**.
+
+2. Set **Debug** to **ON**.
+
+Once the Debug mode is activated on your Flipper Zero, you can read RAW data from 125 kHz RFID cards:
+
+1. Go to **Main Menu** → **125 kHz RFID** → **Extra Actions**.
+
+2. Select **RAW RFID** data and name the raw file.
+
+3. Read instructions and press **OK**.
+
+4. Apply the card to Flipper Zero's back.
+
+5. Once the reading is finished, press **OK**.
+
+Two files with data (with ASK and PSK modulations) will be saved in the `lfrfid` folder on the microSD card. Now, you can share it and the card's photo with developers by creating an issue on GitHub.
+
+
+=== FILE: wide\momentum-docs\MultiConverter.md ===
+
+# MultiConverter 
+
+## Author: [theisolinearchip](https://github.com/theisolinearchip/flipperzero_stuff/tree/main/applications/multi_converter)
+
+An expanded version of my previous __Dec/Hex Converter__, this time allowing more units and a _(probably poorly made from a design-point-of-view)_ selector mode
+to swap between different unit groups.
+
+I wrote it with the idea of _expanding the unit list_ on mind, so adding new ones it's a matter of increasing an array of constants + defining the proper conversion functions.
+
+(Actually the whole project is more about "making the framework" rather than providing _ALL_ of the possible units : D)
+
+![Img 1](http://albertgonzalez.coffee/projects/flipperzero/multi_converter/img/1_small.png) ![Img 2](http://albertgonzalez.coffee/projects/flipperzero/multi_converter/img/2_small.png)
+
+## Current conversions
+
+- `Decimal / Hexadecimal / Binary`
+- `Celsius / Fahrenheit / Kelvin`
+- `Kilometers / Meters / Centimeters / Miles / Feet / Inches`
+- `Degree / Radian`
+
+## Usage
+
+Base keyboard allows numbers from `0` to `F`, being disabled (or not) according to the current selected unit.
+
+Long press on `0` toggles a __negative__ value; long press on `1` sets a __decimal point__ (only if allowed by the current selected unit).
+
+`<` removes the last character; `#` changes to __Unit Select Mode__.
+
+### Unit Select Mode
+
+`Left` and `Right` to swap between __origin unit__ and __destination unit__ (notice the _destination_ will change according to the current selected _origin_).
+
+`Ok` to save the changes and go back to the __Display Mode__; `Back` to go back without changing any unit.
+
+## Adding new units
+
+1. Add the new units in the `MultiConverterUnitType` enum on `multi_converter_definitions.h` (basic definitions header). Notice each enum element will be used as an array index later.
+
+2. Increase the `MULTI_CONVERTER_AVAILABLE_UNITS` constant on `multi_converter_units.h` (units main header file).
+
+3. Set a pair of functions for __converting__ units and to __check__ if a target unit is allowed to work with the destination unit (both on `multi_converter_units.h`
+and `multi_converter_units.c`; follow the already built-in units for more info).
+
+4. Add the proper `MultiConverterUnit` structs for each new unit.
+
+5. Add each new struct to the main `multi_converter_available_units` array.
+
+And that's it! The system will fetch the new units and display it!
+
+## Known issues, TODO-list, etc.
+
+This is an initial release, so expect some bugs and issues (also I don't work with C that much, so there're probably lots of things that can be improved and/or changed!).
+
+- I've noticed some small decimal variations when "going deep" with some units (like converting __miles__ to __centimeters__ and things like that); probably due to the precision-level required. Need to check that.
+- Pending: improve overflow checks.
+- The way some long numbers are shown could probably be improved to look fancier.
+- Both _origin_ and _destination buffers_ are the same. The destination one could probably be longer in order to avoid certain _overflow scenarios_.
+- The GUI needs improvement too: there's a whole __widget/views system__ built in the Flipper that allows things like setting up keys, showing "Save/Back/Cancel" messages with
+callbacks and stuff like that. Didn't know anything about them, so I moved on with something more basic (which is probably fine since it's not a "very big project"); but
+a more "standard" way with the regular GUI stuff provided by the firmware will be interesting...
+- More GUI stuff: the _long click buttons_ for adding a decimal point / negative number aren't very clear on the view itself (I tried to add a small dot / dash symbol, but I think those are small enough to be a little bit confusing)
+
+
+=== FILE: wide\momentum-docs\NRF24.md ===
+
+# flipperzero-nrf24
+
+## Author: [mothball187](https://github.com/mothball187/flipperzero-nrf24/tree/main/mousejacker)
+
+An [NRF24](https://www.sparkfun.com/datasheets/Components/SMD/nRF24L01Pluss_Preliminary_Product_Specification_v1_0.pdf) driver for the [Flipper Zero](https://flipperzero.one/) device. The NRF24 is a popular line of 2.4GHz radio transceivers from Nordic Semiconductors. This library is not currently complete, but functional.
+
+# How to use
+- Connect NRF24 to flipper using provided pinouts
+- Open NRF24: Sniffer, and scan channels, switch between modes/channels using buttons
+- When you got address -> Open NRF24: Mouse Jacker
+- Select Address and open badusb file
+- Done
+
+# Demo (YouTube)
+[![YouTube](https://img.youtube.com/vi/C5hbyAjuU4k/0.jpg)](https://www.youtube.com/watch?v=C5hbyAjuU4k)
+
+## Warning
+These apps are for **educational purposes** only. Please use this code responsibly and only use these apps on your own equipment.
+
+## Acknowledgments
+The NRF24 sniffing technique was discovered and shared by Travis Goodspeed in [his blog](http://travisgoodspeed.blogspot.com/2011/02/promiscuity-is-nrf24l01s-duty.html).
+
+The mousejack vulnerabilities were discovered and reported by Marc Newlin, see [the blog](https://www.bastille.net/research/vulnerabilities/mousejack/technical-details) for technical details.
+
+Much of the driver code was inspired by [RadioHead's Arduino library](https://www.airspayce.com/mikem/arduino/RadioHead/classRH__NRF24.html).
+Much of the mousejack code was inspired by the [Jackit project](https://github.com/insecurityofthings/jackit).
+
+
+# Pinout from from NoComp/Frog
+<img src="https://media.discordapp.net/attachments/937479784726949900/994495234618687509/unknown.png?width=567&height=634">
+
+# Mousejacker / NRF24 pinout by UberGuidoZ
+2/A7 on FZ goes to MOSI/6 on nrf24l01<br>
+3/A6 on FZ goes to MISO/7 on nrf24l01<br>
+4/A4 on FZ goes to CSN/4 on nrf24l01<br>
+5/B3 on FZ goes to SCK/5 on nrf24l01<br>
+6/B2 on FZ goes to CE/3 on nrf24l01<br>
+8/GND on FZ goes to GND/1 on nrf24l01<br>
+9/3V3 on FZ goes to VCC/2 on nrf24l01<br>
+IRQ/8 is left disconnected on nrf24l01<br>
+
+![NRF_Pins](https://user-images.githubusercontent.com/57457139/178093717-39effd5c-ebe2-4253-b13c-70517d7902f9.png)
+
+If the nRF module is acting a bit flakey, try adding a capacitor to the vcc/gnd lines! 
+I've not tried the Plus model so it may have a bigger need for a cap. 
+Otherwise, I haven't had any major issues. 
+Anything from a 3.3 uF to 10 uF should do. (Watch your positive/negative placement! Negative to ground.) 
+I learned if you wanna get fancy, include a 0.1 uF cap in parallel. 
+The 3.3 uF to 10 uF will respond to slow freq changes while the 0.1 uF will respond to the high freq switching spikes that the larger one cannot. That said, a single 10 uF will likely suffice for the Mousejack attack. ¯\\\_(ツ)_/¯
+
+![NRF_Capacitor](https://user-images.githubusercontent.com/57457139/178169959-d030f9a6-d2ac-46af-af8b-470ff092c8a7.jpg)
+
+
+=== FILE: wide\momentum-docs\OTA.md ===
+
+# Flipper Zero OTA update process {#ota_updates}
+
+## Executing code from RAM
+
+In Flipper firmware, we have a special boot mode that loads a specially crafted system image into RAM and transfers control to it. The system image executing in RAM has full write access to Flipper's entire flash memory — something that's not possible when running main code from the same flash.
+
+We leverage that boot mode to perform OTA firmware updates, including operations on a radio stack running on the second MCU core.
+
+## How does Flipper OTA work?
+
+Installation of OTA updates goes through 3 stages:
+
+### 1. Backing up internal storage (/int)
+
+It is a special partition of Flipper's flash memory, taking up all available space not used by the firmware code. Newer versions of firmware may be of different size, and simply installing them would cause flash repartitioning and data loss.
+
+So, before taking any action on the firmware, we back up the current configuration from `/int` into a plain tar archive on the SD card.
+
+### 2. Performing device update
+
+The main firmware loads an updater image — a customized build of the main Flipper firmware — into RAM and runs it. Updater performs operations on system flash as described by an Update manifest file.
+
+First, if there's a Radio stack image bundled with the update, updater compares its version with the currently installed one. If they don't match, updater performs stack deinstallation followed by writing and installing a new one. The installation itself is performed by proprietary software FUS running on Core2, and leads to a series of system restarts.
+
+Then, updater validates and corrects Option Bytes — a special memory region containing low-level configuration for Flipper's MCU.
+
+After that, updater loads a `.dfu` file with firmware to be flashed, checks its integrity using CRC32, writes it to system flash and validates written data.
+
+### 3. Restoring internal storage and updating resources
+
+After performing operations on flash memory, the system restarts into newly flashed firmware. Then it performs restoration of previously backed up `/int` contents.
+
+If the update package contains an additional resources archive, it is extracted onto the SD card.
+
+## Update manifest
+
+An update package comes with a manifest that contains a description of its contents. The manifest is in Flipper File Format — a simple text file, comprised of key-value pairs.
+
+### Mandatory fields
+
+An update manifest must contain the following keys in the given order:
+
+- **Filetype**: a constant string, "Flipper firmware upgrade configuration".
+
+- **Version**: manifest version. The current value is 2.
+
+- **Info**: arbitrary string, describing package contents.
+
+- **Target**: hardware revision for which the package is built.
+
+- **Loader**: file name of stage 2 loader that is executed from RAM.
+
+- **Loader CRC**: CRC32 of loader file. Note that it is represented in little-endian hex.
+
+### Optional fields
+
+Other fields may have empty values. In this case, updater skips all operations related to these values.
+
+- **Radio**: file name of radio stack image, provided by STM.
+
+- **Radio address**: address to install the radio stack at. It is specified in Release Notes by STM.
+
+- **Radio version**: radio major, minor and sub versions followed by branch, release and stack type packed into 6 hex-encoded bytes.
+
+- **Radio CRC**: CRC32 of radio image.
+
+- **Resources**: file name of TAR archive with resources to be extracted onto the SD card.
+
+- **OB reference**, **OB mask**, **OB write mask**: reference values for validating and correcting option bytes.
+
+## OTA update error codes
+
+We designed the OTA update process to be as fail-safe as possible. We don't start any risky operations before validating all related pieces of data to ensure we don't leave the device in a partially updated, or bricked, state.
+
+Even if something goes wrong, updater allows you to retry failed operations and reports its state with an error code. These error codes have an `[XX-YY]` format, where `XX` encodes the failed operation, and `YY` contains extra details on its progress where the error occurred.
+
+|    Stage description    |   Code | Progress   | Description                                |
+| :---------------------: | -----: | ---------- | ------------------------------------------ |
+| Loading update manifest |  **1** | **13**     | Updater reported hardware version mismatch |
+|                         |        | **20**     | Failed to get saved manifest path          |
+|                         |        | **30**     | Failed to load manifest                    |
+|                         |        | **40**     | Unsupported update package version         |
+|                         |        | **50**     | Package has mismatching HW target          |
+|                         |        | **60**     | Missing DFU file                           |
+|                         |        | **80**     | Missing radio firmware file                |
+| Backing up configuration|  **2** | **0-100**  | FS read/write error                        |
+|    Checking radio FW    |  **3** | **0-99**   | Error reading radio firmware file          |
+|                         |        | **100**    | CRC mismatch                               |
+|  Uninstalling radio FW  |  **4** | **0**      | SHCI Delete command error                  |
+|                         |        | **80**     | Error awaiting command status              |
+|    Writing radio FW     |  **5** | **0-100**  | Block read/write error                     |
+|   Installing radio FW   |  **6** | **10**     | SHCI Install command error                 |
+|                         |        | **80**     | Error awaiting command status              |
+|      Core2 is busy      |  **7** | **10**     | Couldn't start C2                          |
+|                         |        | **20**     | Failed to switch C2 to FUS mode            |
+|                         |        | **30**     | Error in FUS operation                     |
+|                         |        | **50**     | Failed to switch C2 to stack mode          |
+|  Validating opt. bytes  |  **8** | **yy**     | Option byte code                           |
+|    Checking DFU file    |  **9** | **0**      | Error opening DFU file                     |
+|                         |        | **1-98**   | Error reading DFU file                     |
+|                         |        | **99-100** | Corrupted DFU file                         |
+|      Writing flash      | **10** | **0-100**  | Block read/write error                     |
+|    Validating flash     | **11** | **0-100**  | Block read/write error                     |
+| Restoring configuration | **12** | **0-100**  | FS read/write error                        |
+|   Updating resources    | **13-15** | **0-100**  | SD card read/write error                   |
+
+## Building update packages
+
+### Full package
+
+To build a full update package, including firmware, radio stack and resources for the SD card, run:
+
+`./fbt COMPACT=1 DEBUG=0 updater_package`
+
+### Minimal package
+
+To build a minimal update package, including only firmware, run:
+
+`./fbt COMPACT=1 DEBUG=0 updater_minpackage`
+
+### Customizing update bundles
+
+Default update packages are built with Bluetooth Light stack.
+You can pick a different stack if your firmware version supports it, and build a bundle with it by passing the stack type and binary name to `fbt`:
+
+`./fbt updater_package COMPACT=1 DEBUG=0 COPRO_OB_DATA=scripts/ob_custradio.data COPRO_STACK_BIN=stm32wb5x_BLE_Stack_full_fw.bin COPRO_STACK_TYPE=ble_full`
+
+Note that `COPRO_OB_DATA` must point to a valid file in the `scripts` folder containing reference Option Byte data matching your radio stack type.
+
+In certain cases, you might have to confirm your intentions by adding `COPRO_DISCLAIMER=...` to the build command line.
+
+### Building partial update packages
+
+You can customize package contents by calling `scripts/update.py` directly.
+For example, to build a package only for installing BLE FULL stack:
+
+```shell
+scripts/update.py generate \
+  -t f7 -d r13.3_full -v "BLE FULL 13.3" \
+  --stage dist/f7/flipper-z-f7-updater-*.bin \
+  --radio lib/stm32wb_copro/firmware/stm32wb5x_BLE_Stack_full_fw.bin \
+  --radiotype ble_full
+```
+
+For the full list of options, check `scripts/update.py generate` help.
+
+
+=== FILE: wide\momentum-docs\SentrySafe.md ===
+
+# Sentry Safe plugin
+
+## Author: [H4ckd4ddy](https://github.com/H4ckd4ddy/flipperzero-sentry-safe-plugin)
+
+Flipper zero exploiting vulnerability to open any Sentry Safe and Master Lock electronic safe without any pin code.
+
+[Demo and Vulnerability described here](https://github.com/H4ckd4ddy/bypass-sentry-safe)
+
+### Usage
+
+- Start "Sentry Safe" plugin
+- Place wires as described on the plugin screen 
+<br>(Flipper GPIO) 8/GND -> Black wire (Safe) 
+<br>(Flipper GPIO) 15/C1 -> Green wire (Safe)
+
+- Press enter
+- Open safe
+
+
+=== FILE: wide\momentum-docs\SubGHzBypass&Extend.md ===
+
+# Possible errors and what to do
+
+When installing firmware with WebUpdater, Flipper Lab, or Flipper Mobile App, `/int/.region_data` file is created on SD card.
+This file has information on allowed frequencies for country you are located in. When this is not present, SubGHz app will say "Region in not provisioned" when transmitting.
+
+On Official Firmware, SubGHz app does not open when region not provisioned, and also receiving is not allowed if frequency is not allowed in your region.
+On Momentum Firmware, SubGHz app does not restrict receiving in any way, only transmit. If transmit not allowed, it will tell you why and explain what to do. Here is more info:
+- Region in not provisioned: `/int/.region_data` not found, update/reinstall firmware using WebUpdater, Flipper Lab, or Flipper Mobile App
+- Frequency outside of region range: not allowed in your country, you can use Bypass Region (read below)
+- Frequency outside of default range: not officially supported by Flipper, you can use Extend bands (READ BELOW!!!!)
+- Frequency is outside of supported range: will not work with Flipper in any way
+
+## How to disable SubGHz region lock restriction
+
+#### CC1101 Frequency range specs: 300-348 MHz, 386-464 MHz, and 778-928 MHz  (+ 350MHz and 467MHz was added to default range)
+
+This setting will unlock whole CC1101 Frequency range specifications, regardless of your current country limits. Use with caution, and check local laws!!!
+
+You can also do this when "Region is not provisioned", but this is discouraged: it is possible that frequency is allowed for you, the error means "I don't know what is allowed or not" because `/int/.region_data` file is missing. Better to update/reinstall firmware. But if this is not possible, Bypass Region works too.
+
+You can enable in `Momentum > Protocols > SubGHz Bypass Region Lock`.
+
+## How to extend SubGHz supported frequency range
+
+#### CC1101 Frequency range specs: 300-348 MHz, 386-464 MHz, and 778-928 MHz  (+ 350MHz and 467MHz was added to default range)
+#### This setting will extend to: 281-361 MHz, 378-481 MHz, and 749-962 MHz
+
+1. Please do not do that unless you know what exactly you are doing
+2. You don't need extended range for almost all use cases
+3. Extending frequency range and transmitting on frequencies that outside of hardware specs can damage your hardware!
+4. Flipper Devices team and/or Momentum FW developers are not responsible for any damage that can be caused by using CFW or extending frequency ranges!!!
+
+If you really sure you need that change, enable in `Momentum > Protocols > SubGHz Extend Freq Bands`.
+
+=== FILE: wide\momentum-docs\SubGHzCounterMode.md ===
+
+# SubGHz Counter Experimental Mode
+
+Credit to [Unleashed Firmware](https://github.com/DarkFlippers/unleashed-firmware) team for documentation and the feature itself
+
+## Overview
+
+Experimental Counter Mode is an advanced feature that allows you to customize how rolling codes increment when transmitting SubGHz signals. Different protocols support different counter modes, which can be useful for specific cases, main purpose is to make clone of the original remote that will not conflict with original remote, so both Flipper and original remote can be used at same time in rolling code systems without desync or other issues.
+
+**Be aware, do not experiment with equipment you don't have access to, if you are not sure what mode works for you and can't reprogram your original remote to the receiver - do not use these modes!!!**
+
+In case you have access to the receiver and can do some tests, try some of these modes on your system and let us know how it works for you, in github issues or our communities, thanks!
+
+## How to Use Experimental Counter Mode
+
+To enable a specific counter mode, you need to manually edit your `.sub` file and add a `CounterMode` line.
+
+### Steps:
+
+1. Locate your `.sub` file (in `/ext/subghz/` on your Flipper Zero SD card)
+2. Open the file in a text editor
+3. Add the following line at the end of the file:
+   ```
+   CounterMode: X
+   ```
+   Where `X` is the mode number (0, 1, 2, etc.)
+
+### Example .sub File:
+
+```
+Filetype: Flipper SubGhz Key File
+Version: 1
+Frequency: 433920000
+Preset: FuriHalSubGhzPresetOok650Async
+Protocol: Nice FloR-S
+Bit: 52
+Key: AA AA AA AA AA AA AA
+CounterMode: 1
+```
+
+## Supported Protocols and Counter Modes
+
+### 1. Nice Flor S
+
+**Mode 0 (Default):**
+- Standard - acts like regular remote
+- Uses rolling counter multiplier from global settings (default +1)
+- Counter increments based on the multiplier value (default +1)
+- Resets to 0 when overflow occurs (> 0xFFFF)
+
+**Mode 1 (floxi2r):**
+- Counter sequence: `0x0001 / 0xFFFE`
+- For receiver model floxi2r
+
+**Mode 2 (ox2):**
+- Counter sequence: `0x0000 / 0x0001`
+- For receiver model ox2
+
+---
+
+### 2. Came Atomo
+
+**Mode 0 (Default):**
+- Standard - acts like regular remote
+- Uses rolling counter multiplier from global settings (default +1)
+- Counter increments based on the multiplier value (default +1)
+- Resets to 0 when overflow occurs (> 0xFFFF)
+
+**Mode 1:**
+- Counter sequence: `0x0000 / 0x0001 / 0xFFFE / 0xFFFF`
+- Works with external CAME RE432 receiver, may work with other type of receivers
+
+**Mode 2:**
+- Counter sequence: `0x807B / 0x807C / 0x007B / 0x007C`
+- Works with external CAME RE432 receiver, may work with other type of receivers
+
+**Mode 3:**
+- Counter freeze - do not increment
+
+---
+
+### 3. Alutech AT-4N
+
+**Mode 0 (Default):**
+- Standard - acts like regular remote
+- Uses rolling counter multiplier from global settings (default +1)
+- Counter increments based on the multiplier value (default +1)
+- Resets to 0 when overflow occurs (> 0xFFFF)
+
+**Mode 1:**
+- Counter sequence: `0x0000 / 0x0001 / 0xFFFE / 0xFFFF`
+- For receiver model MCSW-3.3M
+
+**Mode 2:**
+- Counter sequence: `0x0000 / 0x0001 / 0x0002 / 0x0003 / 0x0004 / 0x0005`
+- For other receiver boards
+
+---
+
+### 4. KeeLoq
+
+**Mode 0 (Default):**
+- Standard - acts like regular remote
+- Uses rolling counter multiplier from global settings (default +1)
+- Counter increments based on the multiplier value (default +1)
+- Resets to 0 when overflow occurs (> 0xFFFF)
+
+**Mode 1:**
+- Counter sequence: `0x0000 / 0x0001 / 0xFFFE / 0xFFFF`
+- Might work with some systems (let us know!)
+
+**Mode 2:**
+- Incremental mode: `+0x3333` each transmission
+- Adds 0x3333 (13107 in decimal) to counter each time
+- Might work with Doorhan, seen in some "universal remotes"
+
+**Mode 3:**
+- Counter sequence: `0x8006 / 0x8007 / 0x0006 / 0x0007`
+- Might work with some systems like Hormann EcoStar
+
+**Mode 4:**
+- Counter sequence: `0x807B / 0x807C / 0x007B / 0x007C`
+- Might work with some systems like Nice Smilo
+
+**Mode 5:**
+- Counter sequence: `0x0000 / 0xFFFF`
+- Alternates between 0 and maximum value (65535)
+- Might work with some systems (let us know!)
+
+**Mode 6:**
+- Counter freeze - do not increment
+
+**Mode 7:**
+- Incremental mode: `+0x3333` 5 times to current counter and return original value back adding +1 - 2 times - 7 signals in pack total
+- Might work with Doorhan, seen in some "universal remotes"
+- One click of Send button on flipper may bypass receiver counter, wait for full transmission
+
+
+---
+
+### 5. V2 Phoenix (Phox)
+
+**Mode 0 (Default):**
+- Standard - acts like regular remote
+- Uses rolling counter multiplier from global settings (default +1)
+- Counter increments based on the multiplier value (default +1)
+- Resets to 0 when overflow occurs (> 0xFFFF)
+
+**Mode 1 (ofex like):**
+- Counter sequence: `0x0000 / 0x0001 / 0xFFFE / 0xFFFF`
+- Verified as working
+
+**Mode 2 (0 - 4):**
+- Counter sequence: `0x0000 / 0x0001 / 0x0002 / 0x0003 / 0x0004`
+- Might work (let us know!)
+
+---
+
+## Notes and Warnings
+
+### Important Considerations:
+
+1. **Default Behavior:**
+   - If you don't specify a `CounterMode`, Regular remote simulation (cnt +1) is used by default
+   - Regular remote simulation is the standard mode and works with most cases
+
+2. **Protocol Compatibility:**
+   - Not all protocols support all counter modes
+   - Using an unsupported mode number may result in unexpected behavior
+   - Always test your configuration before relying on it
+
+### Troubleshooting:
+
+- If your file doesn't work after adding `CounterMode`:
+  1. Double-check the syntax: `CounterMode: X` (with space after colon)
+  2. Verify the mode number is valid for your protocol
+
+
+---
+
+## Example Configurations
+
+### Example 1: Nice Flor S with Mode 1
+```
+Filetype: Flipper SubGhz Key File
+Version: 1
+Frequency: 433920000
+Preset: FuriHalSubGhzPresetOok650Async
+Protocol: Nice FloR-S
+Bit: 52
+Key: 01 23 45 67 89 AB CD
+CounterMode: 1
+```
+
+### Example 2: KeeLoq with Mode 2 (+0x3333 (Doorhan))
+```
+Filetype: Flipper SubGhz Key File
+Version: 1
+Frequency: 433920000
+Preset: FuriHalSubGhzPresetOok650Async
+Protocol: KeeLoq
+Bit: 64
+Key: DE AD BE EF CA FE BA BE
+Manufacture: Doorhan
+CounterMode: 2
+```
+
+---
+
+## FAQ
+
+**Q: Will this damage my remote or receiver?**
+A: Yes it may do that - depending on the receiver, it may desync your remote, be aware and don't experiment with equipment you don't have access to
+
+**Q: Which mode should I use?**
+A: Do not use those mods if you are not sure
+
+**Q: What happens if I use an invalid mode number?**
+A: Last mode from the list will be used
+
+**Q: Do I need to add CounterMode to every .sub file?**
+A: No, only add it if you need non-default behavior. Mode 0 is automatic if not specified.
+
+---
+
+*Made for Unleashed FW, please mention source when copying*
+
+
+=== FILE: wide\momentum-docs\SubGHzRemotePlugin.md ===
+
+# Sub-GHz Remote
+
+Credit to [Unleashed Firmware](https://github.com/DarkFlippers/unleashed-firmware) team for documentation and the [app itself](https://github.com/DarkFlippers/SubGHz_Remote)!
+
+
+# UPDATE!!!!!!
+## Now you can create and edit map files directly on flipper, go into Sub-GHz Remote and click back button
+
+<br>
+<br>
+<br>
+
+
+### The SubGHz Remote Tool *requires* the creation of custom user map with `.txt` extension in the `subghz/remote` folder on the sdcard. 
+
+#### If these files are not exist or not configured properly, **you will receive an error each time you try to select wrong file in the UniRF Tool**.
+
+## You can add as many `.txt` map files as you want, file name doesn't matter!
+
+
+## Incorrect or unconfigured file error
+
+If the `.txt` file has not been properly configured, the following error will be thrown when trying to run the UniRF Remix app:
+
+```
+Config is incorrect.
+
+Please configure map
+
+Press Back to Exit
+```
+
+
+
+## Setting up the `subghz/remote/example.txt` file:
+
+```
+UP: /ext/subghz/Up.sub
+DOWN: /ext/subghz/Down.sub
+LEFT: /ext/subghz/Left.sub
+RIGHT: /ext/subghz/Right.sub
+OK: /ext/subghz/Ok.sub
+ULABEL: Up Label
+DLABEL: Down Label
+LLABEL: Left Label
+RLABEL: Right Label
+OKLABEL: Ok Label
+```
+
+The UP/DOWN/LEFT/RIGHT/OK file locations must be set to the specific file you want mapped to that directional pad direction.
+
+The ULABEL/DLABEL/LLABEL/RLABEL/OKLABEL variables should be set to the text to be displayed for each of the files set earlier.
+
+## Example:
+
+```
+UP: /ext/subghz/Fan1.sub
+DOWN: /ext/subghz/Fan2.sub
+LEFT: /ext/subghz/Door.sub
+RIGHT: /ext/subghz/Garage3.sub
+OK: /ext/subghz/Garage3l.sub
+ULABEL: Fan ON
+DLABEL: Fan OFF
+LLABEL: Doorbell
+RLABEL: Garage OPEN
+OKLABEL: Garage CLOSE
+```
+
+## Notes
+* ##### App Usage
+  - Press a button to send the assigned capture file.
+  - Press Back button to exit app.
+
+* ##### SubGHz Remote Map
+  - File path should not have any spaces or special characters (- and _ excluded).
+  - Labels are limited to 16 characters.
+    - Why? This is to prevent overlapping elements on screen.
+    - For example: If you set your label or file to ```WWWWWWWWWWWWWWW``` you'll be over the screen limits.
+
+
+=== FILE: wide\momentum-docs\SubGHzRemoteProg.md ===
+
+# How to use Flipper as a new SubGHz remote (not clone of original remote)
+
+Many rolling codes support, and this guide, comes from [Unleashed Firmware](https://github.com/DarkFlippers/unleashed-firmware). Go show them some love and maybe donate to them too!
+
+### If your system is not added here that doesn't mean flipper don't support it! Look into add manually menu, and search for your manufacturers inscturctions!
+### Also many supported systems can be used only from `Read` mode, `Add Manually` is used only to make new remotes that can be binded with receiver
+
+## FAAC SLH (NEW!)
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> FAAC SLH (select your frequency)
+2. Open your new remote file
+3. Open your receiver box, find programming button on the receiver board.
+4. Hold Up arrow button on the flipper to send programming signal - at same time press and hold programming button on the receiver board.
+5. Led on the receiver board will light on, then off, then on, then off again then on again
+6. Release all buttons
+7. Press send button on the flipper couple times holding it for 1-3 seconds
+8. Done!
+Watch this video to learn more : https://www.youtube.com/watch?v=NfZmMy37XUs
+
+...
+How to get Seed value from your original remote or bind new remote using existing (master) remote? 
+1. Go to SubGHz -> Read - Select frequency 868.35 or 433.92 and modulation AM650
+2. Hold two buttons on the original master remote until led turns on
+3. Click one button that you want to get seed from (Seed is unique for each button on original remote!)
+4. You will get signal in the read screen on flipper, open that and see your original remote seed for button you used
+5. You can create new remote using that seed and bind that to receiver without opening the box! Faac has procedure that allows to bind new remotes using master remote, you can use flipper for that 
+6. Go to SubGHz -> Add Manually -> FAAC SLH Man. (your Freq)
+7. Enter those values -> REPLACE `R` with any random digits like 1,2,3..
+FIX -> A0 RR RR R6
+COUNTER -> 00 00 02
+SEED -> Your seed from the remote button you got earlier
+8. Flipper will act as new remote, press Send button couple times near the receiver to register new remote
+9. Done!
+
+## Dea Mio
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> Dea Mio 433Mhz
+2. Open your new remote file
+3. Right arrow button on the flipper simulates press of hidden button in original remote
+4. Send button simulates one of basic buttons of the remote, can be programmed into the receiver
+5. Follow manufacturer instructions on new remotes programming
+
+## AN-Motors AT4
+
+**This instruction for older boards, if your has no** `Learn` **button but has buttons** `F`, `CL`, `+`, `-` **read instruction from Alutech AT4N**
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> AN-Motors AT4 433Mhz
+2. Open your new remote file
+3. Open your receiver box, find button `Learn` click it one time, led will turn on.
+4. Press `Send` on your flipper one time, led on receiver board will turn off.
+5. Press `Send` on your flipper again, led on receiver will start flashing, wait couple seconds until led turns off.
+6. Done
+
+Watch this video to learn more (video in Russian language): https://www.youtube.com/watch?v=URVMtTELcnU
+
+## Alutech AT4N (AN-Motors)
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> Alutech AT4N 433Mhz
+2. Open your new remote file
+3. Open your receiver box, find button `F` press it for ~3sec, display will show `Pr`.
+4. Click `F` button couple times until you see `Lr` on screen
+5. Using buttons `+` / `-` select free number that has no remotes in it (if it has remote programmed on that number, it will show a red dot on the down right corner)
+6. Press `Send` on your flipper one time, display on receiver board will flash and red dot will appear next to remote number.
+7. Press button `F` on receiver board for ~3sec to exit programming mode
+8. Done
+
+Watch this video to learn more and see how different boards can be programmed (video in Russian language): https://www.youtube.com/watch?v=XrOVVYhFXDg
+
+## Aprimatic TR
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> KL: Aprimatic 433Mhz
+2. Open your new remote file
+3. Push all 4 buttons at same time on your existing remote thats already works with receiver
+4. Receiver makes a continuous beep
+5. Press `Send` on your flipper for ~2 seconds
+6. Wait until receiver stops beeping 
+7. Done?
+
+## Doorhan
+
+With access to the receiver box:
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> KL: Doorhan 433Mhz or 315Mhz depends on your receiver (find out by reading your existing remote or follow guide below)
+- Finding frequency
+
+There are 2 frequencies for DoorHan: 315.00 / 433.92. To determine them it is enough to create a DoorHan remote control with one of the frequencies via Sub-GHz -> Add manually, press the button and watch the receiver's reaction. If you have guessed the frequency, the light bulb will turn on when we press the button on the FZ and turn off when we release it.
+
+2. Binding the remote control
+
+Once you have access to the receiver (removed the protective cover), look at the buttons:
+- If there are 4 buttons (Radio, Reverse, Auto, ...) then press and hold Radio until the LED lights up, then press the FZ button 2 times and the LED goes out;
+- If there are 4 buttons (R, P, +, -) and display, press R, then press 2 times the button on FZ and wait +/- 10 seconds;
+- If there are 4 buttons (+, -, F, TR) and display, press TR, then press 2 times the button on FZ and wait +/- 10 seconds;
+- In other cases there is a “universal” instruction: Press and hold the button “P” +/- 2 seconds until the LED flashes, then press 2 times the button on the FZ and the LED goes out.
+
+In all cases it is recommended to wait until the receiver returns to normal mode.
+
+With existing remote:
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> KL: Doorhan 433Mhz or 315Mhz depends on your receiver (find out by reading your existing remote)
+2. Open your new remote file
+3. For next steps be close to the receiver board, around 1-2 meters
+4. Press second button (lowest one) on the old remote, do not release second button and press 1st (upper) button, hold buttons for 1 sec and release them
+5. Press working button on the old remote (the button you use for operating the receiver, aka opening the gate, etc) hold for 1 sec and release 
+6. Actions with old remote must be done in 5 seconds time, do not hold buttons for too long, and do not make it very fast
+7. Receiver will beep, you will have 10 seconds to add new remote, now press Send on new remote on flipper two times holding for at least 1 sec
+8. Receiver will beep again telling that new remote is added sucessfuly!
+9. Done!
+
+With copy of existing remote on flipper:
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> KL: Doorhan 433Mhz or 315Mhz depends on your receiver (find out by reading your existing remote)
+2. Open your existing remote (original) file
+3. For next steps be close to the receiver board, around 1-2 meters
+4. Press left button (0x8) on the flipper, hold for 1 sec and release the button and press right (0xA) button, hold button for 1 sec and release
+5. Press working button on the flipper, should be center one aka Send (the button you use for operating the receiver, aka opening the gate, etc) hold for 1 sec and release 
+6. Actions with original remote copy must be done in 5 seconds time, do not hold buttons for too long, and do not make it very fast
+7. Receiver will beep, now hold back and open new remote file, you will have 10 seconds to add new remote, press Send on new remote on flipper two times holding for at least 1 sec
+8. Receiver will beep again telling that new remote is added sucessfuly!
+9. Done!
+
+Watch this videos to learn more (videos in Russian language): https://www.youtube.com/watch?v=wZ5121HYv50 / https://www.youtube.com/watch?v=1ucrDKF3vWc
+
+## Somfy Telis
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> Somfy Telis 433Mhz
+2. Open your new remote file
+3. Long press (hold) the ‘Prog’ button on a remote that is already registered to the device, until the blinds move shortly up and down.
+4. Press and hold the ‘Prog’ button on the flipper (Left Arrow), until the blinds move shortly up and down again.
+5. Done?
+
+## BFT Mitto 
+
+How to create new remote and bind it to receiver (will not conflict with original remotes):
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> BFT Mitto 433Mhz
+2. Open your new remote file
+3. You need to be in minimum 3 meters to receiver
+4. Original Remote: Press hidden button on back of remote with a pin or paper clip OR press Button 1 & 2 together until remote LED lights.
+5. Original Remote: Momentarily press button that opens device
+6. Long press (Right Arrow) - (0xF button - Btn:F) on Flipper for like 3-5 sec
+7. Press the button you want to bind to open the device on the flipper
+8. Press (Right Arrow) - (0xF button - Btn:F) again
+9. Done?
+
+OR
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> BFT Mitto 433Mhz
+2. Open your new remote file
+3. Open your receiver board box
+4. **Watch this video**: https://www.youtube.com/watch?v=5QXMBKI_-Ls
+5. Long press (Right Arrow) - (0xF button - Btn:F) on Flipper for like 3-5 sec -> Will act like holding Button 1 & 2 on original remote as shown on video
+6. Done?
+
+--
+
+How to get seed to make full clone of your remote (**will conflict with original remote!!!!!**):
+
+**WARNING!!!! This method can desync your original remote, please avoid using it! It can be used in rare cases like when your remote works poorly or has broken buttons and you want to replace it with flipper**
+
+1. Open `Read` in SubGHz on your flipper
+2. (ONLY FOR ORIGINAL REMOTES) Hold all buttons on your remote at same time, example -> for 2 button remote - press them both at same time and hold OR press hidden button on back of remote with a pin or paper clip
+For 4 buttons remote press & hold two buttons at upper row
+3. You will receive signal on your flipper, open that signal and see `Fix:` value, it should start from `F` like `F00F1C9B`
+4. If `Fix:` is showing first `F` see `Hop:` value -> This is your remote Seed (except first digit `F` (this is the button code, aka programming button pressed means `F`))
+5. Write down Hop value and replace first digit - `F` with `0`
+6. Press button on your remote that you want to clone and receive its signal on your flipper
+7. Open and write down `Fix:` value where first digit will be same as your button ID `Btn:`
+8. Create new remote using BFT Mitto [Manual] - Enter FIX from step 7, enter counter `FF F9`, enter seed from step 5
+9. Using counter values like `FF F9` can help bypassing current original remote counter value, and in result it also can fully desync original remote, only one remote can work at same time using this method
+10. Also you can do this: Save your signal of the original remote (will say KL: Unknown),
+then copy file to the PC and edit it and insert/replace those values after the `Key: 01 23 45 67 89 AB CD EF` (your key will have different value)
+```
+Seed: 0X XX XX XX
+Manufacture: BFT
+``` 
+Replace `X`'s with digits from your Seed that you obtained by reading two button hold at the first steps, 
+Save and copy that file back to the flipper
+Now you will have exact clone of your remote that will have same counter, by making couple presses you will make it higher than original and receiver will work with it, but original remote will reguire same amount of presses to work again, and vice versa.
+11. Also your original remote may become non working since it needs to be re-added into receiver board if you made counter much higher than original :C
+
+## CAME Atomo
+Known names are: TOP42R / TOP44R - TOP44RGR (806TS-0130)
+
+How to create new remote and bind it to receiver (will not conflict with original remotes):
+
+With original remote (or copy of the original remote):
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> CAME Atomo 433MHz or 868MHz
+2. Open your new remote file
+3. You need to be in minimum 3 meters to receiver
+4. Original Remote: Press and hold button that is bound with that receiver (the one you use with it), and hold it for about 10 seconds.
+5. You will have about 20 seconds to add new remote
+6. Long press Send on Flipper in new remote for like 3-4 sec and release - this will add new remote to the receiver
+7. Press and hold Send again after waiting 20 seconds - this will trigger the receiver
+8. Done, when using CAME Atomo from flipper please hold Send button for at least 2 seconds to allow code to be fully transmit, flipper transmits only while button is held
+
+Note: Static 24/12 bit or TWEE remotes cannot trigger programming mode in the receiver and cannot be bound if programming mode was triggered by Atomo type remote, only Atomo remotes can be added if remote programming was done by Atomo remote, Static remotes have option to clone from one remote to another, but it requires first remote to be added to the receiver via button on the receiver board
+
+With access to receiver box:
+
+1. Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> CAME Atomo 433MHz or 868MHz
+2. Open your new remote file
+3. Open the receiver box and find programming button related to the used channel, for example RE432M/RE862M receiver has two independent channels which can have different remotes / buttons on them, when you found connected channel press "1" or "2" button on the receiver board to enter programming mode
+4. Long press Send on Flipper new remote for like 3-4 sec and release - this will add new remote to the receiver
+5. Click CLEAR button one time on the receiver board to exit programming mode, or wait about 20 seconds it will exit from programming mode automatically
+6. Done, when using CAME Atomo from flipper please hold Send button for at least 2 seconds to allow code to be fully transmit, flipper transmits only while button is held
+
+
+Watch this video to learn more (video in Russian language): https://www.youtube.com/watch?v=XeHUwfcSS30
+
+## Nice Flor S
+
+- Create new remote with randomly generated serial: Go to SubGHz -> Add Manually -> Nice FloR-S 433Mhz
+- Open your new remote file
+
+### Coding using an existing remote
+To enter the code of a new remote control without using your receiver, you will need
+an authorised remote control (note: the first remote control must always be entered
+using the receiver key). Now, with the two remote controls (your already coded
+remote, and your new remote), which we shall call NEW (the one whose code we want
+to enter) and OLD (the authorised one), position yourself within 3m of the gate/garage
+receiver and then:
+1. Press and hold the `Send` button on the flipper for at least 5 seconds and then
+release.
+2. Press the button on the already programmed remote 3 times slowly.
+3. Press the `Send` button on the flipper slowly and then release.
+
+### Coding directly to your receiver
+Your new remote will program to your receiver as per your original remote
+instructions, so please refer to your manual. But for a typical NICE FLOX2R Receiver,
+the programming procedure is as follows:
+1. Press the learning button on your receiver for 1-2 seconds. The LED will turn on
+for 5 seconds. Within 5 seconds, complete the next step.
+2. Press a `Send` button on your flipper until the LED on your receiver turns off.
+3. Release the remote button and wait for 2 seconds.
+4. Press the `Send` button on your flipper again. The LED on your receiver
+will now flash 3 times. This indicates that your remote has been successfully
+coded. If this does not happen, repeat the whole procedure from the
+beginning, and try again.
+5. Wait 5 seconds. Press the button on your new remote to test if it opens your
+garage/gate.
+
+
+#### Follow links below to find more detailed instructions!!!
+
+#### Materials used:
+- [FAAC SLH](https://www.youtube.com/watch?v=NfZmMy37XUs)
+- [Somfy Telis](https://pushstack.wordpress.com/somfy-rts-protocol/)
+- [BFT Mitto](https://www.retroremotes.com.au/wp-content/uploads/2017/03/BFT-MITTO-2-4-19-6-17.pdf)
+- [NICE FLOX2R Receiver Programming](https://apollogateopeners.com/store/pdf/apollo-flor-s-receiver-programming-guide.pdf)
+- [Nice Flor S Programming](https://motepro.com.au/Instructions/Nice.pdf)
+
+
+=== FILE: wide\momentum-docs\SubGHzSettings.md ===
+
+## How to add new SubGHz frequencies
+
+#### CC1101 Frequency range specs: 300-348 MHz, 386-464 MHz, and 778-928 MHz  (+ 350MHz and 467MHz was added to default range)
+
+### From Flipper
+
+On Momentum Firmware, you can add manage frequencies list from Flipper from `Momentum > Protocols > SubGHz Freqs`:
+- Use Defaults: whether to include default frequency list, if yes your custom frequencies go at END of default list
+- Static Freqs: list used by `Read`, `Read RAW` and `Frequency Analyzer`
+- Hopper Freqs: list used by `Read > Config > Hopping: ON`
+
+This menu is a utility for configuring the normal config file that all firmwares use directly from Flipper. See below for a guide written by [Unleashed Firmware](https://github.com/DarkFlippers/unleashed-firmware) team on how to use the config file manually.
+
+
+### From config file
+
+Edit user settings file located on your microSD card - `subghz/assets/setting_user` (remove .example from name to use config)
+
+in this file you will find we already have extra frequencies added
+if you need your custom one, make sure it doesn't listed here
+
+### Default frequency list
+```
+    /* 300 - 348 */
+    300000000,
+    302757000,
+    303000000,
+    303875000,
+    303900000,
+    304250000,
+    307000000,
+    307500000,
+    307800000,
+    309000000,
+    310000000,
+    312000000,
+    312100000,
+    312200000,
+    313000000,
+    313850000,
+    314000000,
+    314350000,
+    314980000,
+    315000000,
+    318000000,
+    320000000,
+    320150000,
+    330000000,
+    345000000,
+    348000000,
+    350000000,
+
+    /* 387 - 464 */
+    387000000,
+    390000000,
+    418000000,
+    430000000,
+    430500000,
+    431000000,
+    431500000,
+    433075000, /* LPD433 first */
+    433220000,
+    433420000,
+    433657070,
+    433889000,
+    433920000 | FREQUENCY_FLAG_DEFAULT, /* LPD433 mid */
+    434075000,
+    434176948,
+    434190000,
+    434390000,
+    434420000,
+    434620000,
+    434775000, /* LPD433 last channels */
+    438900000,
+    440175000,
+    462750000,
+    464000000,
+    467750000,
+
+    /* 779 - 928 */
+    779000000,
+    868350000,
+    868400000,
+    868460000,
+    868800000,
+    868950000,
+    906400000,
+    915000000,
+    925000000,
+    928000000,
+```
+
+### User frequencies added AFTER that default list! You need to continue until you reach the end of that list
+
+### If you want to disable default list and use ONLY user added frequencies from user settings file
+Change that line
+`#Add_standard_frequencies: true`
+to
+`Add_standard_frequencies: false`
+
+**You need to have custom frequencies added in both lists! in main frequency list and in hopping list! Replacing only hopping freqs will not work with that setting set on false, you need to add something in main list since it will be empty**
+
+### To add your own frequency to user list 
+Just add new line
+`Frequency: 928000000` - where `928000000` is your frequency, keep it in that format! it should be 9 digits!
+
+### Hopper frequency list
+To add new frequency to hopper:
+add new line `Hopper_frequency: 345000000`<br>
+But remember! You should keep it as small as possible, or hopper functionality would be useless!<br>
+If `#Add_standard_frequencies: true` is not changed<br>
+Your frequencies will be added after default ones
+
+### Default hopper list
+```
+    315000000,
+    390000000,
+    430500000,
+    433920000,
+    434420000,
+    868350000,
+```
+
+
+=== FILE: wide\momentum-docs\SubGHzSupportedSystems.md ===
+
+# Sub-GHz Supported Protocols
+
+This file lists all supported Sub-GHz protocols available in Momentum Firmware, both tested and untested.
+
+Many protocols support, and this documentation page, comes from [Unleashed Firmware](https://github.com/DarkFlippers/unleashed-firmware).
+Currently Momentum has the same Sub-GHz protocol list as Unleashed, and most Sub-GHz innovation is driven by the Unleashed team.
+Go show them some love and maybe donate to them too!
+
+That list is only for default SubGHz app, apps like *Weather Station* have their own protocols list
+
+
+## Static & Dynamic protocols list
+
+*433 MHz usually means `433.92MHz` and 868 MHz = `868.35MHz`*
+
+*If you see no frequency after protocol name, that means we don't know it, let us know in issues tab!*
+
+*`AM650`, `FM`, `FSK476` - means modulation to use when reading the remote* 
+
+*`FM` means you should try any existing FM modulations, `FSK???` means `FM???` in SubGHz - Read - Config*
+
+### Garage Door Openers & Gate Openers (Boom barriers, roller shutters, etc.)
+- Alutech AT-4N `433.92MHz` `AM650` (72 bits, Dynamic)
+- AN-Motors (Alutech) AT4 `433.92MHz` `AM650` (64 bits, Pseudo-Dynamic, KeeLoq based)
+- Ansonic `433MHz` `FM` (12 bits, Static)
+- BETT `433.92MHz` `AM650` (18 bits, Static)
+- Beninca ARC (TOGO2VA) `433.92MHz` `AM650` (128 bits, Dynamic AES128) (button code `0` emulates `hidden button` option on the remote)
+- BFT Mitto `433.92MHz` `AM650` (64 bits, Dynamic, KeeLoq based with Seed taken from serial)
+- CAME Atomo `433.92MHz, 868MHz` `AM650` (62 bits, Dynamic)
+- CAME TWEE `433.92MHz` `AM650` (54 bits, Static)
+- CAME `433.92MHz, 868MHz` `AM650` (12, 24 bits, Static)
+- Ditec GOL4 `433.92MHz` `AM650` (54 bits, Dynamic) (should be compatible with BIXLG4, BIXLS2, BIXLP2) - (right arrow emulates button `0` (hidden button))
+- Prastel `433.92MHz, 868MHz` `AM650` (25, 42 bits, Static)
+- Airforce `433.92MHz, 868MHz` `AM650` (18 bits, Static)
+- Chamberlain Code `AM650` (10 bits, Static)
+- Clemsa `AM650` (18 bits, Static)
+- Dickert MAHS `AM650` (36 bits, Static)
+- Doitrand `AM650` (37 bits, Dynamic)
+- Elplast/P-11B/3BK/E.C.A `433MHz` `AM650` (18 bits, Static)
+- FAAC SLH `433.92MHz, 868.35MHz` `AM650` (64 bits, Dynamic) (+ Genius KILO TX2/4 JLC)
+- Gate TX `433.92MHz` `AM650` (64 bits, Static)
+- Hormann `868MHz` `AM650` (44 bits, Static)
+- HCS101 `AM650` (64 bits, Simple Dynamic, KeeLoq-like)
+- iDO `433MHz` `AM650` (48 bits, Dynamic) (Decode only)
+- KingGates Stylo 4k `433.92MHz` `AM650` (89 bits, Dynamic, KeeLoq based)
+- Mastercode `AM650` (36 bits, Static)
+- Megacode `AM650` (24 bits, Static)
+- Nero Sketch `AM650` (40 bits, Static)
+- Nice Flo `433.92MHz` `AM650` (12, 24 bits, Static)
+- Nice FloR-S `433.92MHz` `AM650` (52 bits, Dynamic)
+- Nice One `433.92MHz` `AM650` (72 bits, Dynamic)
+- Revers RB2 (Реверс РБ-2 (М)) `433.92MHz` `AM650` (64 bits, Static)
+- Roger `433.92MHz` `AM650` (28 bits, Static)
+- V2 Phoenix (Phox) `433.92MHz` `AM650` (52 bits, Dynamic) (receivers have option to enable Static mode, making them ignore rolling part of the key)
+- Marantec `433.92MHz, 868MHz` `AM650` (49 bits, Static)
+- Marantec24 `868MHz` `AM650` (24 bits, Static)
+- Somfy Keytis `433.42MHz, 868MHz` `AM650` (80 bits, Dynamic) (KeyGo 4 RTS 4 / Keytis NS 2RTS)
+- ZKTeco `430.5MHz` `AM650` (24 bits, Static - Princeton based) - (Button codes (already mapped to arrow keys): `0x30 (UP)`, `0x03 (STOP)`, `0x0C (DOWN)`) 
+- Linear `300MHz` `AM650` (10 bits, Static)
+- Linear Delta3 `AM650` (8 bits, Static)
+- Nero Radio `434.42MHz` `AM650` (56 bits, Static mode only, Dynamic is unsupported)
+- Security+1.0 `315MHz, 433.92MHz, 390MHz` `AM650` (42 bits, Dynamic)
+- Security+2.0 `310MHz, 390MHz, 868MHz` `AM650` (62 bits, Dynamic)
+
+### Sensors & Smart home
+- Intertechno V3 `AM650` (32 bits, Static) - Lights, sockets, other.
+- Dooya `AM650` (40 bits, Static) - Electric blinds
+- Power Smart `AM650` (64 bits, Static) - Blinds, shutters
+- Legrand `AM650` (18 bits, Static) - Doorbells
+- Somfy Telis `433.92MHz` `AM650` (56 bits, Dynamic)
+- Feron `433.92MHz` `AM650` (32 bits, Static) - RGB LED remotes, other.
+- Honeywell `AM650` (64 bits, Static) - Alarm, Sensor
+- Honeywell WDB `AM650` (48 bits, Static) - Doorbell
+- Magellan `433.92MHz` `AM650` (32 bits, Static) - Sensor, alarm
+- Jarolift `433.92MHz` `AM650` (72 bits, Dynamic, KeeLoq based) - Automatic roller shutters
+
+### Alarms
+- Hollarm `433.92MHz` `AM650` (42 bits, Static) - Bike alarms
+- GangQi `433.92MHz` `AM650` (34 bits, Static) - Bike alarms
+
+
+### Generic any branded remotes
+- Holtek `AM650` (40 bits, Static)
+- Holtek HT12X `AM650` (12 bits, Static)
+- Princeton (PT2262, PT****) `315MHz, 433.92MHz, Any other frequency` `AM650` (24 bits, Static)
+- SMC5326 `315MHz, 433.92MHz, Any other frequency` `AM650` (25 bits, Static)
+- Hay21 `433.92MHz` `AM650` (21 bits, Dynamic)
+- Treadmill37 (QH-433) `433.92MHz` `AM650` (37 bits, Static)
+- KeyFinder `433.92MHz` `AM650` (24 bits, Static)
+
+---
+
+## KeeLoq Rolling Code Supported Manufacturers list
+
+KeeLoq is a rolling code encryption system used by many garage door openers and gate systems. 
+The following manufacturers have KeeLoq support in Unleashed firmware:
+
+*Default value for encryption type "learning" is `simple` and `10bits` for serial part in Hop*
+
+*In case if remote uses other serial bits or different encryption type and it was verified - it will be stated in the end*
+
+### Garage Door Openers & Gate Openers (Boom barriers, roller shutters, etc.)
+- Allmatic - `868MHz` `AM650` (KeeLoq, 64 bits) (no serial part in Hop - magic XOR)
+- Aprimatic - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial number art in Hop + 2bit "parity" in front of it replacing first 2 bits of serial)
+- Beninca - `433.92MHz, 868MHz` `AM650` (KeeLoq, 64 bits) (no serial part in Hop - magic XOR)
+- CAME Space - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - simple learning)
+- Cardin S449 - `433.92MHz` `FSK12K` (KeeLoq, 64 bits) (12bit (original remotes) or 10bit (chinese remotes) serial part in Hop - normal learning) (receiver checks for 10bit only (unverified))
+- Centurion - `433.92MHz` `AM650` (KeeLoq, 64 bits) (no serial in Hop, uses fixed value 0x1CE - normal learning)
+- Comunello - `433.92MHz, 868MHz` `AM650` (KeeLoq, 64 bits) (normal learning)
+- DEA Mio - `433.92MHz` `AM650` (KeeLoq, 64 bits) (modified serial in Hop, uses last 3 digits modifying first one (example - 419 -> C19) - simple learning)
+- DoorHan - 315MHz, `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- DTM Neo - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - simple learning)
+- Elmes Poland - `433.92MHz` `AM650` (KeeLoq, 64 bits) (normal learning)
+- FAAC RC,XT - `433.92MHz, 868MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning)
+- Genius Bravo - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning) (Genius ECHO, Genius Bravo (Button code 0xB for prog. mode))
+- Gibidi - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- GSN - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning)
+- Hormann EcoStar - `433.92MHz` `AM650` (KeeLoq, 64 bits) (normal learning)
+- IronLogic IL-100 - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- IronLogic IL-100 Smart PPult - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- JCM Tech - `433.92MHz` `AM650` (KeeLoq, 64 bits) (8bit serial part in Hop - simple learning)
+- Jolly Motors - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- KEY (KeeLoq, 64 bits)
+- Monarch - `433.92MHz` `AM650` (KeeLoq, 64 bits) (no serial in Hop, uses fixed value 0x100 - normal learning)
+- Motorline - `433.92MHz` `AM650` (KeeLoq, 64 bits) (normal learning)
+- Mutanco/Mutancode (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning)
+- Mhouse - `433.92MHz` `AM650` (KeeLoq, 64 bits) (8bit serial part in Hop - simple learning)
+- Nice Smilo - `433.92MHz` `AM650` (KeeLoq, 64 bits) (8bit serial part in Hop - simple learning)
+- Normstahl - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- Novoferm - `433.92MHz` `AM650` (KeeLoq, 64 bits)
+- Sommer `434.42MHz, 868.80MHz` `FSK12K (or FSK476)` (KeeLoq, 64 bits) (normal learning) (TX03-868-4, Pearl, and maybe other models are supported (SOMloq))
+- Steelmate - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning)
+- Stilmatic (R-Tech) - `433.92MHz` `AM650` (KeeLoq, 64 bits) (12bit serial part in Hop - normal learning) (receiver checks for 10bit only (unverified))
+
+### Alarms, unknown origin, etc.
+- APS-1100/APS-2550 (KeeLoq, 64 bits)
+- Alligator (KeeLoq, 64 bits)
+- Alligator S-275 (KeeLoq, 64 bits)
+- Cenmax (KeeLoq, 64 bits)
+- Cenmax St-5 (KeeLoq, 64 bits)
+- Cenmax St-7 (KeeLoq, 64 bits)
+- Faraon (KeeLoq, 64 bits)
+- Guard RF-311A (KeeLoq, 64 bits) (normal learning)
+- Harpoon (KeeLoq, 64 bits)
+- KGB/Subaru (KeeLoq, 64 bits) (magic serial type 1)
+- Leopard (KeeLoq, 64 bits)
+- Magic 1 (KeeLoq, 64 bits) (magic serial type 2)
+- Magic 2 (KeeLoq, 64 bits) (magic serial type 2)
+- Magic 3 (KeeLoq, 64 bits) (magic serial type 3)
+- Magic 4 (KeeLoq, 64 bits) (magic serial type 3)
+- Merlin (KeeLoq, 64 bits) (no serial part in Hop - simple XOR)
+- Mongoose (KeeLoq, 64 bits) (normal learning)
+- Pantera (KeeLoq, 64 bits)
+- Pantera CLK (KeeLoq, 64 bits)
+- Pantera XS/Jaguar (KeeLoq, 64 bits)
+- Partisan RX (KeeLoq, 64 bits)
+- Pecinin (KeeLoq, 64 bits) (12bit serial part in Hop - simple learning)
+- Reff (KeeLoq, 64 bits)
+- Rossi (KeeLoq, 64 bits) (12bit serial part in Hop - simple learning)
+- Rosh (KeeLoq, 64 bits) (12bit serial part in Hop - simple learning)
+- Sheriff (KeeLoq, 64 bits)
+- SL A2-A4 (KeeLoq, 64 bits)
+- SL A6-A9/Tomahawk 9010 (KeeLoq, 64 bits)
+- SL B6,B9 dop (KeeLoq, 64 bits)
+- Teco (KeeLoq, 64 bits)
+- Tomahawk TZ-9030 (KeeLoq, 64 bits)
+- Tomahawk Z,X 3-5 (KeeLoq, 64 bits)
+- ZX-730-750-1055 (KeeLoq, 64 bits)
+
+*Note: Most KeeLoq manufacturers operate in the 433 MHz and 868 MHz frequency bands with AM650 modulation. Some operate at other frequencies or modulations. Not all KeeLoq systems are supported for full decoding or emulation.*
+
+---
+
+## Protocol Type Reference
+
+Unleashed firmware supports various protocol types:
+
+- **Static Code**: Fixed transmission codes (e.g., Roger, Princeton, Marantec, Revers RB2)
+- **Rolling Code (Dynamic) (KeeLoq)**: Dynamic codes with rolling counter using KeeLoq encryption (60+ manufacturer systems supported)
+- **Rolling Code (Dynamic)**: Other dynamic systems with custom encoding (e.g., CAME Atomo, Nice Flor S, Somfy Telis, FAAC SLH, Alutech AT-4N, Security+)
+
+For more information on how to use some of these protocols, see also [SubGHzRemoteProg.md](/documentation/SubGHzRemoteProg.md) and the main [ReadMe.md](/ReadMe.md).
+
+---
+
+*Docs made for Unleashed FW, please mention source when copying*
+
+
+=== FILE: wide\momentum-docs\UnitTests.md ===
+
+# Unit tests {#unit_tests}
+
+## Intro
+
+Unit tests are special pieces of code that apply known inputs to the feature code and check the results to see if they are correct.
+They are crucial for writing robust, bug-free code.
+
+Flipper Zero firmware includes a separate app called [unit_tests](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/applications/debug/unit_tests).
+It is run directly on Flipper devices in order to employ their hardware features and rule out any platform-related differences.
+
+When contributing code to the Flipper Zero firmware, it is highly desirable to supply unit tests along with the proposed features.
+Running existing unit tests is useful to ensure that the new code doesn't introduce any regressions.
+
+## Running unit tests
+
+To run the unit tests, follow these steps:
+
+1. Compile the firmware with the tests enabled: `./fbt FIRMWARE_APP_SET=unit_tests updater_package`.
+2. Flash the firmware using your preferred method, including SD card resources (`build/latest/resources`).
+3. Launch the CLI session and run the `unit_tests` command.
+
+**NOTE:** To run a particular test (and skip all others), specify its name as the command argument.
+Test names match application names defined [here](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/debug/unit_tests/application.fam).
+
+## Adding unit tests
+
+### General
+
+#### Entry point
+
+The common entry point for all tests is the [unit_tests](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/applications/debug/unit_tests) app. Test-specific code is packaged as a `PLUGIN` app placed in a subdirectory of `tests` in the `unit_tests` mother-app and referenced in the common `application.fam`. Look at other tests for an example.
+
+#### Test assets
+
+Some unit tests require external data in order to function. These files (commonly called assets) reside in the [unit_tests](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/applications/debug/unit_tests/resources/unit_tests) directory in their respective subdirectories. Asset files can be of any type (plain text, FlipperFormat (FFF), binary, etc.).
+
+### App-specific
+
+#### Infrared
+
+Each infrared protocol has a corresponding set of unit tests, so it makes sense to implement one when adding support for a new protocol.
+To add unit tests for your protocol, follow these steps:
+
+1. Create a file named `test_<your_protocol_name>.irtest` in the [assets](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/applications/debug/unit_tests/resources/unit_tests/infrared) directory.
+2. Fill it with the test data (more on it below).
+3. Add the test code to [infrared_test.c](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/debug/unit_tests/tests/infrared/infrared_test.c).
+4. Build and install firmware with resources, install it on your Flipper and run the tests to see if they pass.
+
+##### Test data format
+
+Each unit test has three sections:
+
+1. `decoder` — takes in a raw signal and outputs decoded messages.
+2. `encoder` — takes in decoded messages and outputs a raw signal.
+3. `encoder_decoder` — takes in decoded messages, turns them into a raw signal, and then decodes again.
+
+Infrared test asset files have an `.irtest` extension and are regular `.ir` files with a few additions.
+Decoder input data has signal names `decoder_input_N`, where N is a test sequence number. Expected data goes under the name `decoder_expected_N`. When testing the encoder, these two are switched.
+
+Decoded data is represented in arrays (since a single raw signal may be decoded into several messages). If there is only one signal, then it has to be an array of size 1. Use the existing files as syntax examples.
+
+##### Getting raw signals
+
+Recording raw IR signals is possible using Flipper Zero. Launch the CLI session, run `ir rx raw`, then point the remote towards the Flipper's receiver and send the signals. The raw signal data will be printed to the console in a convenient format.
+
+
+=== FILE: wide\momentum-docs\UniversalRemotes.md ===
+
+# Universal Remotes {#universal_remotes}
+
+## Televisions
+
+Adding your TV set to the universal remote is quite straightforward. Up to 6 signals can be recorded: `Power`, `Mute`, `Vol_up`, `Vol_dn`, `Ch_next`, and `Ch_prev`. Any of them can be omitted if not supported by your TV.
+
+Each signal is recorded using the following algorithm:
+
+1. Get the remote and point it to Flipper's IR receiver.
+2. Start learning a new remote if it's the first button or press `+` to add a new button otherwise.
+3. Press a remote button and save it under a corresponding name.
+4. Repeat steps 2-3 until all required signals are saved.
+
+The signal names are self-explanatory. Remember to make sure that every recorded signal does what it's supposed to.
+
+If everything checks out, append these signals **to the end** of the [TV universal remote file](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/main/infrared/resources/infrared/assets/tv.ir).
+
+## Audio players
+
+Adding your audio player to the universal remote is done in the same manner as described above. Up to 8 signals can be recorded: `Power`, `Play`, `Pause`, `Vol_up`, `Vol_dn`, `Next`, `Prev`, and `Mute`. Any of them can be omitted if not supported by the player.
+
+The signal names are self-explanatory.
+On many remotes, the `Play` button doubles as `Pause`. In this case, record it as `Play` omitting the `Pause`.
+Make sure that every signal does what it's supposed to.
+
+If everything checks out, append these signals **to the end** of the [audio player universal remote file](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/main/infrared/resources/infrared/assets/audio.ir).
+
+## Projectors
+
+Adding your projector to the universal remote is really simple. Up to 4 signals can be recorded: `Power`, `Mute`, `Vol_up`, `Vol_dn`. Any of them can be omitted if not supported by your projector.
+To save time, please make sure every recording has been named accordingly.
+In case of omitting, on most projectors with the 4 following buttons, you should not have a problem.
+
+
+## Air conditioners
+
+Air conditioners differ from most other infrared-controlled devices because their state is tracked by the remote.
+The majority of A/C remotes have a small display that shows the current mode, temperature, and other settings.
+When the user presses a button, a whole set of parameters is transmitted to the device, which must be recorded and used as a whole.
+
+In order to add a particular air conditioner to the universal remote, 6 signals must be recorded: `Off`, `Dh`, `Cool_hi`, `Cool_lo`, `Heat_hi`, and `Heat_lo`.
+Each signal (except `Off`) is recorded using the following algorithm:
+
+1. Get the remote and press the **POWER** button so that the display shows that A/C is ON.
+2. Set the A/C to the corresponding mode (see table below), leaving other parameters such as fan speed or vane on **AUTO** (if applicable).
+3. Press the **POWER** button to switch the A/C off.
+4. Start learning a new remote on Flipper if it's the first button or press `+` to add a new button otherwise.
+5. Point the remote to Flipper's IR receiver as directed and press the **POWER** button once again.
+6. Save the resulting signal under the specified name.
+7. Repeat steps 2-6 for each signal from the table below.
+
+| Signal  |    Mode    | Temperature | Note                                |
+| :-----: | :--------: | :---------: | ----------------------------------- |
+|   Dh    | Dehumidify |     N/A     |                                     |
+| Cool_hi |  Cooling   |  See note   | Lowest temperature in cooling mode  |
+| Cool_lo |  Cooling   |    23°C     |                                     |
+| Heat_hi |  Heating   |  See note   | Highest temperature in heating mode |
+| Heat_lo |  Heating   |    23°C     |                                     |
+
+Finally, record the `Off` signal:
+
+1. Make sure the display shows that the A/C is ON.
+2. Start learning a new signal on Flipper and point the remote towards the IR receiver.
+3. Press the **POWER** button so that the remote shows the OFF state.
+4. Save the resulting signal under the name `Off`.
+
+The resulting remote file should now contain 6 signals. You can omit any of them, but you then won't be able to use their functionality.
+Test the file against the actual device. Make sure that every signal does what it's supposed to.
+
+If everything checks out, append these signals **to the end** of the [A/C universal remote file](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/main/infrared/resources/infrared/assets/ac.ir).
+
+## Final steps
+
+The order of signals is not important, but they should be preceded by the following comment: `# Model: <Your model name>` in order to keep the library organized.
+
+When done, open a pull request containing the changed file.

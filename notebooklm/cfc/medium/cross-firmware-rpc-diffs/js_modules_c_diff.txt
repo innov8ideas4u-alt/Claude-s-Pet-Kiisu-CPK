@@ -1,0 +1,26 @@
+=== MOMENTUM vs OFW ===
+<=     // extra modules
+<=     "blebeacon",
+<=     "i2c",
+<=     "spi",
+<=     "infrared-send",
+<=     "subghz",
+<=     "usbdisk",
+<=     "vgm",
+<=     // extra features
+<=     "gui-textinput-illegalsymbols",
+<=     "storage-virtual",
+<=     "usbdisk-createimage",
+<= 
+<= 
+
+=== MOMENTUM vs UNLEASHED ===
+=>     "gpio-pwm",
+=>     "gui-widget",
+=>     "serial-framing",
+=>     "gui-widget-extras",
+<=     // extra features
+<=     "gui-textinput-illegalsymbols",
+<=     "storage-virtual",
+<=     "usbdisk-createimage",
+<= 

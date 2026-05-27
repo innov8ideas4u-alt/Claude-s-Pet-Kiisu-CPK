@@ -1,0 +1,2923 @@
+# Bundle: 02_momentum_js_docs.txt
+# 26 files concatenated for NotebookLM ingestion
+
+
+
+=== FILE: wide\momentum-docs\js\js_about.md ===
+
+# About the JavaScript engine {#js_about_js_engine}
+
+> Developing applications for Flipper Zero is now much more accessible with the introduction of JavaScript support.
+
+Previously, building an app for Flipper Zero required C/C++ skills, setting up a development environment, and studying the code of existing applications and documentation. While embedded developers are very familiar with all of this, we wanted to make it easier for people from all backgrounds to create apps for Flipper Zero.
+
+Flipper firmware now includes a built-in scripting engine that runs JavaScript, one of the most widely used programming languages. You can create script files, share them with others, and launch them directly from the **Apps/Scripts** menu on your Flipper Zero — no need for compiling on a PC.
+
+JavaScript support is based on the [mJS scripting engine](https://github.com/cesanta/mjs). Originally designed for microcontrollers, mJS makes efficient use of system resources, requiring less than 50k of flash space and 2k of RAM. We've kept the core features of mJS and also added some useful improvements, such as support for compact binary arrays.
+
+> [!note]
+> mJS has some limitations compared to JavaScript engines built into modern browsers. For details on capabilities and limitations, refer to the [mJS documentation on GitHub](https://github.com/cesanta/mjs).
+
+JavaScript apps can interact with Flipper Zero's resources, including its GUI, buttons, USB-HID device, GPIO, UART interfaces, and more. Let's go through the steps to create your first JavaScript app for Flipper Zero.
+
+**Next step:** [Your first JavaScript app](#js_your_first_js_app)
+
+
+=== FILE: wide\momentum-docs\js\js_badusb.md ===
+
+# BadUSB module {#js_badusb}
+
+```js
+let badusb = require("badusb");
+```
+# Methods
+## setup()
+Start USB HID with optional parameters. Should be called before all other methods.
+Automatically unlocks USB profile, so qFlipper connection will be interrupted.
+
+**Parameters**
+
+Configuration object *(optional)*:
+- vid, pid (number): VID and PID values, both are mandatory
+- mfrName (string): Manufacturer name (32  ASCII characters max), optional
+- prodName (string): Product name (32  ASCII characters max), optional
+- layoutPath (string): Path to keyboard layout file, optional
+
+**Examples**
+```js
+// Start USB HID with default parameters
+badusb.setup();
+// Start USB HID with custom vid:pid = AAAA:BBBB, manufacturer and product strings not defined
+badusb.setup({ vid: 0xAAAA, pid: 0xBBBB }); 
+// Start USB HID with custom vid:pid = AAAA:BBBB, manufacturer string = "Flipper Devices", product string = "Flipper Zero"
+badusb.setup({ vid: 0xAAAA, pid: 0xBBBB, mfrName: "Flipper Devices", prodName: "Flipper Zero" });
+```
+
+<br>
+
+## isConnected()
+Returns USB connection state.
+
+**Example**
+```js
+if (badusb.isConnected()) {
+    // Do something
+} else {
+    // Show an error
+}
+```
+
+<br>
+
+## press()
+Press and release a key.
+
+**Parameters**
+
+Key or modifier name, key code.
+
+See a [list of key names below](#js_badusb_keynames).
+
+**Examples**
+```js
+badusb.press("a"); // Press "a" key
+badusb.press("A"); // SHIFT + "a"
+badusb.press("CTRL", "a"); // CTRL + "a"
+badusb.press("CTRL", "SHIFT", "ESC"); // CTRL + SHIFT + ESC combo
+badusb.press(98); // Press key with HID code (dec) 98 (Numpad 0 / Insert)
+badusb.press(0x47); // Press key with HID code (hex) 0x47 (Scroll lock)
+```
+
+<br>
+
+## hold()
+Hold a key. Up to 5 keys (excluding modifiers) can be held simultaneously.
+
+**Parameters**
+
+Same as `press`.
+
+**Examples**
+```js
+badusb.hold("a"); // Press and hold "a" key
+badusb.hold("CTRL", "v"); // Press and hold CTRL + "v" combo
+```
+
+<br>
+
+## release()
+Release a previously held key.
+
+**Parameters**
+
+Same as `press`.
+
+Release all keys if called without parameters.
+
+**Examples**
+```js
+badusb.release(); // Release all keys
+badusb.release("a"); // Release "a" key
+```
+
+<br>
+
+## print()
+Print a string.
+
+**Parameters**
+
+- A string to print
+- *(optional)* Delay between key presses
+
+**Examples**
+```js
+badusb.print("Hello, world!"); // print "Hello, world!"
+badusb.print("Hello, world!", 100); // Add 100ms delay between key presses
+```
+<br>
+
+## println()
+Same as `print` but ended with "ENTER" press.
+
+**Parameters**
+
+- A string to print
+- *(optional)* Delay between key presses
+
+**Examples**
+```js
+badusb.println("Hello, world!");  // print "Hello, world!" and press "ENTER"
+```
+<br>
+
+## altPrint()
+Prints a string by Alt+Numpad method - works only on Windows!
+
+**Parameters**
+
+- A string to print
+- *(optional)* delay between key presses
+
+**Examples**
+```js
+badusb.altPrint("Hello, world!"); // print "Hello, world!"
+badusb.altPrint("Hello, world!", 100); // Add 100ms delay between key presses
+```
+<br>
+
+## altPrintln()
+Same as `altPrint` but ended with "ENTER" press.
+
+**Parameters**
+
+- A string to print
+- *(optional)* delay between key presses
+
+**Examples**
+```js
+badusb.altPrintln("Hello, world!");  // print "Hello, world!" and press "ENTER"
+```
+<br>
+
+## quit()
+Releases usb, optional, but allows to interchange with usbdisk.
+
+**Examples**
+```js
+badusb.quit();
+usbdisk.start(...)
+```
+<br>
+
+# Key names list {#js_badusb_keynames}
+
+## Modifier keys
+
+| Name          |
+| ------------- |
+| CTRL          |
+| SHIFT         |
+| ALT           |
+| GUI           |
+
+## Special keys
+
+| Name               | Notes            |
+| ------------------ | ---------------- |
+| DOWN               | Down arrow       |
+| LEFT               | Left arrow       |
+| RIGHT              | Right arrow      |
+| UP                 | Up arrow         |
+| ENTER              |                  |
+| DELETE             |                  |
+| BACKSPACE          |                  |
+| END                |                  |
+| HOME               |                  |
+| ESC                |                  |
+| INSERT             |                  |
+| PAGEUP             |                  |
+| PAGEDOWN           |                  |
+| CAPSLOCK           |                  |
+| NUMLOCK            |                  |
+| SCROLLLOCK         |                  |
+| PRINTSCREEN        |                  |
+| PAUSE              | Pause/Break key  |
+| SPACE              |                  |
+| TAB                |                  |
+| MENU               | Context menu key |
+| Fx                 | F1-F24 keys      |
+| NUMx               | NUM0-NUM9 keys   |
+
+
+=== FILE: wide\momentum-docs\js\js_builtin.md ===
+
+# Built-in methods {#js_builtin}
+
+## require()
+Load a module plugin.
+
+**Parameters**
+- Module name
+
+**Examples**
+```js
+let serial = require("serial"); // Load "serial" module
+```
+
+<br>
+
+## delay()
+**Parameters**
+- Delay value in ms
+
+**Examples**
+```js
+delay(500); // Delay for 500ms
+```
+<br>
+
+## print()
+Print a message on a screen console.
+
+**Parameters**
+The following argument types are supported:
+- String
+- Number
+- Bool
+- undefined
+
+**Examples**
+```js
+print("string1", "string2", 123);
+```
+<br>
+
+## Console object
+Same as `print`, but output to serial console only, with corresponding log level.
+
+### console.log()
+
+<br>
+
+### console.warn()
+
+<br>
+
+### console.error()
+
+<br>
+
+### console.debug()
+
+<br>
+
+## load()
+Runs a JS file and returns value from it.
+
+**Parameters**
+- The path to the file
+- An optional object to use as the global scope while running this file
+
+**Examples**
+```js
+load("/ext/apps/Scripts/script.js");
+```
+<br>
+
+## chr()
+Convert an ASCII character number to string.
+
+**Examples**
+```js
+chr(65); // "A"
+```
+<br>
+
+## die()
+Exit JavaScript with given message.
+
+**Examples**
+```js
+die("Some error occurred");
+```
+<br>
+
+## parseInt()
+Convert a string to number with an optional base.
+
+**Examples**
+```js
+parseInt("123"); // 123
+parseInt("7b", 16); // 123
+```
+<br>
+
+## Number object
+
+### Number.toString()
+Convert a number to string with an optional base.
+
+**Examples**
+```js
+let num = 123;
+num.toString(); // "123"
+num.toString(16); // "0x7b"
+```
+<br>
+
+## ArrayBuffer object
+
+**Fields**
+
+- byteLength: The length of the buffer in bytes
+<br>
+
+### ArrayBuffer.slice()
+Creates an `ArrayBuffer` that contains a sub-part of the buffer.
+
+**Parameters**
+- The index to start the new buffer at
+- An optional non-inclusive index of where to stop the new buffer
+
+**Examples**
+```js
+Uint8Array([1, 2, 3]).buffer.slice(0, 1) // ArrayBuffer([1])
+```
+<br>
+
+## DataView objects
+Wrappers around `ArrayBuffer` objects, with dedicated types such as:
+- `Uint8Array`
+- `Int8Array`
+- `Uint16Array`
+- `Int16Array`
+- `Uint32Array`
+- `Int32Array`
+
+**Fields**
+
+- byteLength: The length of the buffer in bytes
+- length: The length of the buffer in typed elements
+- buffer: The underlying `ArrayBuffer`
+<br>
+
+## Array object
+
+**Fields**
+
+- length: How many elements there are in the array
+<br>
+
+### Array.splice()
+Removes elements from the array and returns them in a new array.
+
+**Parameters**
+- The index to start taking elements from
+- An optional count of how many elements to take
+
+**Examples**
+```js
+let arr = [1, 2, 3];
+arr.splice(1); // [2, 3]
+arr; // [1]
+```
+<br>
+
+### Array.push()
+Adds a value to the end of the array.
+
+**Examples**
+```js
+let arr = [1, 2];
+arr.push(3);
+arr; // [1, 2, 3]
+```
+<br>
+
+## String object
+
+**Fields**
+
+- length: How many characters there are in the string
+<br>
+
+### String.charCodeAt()
+Returns the character code at an index in the string.
+
+**Examples**
+```js
+"A".charCodeAt(0) // 65
+```
+<br>
+
+### String.at()
+Same as `String.charCodeAt()`.
+<br>
+
+### String.indexOf()
+Return index of first occurrence of substr within the string or `-1` if not found.
+
+**Parameters**
+- Substring to search for
+- Optional index to start searching from
+
+**Examples**
+```js
+"Example".indexOf("amp") // 2
+```
+<br>
+
+### String.slice()
+Return a substring between two indices.
+
+**Parameters**
+- The index to start the new string at
+- An optional non-inclusive index of where to stop the new string
+
+**Examples**
+```js
+"Example".slice(2) // "ample"
+```
+<br>
+
+### String.toUpperCase()
+Transforms the string to upper case.
+
+**Examples**
+```js
+"Example".toUpperCase() // "EXAMPLE"
+```
+<br>
+
+### String.toLowerCase()
+Transforms the string to lower case.
+
+**Examples**
+```js
+"Example".toLowerCase() // "example"
+```
+<br>
+
+## __dirname
+Path to the directory containing the current script.
+
+**Examples**
+```js
+print(__dirname); // /ext/apps/Scripts/Examples
+```
+<br>
+
+## __filename
+Path to the current script file.
+
+**Examples**
+```js
+print(__filename); // /ext/apps/Scripts/Examples/path.js
+```
+<br>
+
+# SDK compatibility methods {#js_builtin_sdk_compatibility}
+
+## sdkCompatibilityStatus()
+Checks compatibility between the script and the JS SDK that the firmware provides.
+
+**Returns**
+- `"compatible"` if the script and the JS SDK are compatible
+- `"firmwareTooOld"` if the expected major version is larger than the version of the firmware, or if the expected minor version is larger than the version of the firmware
+- `"firmwareTooNew"` if the expected major version is lower than the version of the firmware
+
+**Examples**
+```js
+sdkCompatibilityStatus(0, 3); // "compatible"
+```
+<br>
+
+## isSdkCompatible()
+Checks compatibility between the script and the JS SDK that the firmware provides in a boolean fashion.
+
+**Examples**
+```js
+isSdkCompatible(0, 3); // true
+```
+<br>
+
+## checkSdkCompatibility()
+Asks the user whether to continue executing the script if the versions are not compatible. Does nothing if they are.
+
+**Examples**
+```js
+checkSdkCompatibility(0, 3);
+```
+<br>
+
+## doesSdkSupport()
+Checks whether all of the specified extra features are supported by the interpreter.
+
+**Examples**
+```js
+doesSdkSupport(["gui-widget"]); // true
+```
+<br>
+
+## checkSdkFeatures()
+Checks whether all of the specified extra features are supported by the interpreter, asking the user if they want to continue running the script if they're not.
+
+**Examples**
+```js
+checkSdkFeatures(["gui-widget"]);
+```
+
+
+=== FILE: wide\momentum-docs\js\js_data_types.md ===
+
+# Data types {#js_data_types}
+
+Here is a list of common data types used by mJS.
+- string — sequence of single byte characters, no UTF8 support
+- number
+- boolean
+- foreign — C function or data pointer
+- undefined
+- null
+- Object — a data structure with named fields
+- Array — special type of object, all items have indexes and equal types
+- ArrayBuffer — raw data buffer
+- DataView — provides interface for accessing ArrayBuffer contents
+
+
+=== FILE: wide\momentum-docs\js\js_developing_apps_using_js_sdk.md ===
+
+# Developing apps using JavaScript SDK {#js_developing_apps_using_js_sdk}
+
+In the [previous guide](#js_your_first_js_app), we learned how to create and run a JavaScript app on Flipper Zero. However, when debugging a script, you often need to repeatedly modify the code and test it on the device. While you can use qFlipper for this, it involves a lot of repetitive steps. Fortunately, there's a more efficient alternative — the Flipper Zero JavaScript SDK, a set of tools that simplify app development in JavaScript.
+
+Main features of the Flipper Zero JavaScript SDK:
+
+* [Loading and running an app with a single command](#js_sdk_run_app)
+* [Code completion](#js_sdk_code_completion)
+* [JS code minifier (compressor)](#js_sdk_js_minifier)
+
+In this guide, we'll install the JavaScript SDK and learn how to run JavaScript apps on Flipper Zero using it.
+
+## How to get JavaScript SDK
+
+The JavaScript SDK for Flipper Zero is distributed as an [NPM package](npmjs.com/package/\@flipperdevices/fz-sdk), so you can install it using a package manager like npm, pnpm, or yarn. You'll also need Node.js, a JavaScript runtime environment required for the NPM package manager to work.
+
+Some Custom Firmwares have their own JavaScript SDK, which can contain additional features. Scripts made with the Official Flipper JavaScript SDK will work on Custom Firmwares, while the opposite might not always be true. The SDK offers [ways to check this compatibility](#js_builtin_sdk_compatibility) as a script developer, so you can make your script work on multiple Firmwares, and take advantage of the extra features when they are available.
+
+You can find the Momentum JavaScript SDK NPM package [here](https://www.npmjs.com/package/@next-flip/fz-sdk-mntm).
+
+> [!note]
+> In this guide, we'll use **npm**, the default package manager for Node.js.
+
+Follow these steps:
+
+1. Install **Node.js + npm** on your PC. Check out this [official Downloads page](https://nodejs.org/en/download/package-manager), select your OS and preferences, and run the provided commands in your terminal.
+
+2. Open a terminal in the folder where you want to store your project.
+
+3. Run the `npx @flipperdevices/create-fz-app@latest` command to create a JavaScript app template and include the JavaScript SDK into it. This command will launch an interactive wizard. You'll need to specify the project name and choose a package manager (in our case, **npm**).
+
+You'll now find a JavaScript app template in your project folder, alongside the JavaScript SDK package, all necessary dependencies and configs. The app code will be in the `index.ts` file.
+
+Now, let's take a look at the main features of the Flipper Zero JavaScript SDK.
+
+## Running your app {#js_sdk_run_app}
+
+To run the application:
+
+1. Connect your Flipper Zero to your PC via USB.
+
+2. Open a terminal in your app's folder.
+
+3. Run the `npm start` command to copy the JS file to Flipper Zero and run it.
+
+\image html js_sdk_npm_start.jpg width=800
+
+You'll see output messages from the `print()` function in the terminal.
+
+## Updating your app {#js_sdk_update_app}
+
+After making changes to your app's code, simply run `npm start` again. As long as your Flipper Zero is still connected, the updated app will launch, and the old `.js` file on Flipper Zero will be replaced with the new version.
+
+
+## Other JavaScript SDK features
+
+As you can see, it's quite easy to launch and update your app with a single command. Now let's explore two more important features of the Flipper Zero JavaScript SDK: **code completion** and **JS minifier**.
+
+
+### Code completion {#js_sdk_code_completion}
+
+Code completion helps speed up the development process by automatically suggesting code as you type, reducing the need to refer to documentation.
+
+\image html js_sdk_code_completion.jpg width=800
+
+> [!note]
+> Code completion works in code editors and IDEs that support Language Server, for example,  [VS Code](https://code.visualstudio.com/).
+
+
+### JS minifier {#js_sdk_js_minifier}
+
+The JS minifier reduces the size of JavaScript files by removing unnecessary characters (like spaces, tabs and line breaks) and shortening variable names. This can make your scripts run a bit faster without changing their logic.
+
+However, it has a drawback — it can make debugging harder, as error messages in minified files are harder to read in larger applications. For this reason, it's recommended to disable the JS minifier during debugging and it's disabled by default. To enable it, set the `minify` parameter to `true` in the `fz-sdk.config.json5` file in your app folder. This will minify your JavaScript app before loading it onto Flipper Zero.
+
+
+## Differences with normal Flipper JavaScript
+
+With the Flipper JavaScript SDK, you will be developing in **TypeScript**. This means that you get a better development experience, with more accurate code completion and warnings when variable types are incompatible, but it also means your code will be different from basic Flipper JS.
+
+Some things to look out for:
+- Importing modules:
+  - Instead of `let module = require("module");`
+  - You will use `import * as module from "@flipperdevices/fz-sdk/module";`
+- Multiple source code files:
+  - The Flipper JavaScript SDK does not yet support having multiple `.ts` files and importing them
+  - You can use `load()`, but this will not benefit from TypeScript type checking
+- Casting values:
+  - Some Flipper JavaScript functions will return generic types
+  - For example `eventLoop.subscribe()` will run your callback with a generic `Item` type
+  - In some cases you might need to cast these values before using them, you can do this by:
+  - Inline casting: `<string>item`
+  - Declare with new type: `let text = item as string;`
+
+When you upload the script to Flipper with `npm start`, it gets transpiled to normal JavaScript and optionally minified (see below). If you're looking to share your script with others, this is what you should give them to run.
+
+
+## What's next?
+
+You've learned how to run and debug simple JavaScript apps. But how can you access Flipper Zero's hardware from your JS code? For that, you'll need to use JS modules — which we'll cover in the next guide.
+
+**Next step:** [Using JavaScript modules](#js_using_js_modules)
+
+
+=== FILE: wide\momentum-docs\js\js_event_loop.md ===
+
+# Event Loop module {#js_event_loop}
+
+The event loop is central to event-based programming in many frameworks, and our
+JS subsystem is no exception. It is a good idea to familiarize yourself with the
+event loop first before using any of the advanced modules (e.g. GPIO and GUI).
+
+```js
+let eventLoop = require("event_loop");
+```
+
+## Conceptualizing the event loop
+If you've ever written JavaScript code before, you've definitely seen callbacks. It's
+when a function takes another function (usually an anonymous one) as one of
+the arguments, which it will call later, e.g. when an event happens or when
+data becomes ready:
+```js
+setTimeout(function() { console.log("Hello, World!") }, 1000);
+```
+
+Many JavaScript engines employ a queue from which the runtime fetches events as
+they occur, subsequently calling the corresponding callbacks. This is done in a
+long-running loop, hence the name "event loop". Here's the pseudocode for a
+typical event loop:
+
+\code{.js}
+while(loop_is_running()) {
+    if(event_available_in_queue()) {
+        let event = fetch_event_from_queue();
+        let callback = get_callback_associated_with(event);
+        if(callback)
+            callback(get_extra_data_for(event));
+    } else {
+        // avoid wasting CPU time
+        sleep_until_any_event_becomes_available();
+    }
+}
+\endcode
+
+Most JS runtimes enclose the event loop within themselves, so that most JS
+programmers don't even need to be aware of its existence. This is not the
+case with our JS subsystem.
+
+---
+
+# Example
+This is how one would write something similar to the `setTimeout` example above:
+```js
+// import module
+let eventLoop = require("event_loop");
+
+// create an event source that will fire once 1 second after it has been created
+let timer = eventLoop.timer("oneshot", 1000);
+
+// subscribe a callback to the event source
+eventLoop.subscribe(timer, function(_subscription, _item, eventLoop) {
+    print("Hello, World!");
+    eventLoop.stop();
+}, eventLoop); // notice this extra argument. we'll come back to this later
+
+// run the loop until it is stopped
+eventLoop.run();
+
+// the previous line will only finish executing once `.stop()` is called, hence
+// the following line will execute only after "Hello, World!" is printed
+print("Stopped");
+```
+
+I promised you that we'll come back to the extra argument after the callback
+function. Our JavaScript engine does not support closures (anonymous functions
+that access values outside of their arguments), so we ask `subscribe` to pass an
+outside value (namely, `eventLoop`) as an argument to the callback so that we
+can access it. We can modify this extra state:
+```js
+// this timer will fire every second
+let timer = eventLoop.timer("periodic", 1000);
+eventLoop.subscribe(timer, function(_subscription, _item, counter, eventLoop) {
+    print("Counter is at:", counter);
+    if(counter === 10)
+        eventLoop.stop();
+    // modify the extra arguments that will be passed to us the next time
+    return [counter + 1, eventLoop];
+}, 0, eventLoop);
+```
+
+Because we have two extra arguments, if we return anything other than an array
+of length 2, the arguments will be kept as-is for the next call.
+
+The first two arguments that get passed to our callback are:
+  - The subscription manager that lets us `.cancel()` our subscription.
+  - The event item, used for events that have extra data. Timer events do not,
+    they just produce `undefined`.
+
+---
+
+# API reference
+## run()
+Runs the event loop until it is stopped with `stop`.
+
+<br>
+
+## subscribe()
+Subscribes a function to an event.
+
+**Parameters**
+  - `contract`: an event source identifier
+  - `callback`: the function to call when the event happens
+  - extra arguments: will be passed as extra arguments to the callback
+
+The callback will be called with at least two arguments, plus however many were
+passed as extra arguments to `subscribe`. The first argument is the subscription
+manager (the same one that `subscribe` itself returns). The second argument is
+the event item for events that produce extra data; the ones that don't set this
+to `undefined`. The callback may return an array of the same length as the count
+of the extra arguments to modify them for the next time that the event handler
+is called. Any other returns values are discarded.
+
+**Returns**
+
+A `SubscriptionManager` object:
+  - `SubscriptionManager.cancel()`: unsubscribes the callback from the event
+
+**Warning**
+
+Each event source may only have one callback associated with it.
+
+<br>
+
+## stop()
+Stops the event loop.
+
+<br>
+
+## timer()
+Produces an event source that fires with a constant interval either once or
+indefinitely.
+
+**Parameters**
+  - `mode`: either `"oneshot"` or `"periodic"`
+  - `interval`: the timeout (for `"oneshot"`) timers or the period (for
+    `"periodic"` timers)
+
+**Returns**
+
+A `Contract` object, as expected by `subscribe`'s first parameter.
+
+<br>
+
+## queue()
+Produces a queue that can be used to exchange messages.
+
+**Parameters**
+  - `length`: the maximum number of items that the queue may contain
+
+**Returns**
+
+A `Queue` object:
+  - `Queue.send(message)`:
+    - `message`: a value of any type that will be placed at the end of the queue
+  - `input`: a `Contract` (event source) that pops items from the front of the
+    queue
+
+
+=== FILE: wide\momentum-docs\js\js_flipper.md ===
+
+# Flipper module {#js_flipper}
+
+The module contains methods and values to query device information and properties. Call the `require` function to load the module before first using its methods:
+
+```js
+let flipper = require("flipper");
+```
+
+# Values
+
+## firmwareVendor
+String representing the firmware installed on the device.
+Original firmware reports `"flipperdevices"`.
+Do **NOT** use this to check the presence or absence of features, refer to [other ways to check SDK compatibility](#js_builtin_sdk_compatibility).
+
+## jsSdkVersion
+Version of the JavaScript SDK.
+Do **NOT** use this to check the presence or absence of features, refer to [other ways to check SDK compatibility](#js_builtin_sdk_compatibility).
+
+<br>
+
+---
+
+# Methods
+
+## getModel()
+Returns the device model.
+
+**Example**
+```js
+flipper.getModel(); // "Flipper Zero"
+```
+
+<br>
+
+## getName()
+Returns the name of the virtual dolphin.
+
+**Example**
+```js
+flipper.getName(); // "Fur1pp44"
+```
+
+<br>
+
+## getBatteryCharge()
+Returns the battery charge percentage.
+
+**Example**
+```js
+flipper.getBatteryCharge(); // 100
+```
+
+
+=== FILE: wide\momentum-docs\js\js_gpio.md ===
+
+# GPIO module {#js_gpio}
+
+The module allows you to control GPIO pins of the expansion connector on Flipper Zero. Call the `require` function to load the module before first using its methods. This module depends on the `event_loop` module, so it **must** be imported after `event_loop` is imported:
+
+```js
+let eventLoop = require("event_loop");
+let gpio = require("gpio");
+```
+
+# Example
+```js
+let eventLoop = require("event_loop");
+let gpio = require("gpio");
+
+let led = gpio.get("pc3");
+led.init({ direction: "out", outMode: "push_pull" });
+
+led.write(true);
+delay(1000);
+led.write(false);
+delay(1000);
+```
+
+---
+
+# API reference
+## get()
+Gets a `Pin` object that can be used to manage a pin.
+
+**Parameters**
+  - `pin`: pin identifier (examples: `"pc3"`, `7`, `"pa6"`, `3`)
+
+**Returns**
+
+A `Pin` object.
+
+<br>
+
+## Pin object
+### Pin.init()
+Configures a pin.
+
+**Parameters**
+  - `mode`: `Mode` object:
+    - `direction` (required): either `"in"` or `"out"`
+    - `outMode` (required for `direction: "out"`): either `"open_drain"` or
+      `"push_pull"`
+    - `inMode` (required for `direction: "in"`): either `"analog"`,
+      `"plain_digital"`, `"interrupt"` or `"event"`
+    - `edge` (required for `inMode: "interrupt"` or `"event"`): either
+      `"rising"`, `"falling"` or `"both"`
+    - `pull` (optional): either `"up"`, `"down"` or unset
+
+<br>
+
+### Pin.write()
+Writes a digital value to a pin configured with `direction: "out"`.
+
+**Parameters**
+  - `value`: boolean logic level to write
+
+<br>
+
+### Pin.read()
+Reads a digital value from a pin configured with `direction: "in"` and any
+`inMode` except `"analog"`.
+
+**Returns**
+
+Boolean logic level.
+
+<br>
+
+### Pin.readAnalog()
+Reads an analog voltage level in millivolts from a pin configured with
+`direction: "in"` and `inMode: "analog"`.
+
+**Returns**
+
+Voltage on pin in millivolts.
+
+<br>
+
+### Pin.interrupt()
+Attaches an interrupt to a pin configured with `direction: "in"` and
+`inMode: "interrupt"` or `"event"`.
+
+**Returns**
+
+An event loop `Contract` object that identifies the interrupt event source. The
+event does not produce any extra data.
+
+### Pin.isPwmSupported()
+Determines whether this pin supports PWM.
+If `false`, all other PWM-related methods on this pin will throw an error when called.
+
+**Returns**
+
+Boolean value.
+
+### Pin.pwmWrite()
+Sets PWM parameters and starts the PWM.
+Configures the pin with `{ direction: "out", outMode: "push_pull" }`.
+Throws an error if PWM is not supported on this pin.
+
+**Parameters**
+  - `freq`: Frequency in Hz
+  - `duty`: Duty cycle in %
+
+### Pin.isPwmRunning()
+Determines whether PWM is running.
+Throws an error if PWM is not supported on this pin.
+
+**Returns**
+
+Boolean value.
+
+### Pin.pwmStop()
+Stops PWM.
+Does not restore previous pin configuration.
+Throws an error if PWM is not supported on this pin.
+
+
+=== FILE: wide\momentum-docs\js\js_gui.md ===
+
+# GUI module {#js_gui}
+
+The module allows you to use GUI (graphical user interface) in concepts off the Flipper Zero firmware. Call the `require` function to load the module before first using its methods. This module depends on the `event_loop` module, so it **must** be imported after the `event_loop` import:
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+```
+## Submodules
+
+GUI module has several submodules:
+
+- @subpage js_gui__byte_input — Keyboard-like hex input
+- @subpage js_gui__dialog — Dialog with up to 3 options
+- @subpage js_gui__empty_screen — Just empty screen
+- @subpage js_gui__file_picker — Displays a file selection prompt
+- @subpage js_gui__icon — Retrieves and loads icons for use in GUI
+- @subpage js_gui__loading — Displays an animated hourglass icon
+- @subpage js_gui__submenu — Displays a scrollable list of clickable textual entries
+- @subpage js_gui__text_box — Simple multiline text box
+- @subpage js_gui__text_input — Keyboard-like text input
+- @subpage js_gui__widget — Displays a combination of custom elements on one screen
+
+---
+
+## Conceptualizing GUI
+### Event loop
+It is highly recommended to familiarize yourself with the event loop first
+before doing GUI-related things.
+
+### Canvas
+The canvas is just a drawing area with no abstractions over it. Drawing on the
+canvas directly (i.e. not through a viewport) is useful in case you want to
+implement a custom design element, but this is rather uncommon.
+
+### Viewport
+A viewport is a window into a rectangular portion of the canvas. Applications
+always access the canvas through a viewport.
+
+### View
+In Flipper's terminology, a "View" is a fullscreen design element that assumes
+control over the entire viewport and all input events. Different types of views
+are available (not all of which are unfortunately currently implemented in JS):
+| View                 | Has JS adapter?       |
+|----------------------|-----------------------|
+| `button_menu`        | ❌                    |
+| `button_panel`       | ❌                    |
+| `byte_input`         | ✅                    |
+| `dialog_ex`          | ✅ (as `dialog`)      |
+| `empty_screen`       | ✅                    |
+| `file_browser`       | ✅ (as `file_picker`) |
+| `loading`            | ✅                    |
+| `menu`               | ❌                    |
+| `number_input`       | ❌                    |
+| `popup`              | ❌                    |
+| `submenu`            | ✅                    |
+| `text_box`           | ✅                    |
+| `text_input`         | ✅                    |
+| `variable_item_list` | ❌                    |
+| `widget`             | ✅                    |
+
+In JS, each view has its own set of properties (or just "props"). The programmer
+can manipulate these properties in two ways:
+  - Instantiate a `View` using the `makeWith(props)` method, passing an object
+    with the initial properties
+  - Call `set(name, value)` to modify a property of an existing `View`
+
+### View Dispatcher
+The view dispatcher holds references to all the views that an application needs
+and switches between them as the application makes requests to do so.
+
+### Scene Manager
+The scene manager is an optional add-on to the view dispatcher that makes
+managing applications with complex navigation flows easier. It is currently
+inaccessible from JS.
+
+### Approaches
+In total, there are three different approaches that you may take when writing
+a GUI application:
+| Approach       | Use cases                                                                    | Available from JS |
+|----------------|------------------------------------------------------------------------------|-------------------|
+| ViewPort only  | Accessing the graphics API directly, without any of the nice UI abstractions | ❌                |
+| ViewDispatcher | Common UI elements that fit with the overall look of the system              | ✅                |
+| SceneManager   | Additional navigation flow management for complex applications               | ❌                |
+
+---
+
+## Example
+An example with three different views using the ViewDispatcher approach:
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let loadingView = require("gui/loading");
+let submenuView = require("gui/submenu");
+let emptyView = require("gui/empty_screen");
+
+// Common pattern: declare all the views in an object. This is absolutely not
+// required, but adds clarity to the script.
+let views = {
+    // the view dispatcher auto-✨magically✨ remembers views as they are created
+    loading: loadingView.make(),
+    empty: emptyView.make(),
+    demos: submenuView.makeWith({
+        items: [
+            "Hourglass screen",
+            "Empty screen",
+            "Exit app",
+        ],
+    }),
+};
+
+// go to different screens depending on what was selected
+eventLoop.subscribe(views.demos.chosen, function (_sub, index, gui, eventLoop, views) {
+    if (index === 0) {
+        gui.viewDispatcher.switchTo(views.loading);
+    } else if (index === 1) {
+        gui.viewDispatcher.switchTo(views.empty);
+    } else if (index === 2) {
+        eventLoop.stop();
+    }
+}, gui, eventLoop, views);
+
+// go to the demo chooser screen when the back key is pressed
+eventLoop.subscribe(gui.viewDispatcher.navigation, function (_sub, _, gui, views) {
+    gui.viewDispatcher.switchTo(views.demos);
+}, gui, views);
+
+// run UI
+gui.viewDispatcher.switchTo(views.demos);
+eventLoop.run();
+```
+
+---
+
+# API reference
+## viewDispatcher
+The `viewDispatcher` constant holds the `ViewDispatcher` singleton.
+
+<br>
+
+### viewDispatcher.switchTo(view)
+Switches to a view, giving it control over the display and input.
+
+**Parameters**
+  - `view`: the `View` to switch to
+
+<br>
+
+### viewDispatcher.sendTo(direction)
+Sends the viewport that the dispatcher manages to the front of the stackup
+(effectively making it visible), or to the back (effectively making it
+invisible).
+
+**Parameters**
+  - `direction`: either `"front"` or `"back"`
+
+<br>
+
+### viewDispatcher.sendCustom(event)
+Sends a custom number to the `custom` event handler.
+
+**Parameters**
+  - `event`: number to send
+
+<br>
+
+### viewDispatcher.custom
+An event loop `Contract` object that identifies the custom event source,
+triggered by `ViewDispatcher.sendCustom(event)`.
+
+<br>
+
+### viewDispatcher.navigation
+An event loop `Contract` object that identifies the navigation event source,
+triggered when the back key is pressed.
+
+<br>
+
+### viewDispatcher.currentView
+The `View` object currently being shown.
+
+<br>
+
+## ViewFactory
+When you import a module implementing a view, a `ViewFactory` is instantiated. For example, in the example above, `loadingView`, `submenuView` and `emptyView` are view factories.
+
+<br>
+
+### ViewFactory.make()
+Creates an instance of a `View`.
+
+<br>
+
+### ViewFactory.makeWith(props, children)
+Creates an instance of a `View` and assigns initial properties from `props` and optionally a list of children.
+
+**Parameters**
+  - `props`: simple key-value object, e.g. `{ header: "Header" }`
+  - `children`: optional array of children, e.g. `[ { element: "button", button: "right", text: "Back" } ]`
+
+## View
+When you call `ViewFactory.make()` or `ViewFactory.makeWith()`, a `View` is instantiated. For example, in the example above, `views.loading`, `views.demos` and `views.empty` are views.
+
+<br>
+
+### View.set(property, value)
+Assign value to property by name.
+
+**Parameters**
+  - `property`: name of the property to change
+  - `value`: value to assign to the property
+
+<br>
+
+### View.addChild(child)
+Adds a child to the `View`.
+
+**Parameters**
+  - `child`: the child to add, e.g. `{ element: "button", button: "right", text: "Back" }`
+
+The format of the `child` parameter depends on the type of View that you're working with. Look in the View documentation.
+
+### View.resetChildren()
+Removes all children from the `View`.
+
+### View.setChildren(children)
+Removes all previous children from the `View` and assigns new children.
+
+**Parameters**
+  - `children`: the array of new children, e.g. `[ { element: "button", button: "right", text: "Back" } ]`
+
+
+=== FILE: wide\momentum-docs\js\js_gui__byte_input.md ===
+
+# Byte input GUI view {#js_gui__byte_input}
+
+Displays a hexadecimal keyboard.
+
+<img src="byte_input.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let byteInputView = require("gui/byte_input");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+## Example
+For an example refer to the `gui.js` example script.
+
+## View props
+
+| Prop        | Type   | Description                                      |
+|-------------|--------|--------------------------------------------------|
+| `length`      | `number` | The length in bytes of the buffer to modify.           |
+| `header`      | `string` | A single line of text that appears above the keyboard. |
+| `defaultData` | `string` | Data to show by default.                               |
+
+## View events
+
+| Item        | Type   | Description                                      |
+|-------------|--------|--------------------------------------------------|
+| `input`     | `ArrayBuffer` | Fires when the user selects the "Save" button. |
+
+
+=== FILE: wide\momentum-docs\js\js_gui__dialog.md ===
+
+# Dialog GUI view {#js_gui__dialog}
+
+Displays a dialog with up to three options.
+
+<img src="dialog.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let dialogView = require("gui/dialog");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+# Example
+For an example, refer to the `gui.js` example script.
+
+# View props
+
+| **Prop**   | **Type**  | **Description**                                                |
+|------------|-----------|----------------------------------------------------------------|
+| `header`   | string    | Text that appears in bold at the top of the screen.            |
+| `text`     | string    | Text that appears in the middle of the screen.                 |
+| `left`     | string    | Text for the left button. If unset, the left button does not show up. |
+| `center`   | string    | Text for the center button. If unset, the center button does not show up. |
+| `right`    | string    | Text for the right button. If unset, the right button does not show up. |
+
+# View events
+
+| Item     | Type   | Description                                                                 |
+|----------|--------|-----------------------------------------------------------------------------|
+| `input`  | `string`| Fires when the user presses on either of the three possible buttons. The item contains one of the strings `"left"`, `"center"`, or `"right"` depending on the button. |
+
+
+=== FILE: wide\momentum-docs\js\js_gui__empty_screen.md ===
+
+# Empty Screen GUI view {#js_gui__empty_screen}
+
+Displays an empty screen.
+
+<img src="empty.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let emptyView = require("gui/empty_screen");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+# Example
+For an example, refer to the GUI example.
+
+# View props
+This view does not have any props.
+
+
+=== FILE: wide\momentum-docs\js\js_gui__file_picker.md ===
+
+# File Picker GUI prompt {#js_gui__file_picker}
+
+Allows asking the user to select a file.
+It is not GUI view like other JS GUI views, rather just a function that shows a prompt.
+
+# Example
+For an example, refer to the `gui.js` example script.
+
+# API reference
+
+## pickFile()
+Displays a file picker and returns the selected file, or undefined if cancelled.
+
+**Parameters**
+  - `basePath`: the path to start at
+  - `extension`: the file extension(s) to show (like `.sub`, `.iso|.img`, `*`)
+
+**Returns**
+
+A `string` path, or `undefined`.
+
+
+=== FILE: wide\momentum-docs\js\js_gui__icon.md ===
+
+# GUI Icons {#js_gui__icon}
+
+Retrieves and loads icons for use with GUI views such as [Dialog](#js_gui__dialog).
+
+# Example
+For an example, refer to the `gui.js` example script.
+
+# API reference
+
+## getBuiltin()
+Gets a built-in firmware icon by its name.
+All known icons bundled with firmware are supported.
+
+**Parameters**
+  - `icon`: name of the icon
+
+**Returns**
+
+An `IconData` object.
+
+<br>
+
+## loadFxbm()
+Loads a `.fxbm` icon (XBM Flipper sprite, from `flipperzero-game-engine`) from file.
+It will be automatically unloaded when the script exits.
+
+**Parameters**
+  - `path`: path to the `.fxbm` file
+
+**Returns**
+
+An `IconData` object.
+
+
+=== FILE: wide\momentum-docs\js\js_gui__loading.md ===
+
+# Loading GUI view {#js_gui__loading}
+
+Displays an animated hourglass icon. Suppresses all `navigation` events, making it impossible for the user to exit the view by pressing the BACK key.
+
+<img src="loading.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let loadingView = require("gui/loading");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+# Example
+For an example refer to the GUI example.
+
+# View props
+This view does not have any props.
+
+
+=== FILE: wide\momentum-docs\js\js_gui__submenu.md ===
+
+# Submenu GUI view {#js_gui__submenu}
+
+Displays a scrollable list of clickable textual entries.
+
+<img src="submenu.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let submenuView = require("gui/submenu");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+## View props
+
+| Property | Type      | Description                               |
+|----------|-----------|-------------------------------------------|
+| `header` | `string`  | A single line of text that appears above the list. |
+| `items`  | `string[]`| The list of options.                     |
+
+
+## View events
+
+| Item     | Type    | Description                                                   |
+|----------|---------|---------------------------------------------------------------|
+| `chosen` | `number`| Fires when an entry has been chosen by the user. The item contains the index of the entry. |
+
+
+=== FILE: wide\momentum-docs\js\js_gui__text_box.md ===
+
+# Text box GUI view {#js_gui__text_box}
+
+Displays a scrollable read-only text field.
+
+<img src="text_box.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let textBoxView = require("gui/text_box");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+## Example
+For an example, refer to the `gui.js` example script.
+
+## View props
+
+| Prop     | Type    | Description                        |
+|----------|---------|------------------------------------|
+| `text`   | `string`| Text to show in the text box.                             |
+| `font`   | `string`| The font to display the text in (`"text"` or `"hex"`).    |
+| `focus`  | `string`| The initial focus of the text box (`"start"` or `"end"`). |
+
+
+=== FILE: wide\momentum-docs\js\js_gui__text_input.md ===
+
+# Text input GUI view {#js_gui__text_input}
+
+Displays a keyboard.
+
+<img src="text_input.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let textInputView = require("gui/text_input");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+## Example
+For an example, refer to the `gui.js` example script.
+
+## View props
+
+| Prop        | Type   | Description                                      |
+|-------------|--------|--------------------------------------------------|
+| `minLength`        | `number`  | The shortest allowed text length.                          |
+| `maxLength`        | `number`  | The longest allowed text length. <br> Default: `32`        |
+| `header`           | `string`  | A single line of text that appears above the keyboard.     |
+| `defaultText`      | `string`  | Text to show by default.                                   |
+| `defaultTextClear` | `boolean` | Whether to clear the default text on next character typed. |
+| `illegalSymbols`   | `boolean` | Whether to show illegal filename symbols. <br> Available with JS feature `gui-textinput-illegalsymbols` |
+
+## View events
+
+| Item        | Type   | Description                                      |
+|-------------|--------|--------------------------------------------------|
+| `input`     | `string` | Fires when the user selects the "Save" button and the text matches the length constrained by `minLength` and `maxLength`. |
+
+
+=== FILE: wide\momentum-docs\js\js_gui__widget.md ===
+
+# Widget GUI view {#js_gui__widget}
+
+Displays a combination of custom elements on one screen.
+
+<img src="widget.png" width="200" alt="Sample screenshot of the view" />
+
+```js
+let eventLoop = require("event_loop");
+let gui = require("gui");
+let widgetView = require("gui/widget");
+```
+
+This module depends on the `gui` module, which in turn depends on the
+`event_loop` module, so they **must** be imported in this order. It is also
+recommended to conceptualize these modules first before using this one.
+
+## Example
+For an example, refer to the `gui.js` example script.
+
+## View props
+This view does not have any props.
+
+## Children
+This view has the elements as its children.
+Elements are objects with properties to define them, in the form `{ element: "type", ...properties }` (e.g. `{ element: "button", button: "right", text: "Back" }`).
+
+| **Element Type** | **Properties** | **Description**                                |
+|------------------|----------------|------------------------------------------------|
+| `string_multiline` | `x` (number), `y` (number) <br> `align` ((`"t"`, `"c"`, `"b"`) + (`"l"`, `"m"`, `"r"`)) <br> `font` (`"primary"`, `"secondary"`, `"keyboard"`, `"big_numbers"`) <br> `text` (string) | String of text that can span multiple lines.      |
+| `string`           | `x` (number), `y` (number) <br> `align` ((`"t"`, `"c"`, `"b"`) + (`"l"`, `"m"`, `"r"`)) <br> `font` (`"primary"`, `"secondary"`, `"keyboard"`, `"big_numbers"`) <br> `text` (string) | String of text.                                   |
+| `text_box`         | `x` (number), `y` (number) <br> `w` (number), `h` (number) <br> `align` ((`"t"`, `"c"`, `"b"`) + (`"l"`, `"m"`, `"r"`)) <br> `text` (string) <br> `stripToDots` (boolean)            | Box of with text that can be scrolled vertically. |
+| `text_scroll`      | `x` (number), `y` (number) <br> `w` (number), `h` (number) <br> `text` (string)                                                                                                      | Text that can be scrolled vertically.             |
+| `button`           | `text` (string) <br> `button` (`"left"`, `"center"`, `"right"`)                                                                                                                      | Button at the bottom of the screen.               |
+| `icon`             | `x` (number), `y` (number) <br> `iconData` ([IconData](#js_gui__icon))                                                                                                               | Display an icon.                                  |
+| `rect`             | `x` (number), `y` (number) <br> `w` (number), `h` (number) <br> `radius` (number), `fill` (boolean)                                                                                  | Draw a rectangle, optionally rounded and filled.  |
+| `circle`           | `x` (number), `y` (number) <br> `radius` (number), `fill` (boolean)                                                                                                                  | Draw a circle, optionally filled.                 |
+| `line`             | `x1` (number), `y1` (number) <br> `x2` (number), `y2` (number)                                                                                                                       | Draw a line between 2 points.                     |
+
+## Structures
+
+### ButtonEvent 
+
+Button event information structure.
+
+**Fields**
+
+- key: The key that was pressed (`"left" | "center" | "right"`)
+- type: The type of the event (`"press" | "release" | "short" | "long" | "repeat"`)
+
+## View events
+
+| Item     | Type   | Description                                                                 |
+|----------|--------|-----------------------------------------------------------------------------|
+| `button` | `ButtonEvent`| Fires when the user presses on one of the three possible buttons if there's a corresponding button element. Refer to the `ButtonEvent` structure above for possible values. |
+
+
+=== FILE: wide\momentum-docs\js\js_math.md ===
+
+# Math module {#js_math}
+
+The module contains mathematical methods and constants. Call the `require` function to load the module before first using its methods:
+
+```js
+let math = require("math");
+```
+
+# Constants
+
+## PI
+The number π = 3.14159265358979323846264338327950288.
+
+## E
+The number e (Euler's number) = 2.71828182845904523536028747135266250.
+
+## EPSILON
+The smallest number that satisfies the condition: 1.0 + EPSILON != 1.0.
+EPSILON = 2.2204460492503131e-16.
+
+<br>
+
+---
+
+# Methods
+
+## abs()
+Return the absolute value of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The absolute value of `x`. If `x` is negative (including -0), returns `-x`. Otherwise, returns `x`. The result is therefore always a positive number or 0.
+
+**Example**
+```js
+math.abs(-5); // 5
+```
+
+<br>
+
+## acos()
+Return the inverse cosine (in radians) of a number.
+
+**Parameters**
+- x: A number between -1 and 1, inclusive, representing the angle's cosine value
+
+**Returns**
+
+The inverse cosine (angle in radians between 0 and π, inclusive) of `x`. If `x` is less than -1 or greater than 1, returns `NaN`.
+
+**Example**
+```js
+math.acos(-1); // 3.141592653589793
+```
+
+<br>
+
+## acosh()
+Return the inverse hyperbolic cosine of a number.
+
+**Parameters**
+- x: A number greater than or equal to 1
+
+**Returns**
+
+The inverse hyperbolic cosine of `x`.
+
+**Example**
+```js
+math.acosh(1); // 0
+```
+
+<br>
+
+## asin()
+Return the inverse sine (in radians) of a number.
+
+**Parameters**
+- x: A number between -1 and 1, inclusive, representing the angle's sine value
+
+**Returns**
+
+The inverse sine (angle in radians between -𝜋/2 and 𝜋/2, inclusive) of `x`.
+
+**Example**
+```js
+math.asin(0.5); // 0.5235987755982989
+```
+
+<br>
+
+## asinh()
+Return the inverse hyperbolic sine of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The inverse hyperbolic sine of `x`.
+
+**Example**
+```js
+math.asinh(1); // 0.881373587019543
+```
+
+<br>
+
+## atan()
+Return the inverse tangent (in radians) of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The inverse tangent (angle in radians between -𝜋/2 and 𝜋/2, inclusive) of `x`.
+
+**Example**
+```js
+math.atan(1); // 0.7853981633974483
+```
+
+<br>
+
+## atan2()
+Return the angle in the plane (in radians) between the positive x-axis and the ray from (0, 0) to the point (x, y), for math.atan2(y, x).
+
+**Parameters**
+- y: The y coordinate of the point
+- x: The x coordinate of the point
+
+**Returns**
+
+The angle in radians (between -π and π, inclusive) between the positive x-axis and the ray from (0, 0) to the point (x, y).
+
+**Example**
+```js
+math.atan2(90, 15); // 1.4056476493802699
+```
+
+<br>
+
+## atanh()
+The method returns the inverse hyperbolic tangent of a number.
+
+**Parameters**
+- x: A number between -1 and 1, inclusive
+
+**Returns**
+
+The inverse hyperbolic tangent of `x`.
+
+**Example**
+```js
+math.atanh(0.5); // 0.5493061443340548
+```
+
+<br>
+
+## cbrt()
+Return the cube root of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The cube root of `x`.
+
+**Example**
+```js
+math.cbrt(2); // 1.2599210498948732
+```
+
+<br>
+
+## ceil()
+Round up and return the smallest integer greater than or equal to a given number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The smallest integer greater than or equal to `x`. It's the same value as `-math.floor(-x)`.
+
+**Example**
+```js
+math.ceil(-7.004); // -7
+math.ceil(7.004);  // 8
+```
+
+<br>
+
+## clz32()
+Return the number of leading zero bits in the 32-bit binary representation of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The number of leading zero bits in the 32-bit binary representation of `x`.
+
+**Example**
+```js
+math.clz32(1);    // 31
+math.clz32(1000); // 22
+```
+
+<br>
+
+## cos()
+Return the cosine of a number in radians.
+
+**Parameters**
+- x: A number representing an angle in radians
+
+**Returns**
+
+The cosine of `x`, between -1 and 1, inclusive.
+
+**Example**
+```js
+math.cos(math.PI); // -1
+```
+
+<br>
+
+## exp()
+Return e raised to the power of a number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+A nonnegative number representing `e^x`, where `e` is the base of the natural logarithm.
+
+**Example**
+```js
+math.exp(0); // 1
+math.exp(1); // 2.718281828459045
+```
+
+<br>
+
+## floor()
+Round down and return the largest integer less than or equal to a given number.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The largest integer smaller than or equal to `x`. It's the same value as `-math.ceil(-x)`.
+
+**Example**
+```js
+math.floor(-45.95); // -46
+math.floor(-45.05); // -46
+math.floor(-0); // -0
+math.floor(0); // 0
+math.floor(45.05); // 45
+math.floor(45.95); // 45
+```
+
+<br>
+
+## log()
+Return the natural logarithm of x.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The natural logarithm of `x`, as in `ln(x)` where `e` is the base of the natural logarithm.
+
+**Example**
+```js
+math.log(1); // 0
+math.log(3); // 1.0986122886681098
+```
+
+## isEqual()
+Return true if the difference between numbers `a` and `b` is less than the specified `tolerance`.
+
+**Parameters**
+- a: A number a
+- b: A number b
+- tolerance: How much difference is allowed between the numbers to be considered equal
+
+**Returns**
+
+True if the difference between numbers `a` and `b` is less than the specified parameter `e`. Otherwise, false.
+
+**Example**
+```js
+math.isEqual(1.4, 1.6, 0.2);      // false
+math.isEqual(3.556, 3.555, 0.01); // true
+```
+
+<br>
+
+## max()
+Return the largest of two numbers given as input parameters.
+
+**Parameters**
+- a: A number a
+- b: A number b
+
+**Returns**
+
+The largest of the given numbers.
+
+**Example**
+```js
+math.max(10, 20);   // 20
+math.max(-10, -20); // -10
+```
+
+<br>
+
+## min()
+Return the smallest of two numbers given as input parameters.
+
+**Parameters**
+- a: A number a
+- b: A number b
+
+**Returns**
+
+The smallest of the given numbers.
+
+**Example**
+```js
+math.min(10, 20);   // 10
+math.min(-10, -20); // -20
+```
+
+<br>
+
+## pow()
+Return the value of a base raised to a power.
+
+**Parameters**
+- base: The base number
+- exponent: The exponent number
+
+**Returns**
+
+A number representing base taken to the power of exponent.
+
+**Example**
+```js
+math.pow(7, 2);  // 49
+math.pow(7, 3);  // 343
+math.pow(2, 10); // 1024
+```
+
+<br>
+
+## random()
+Return a floating-point, pseudo-random number that's greater than or equal to 0 and less than 1, with approximately uniform distribution over that range — which you can then scale to your desired range.
+
+**Returns**
+
+A floating-point, pseudo-random number between 0 (inclusive) and 1 (exclusive).
+
+**Example**
+```js
+let num = math.random();
+```
+
+<br>
+
+## sign()
+Return 1 or -1, indicating the sign of the number passed as argument.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+-1 if the number is less than 0, and 1 otherwise.
+
+**Example**
+```js
+math.sign(3);  // 1
+math.sign(0);  // 1
+math.sign(-3); // -1
+```
+
+<br>
+
+## sin()
+Return the sine of a number in radians.
+
+**Parameters**
+- x: A number representing an angle in radians
+
+**Returns**
+
+The sine of `x`, between -1 and 1, inclusive.
+
+**Example**
+```js
+math.sin(math.PI / 2); // 1
+```
+
+<br>
+
+## sqrt()
+Return the square root of a number.
+
+**Parameters**
+- x: A number greater than or equal to 0
+
+**Returns**
+
+
+The square root of `x`, a nonnegative number. If `x` < 0, script will fail with an error.
+
+**Example**
+```js
+math.sqrt(25); // 5
+```
+
+<br>
+
+## trunc()
+Return the integer part of a number by removing any fractional digits.
+
+**Parameters**
+- x: A number
+
+**Returns**
+
+The integer part of `x`.
+
+**Example**
+```js
+math.trunc(-1.123); // -1
+math.trunc(0.123);  // 0
+math.trunc(13.37);  // 13
+math.trunc(42.84);  // 42
+```
+
+
+=== FILE: wide\momentum-docs\js\js_notification.md ===
+
+# Notification module {#js_notification}
+
+```js
+let notify = require("notification");
+```
+## Methods
+
+### success()
+"Success" flipper notification message.
+
+**Example**
+```js
+notify.success();
+```
+
+<br>
+
+### error()
+"Error" flipper notification message.
+
+**Example**
+```js
+notify.error();
+```
+
+<br>
+
+### blink()
+Blink notification LED.
+
+**Parameters**
+- Blink color (blue/red/green/yellow/cyan/magenta)
+- Blink type (short/long)
+
+**Examples**
+```js
+notify.blink("red", "short"); // Short blink of red LED
+notify.blink("green", "short"); // Long blink of green LED
+```
+
+=== FILE: wide\momentum-docs\js\js_serial.md ===
+
+# Serial module {#js_serial}
+
+```js
+let serial = require("serial");
+```
+# Methods
+
+## setup()
+Configure serial port. Should be called before all other methods.
+Automatically disables Expansion module service to prevent interference.
+
+**Parameters**
+
+- Serial port name (`"usart"`, `"lpuart"`)
+- Baudrate
+- Optional framing configuration object (e.g. `{ dataBits: "8", parity: "even", stopBits: "1" }`):
+  - `dataBits`: `"6"`, `"7"`, `"8"`, `"9"`
+    - 6 data bits can only be selected when parity is enabled (even or odd)
+    - 9 data bits can only be selected when parity is disabled (none)
+  - `parity`: `"none"`, `"even"`, `"odd"`
+  - `stopBits`: `"0.5"`, `"1"`, `"1.5"`, `"2"`
+    - LPUART only supports whole stop bit lengths (i.e. 1 and 2 but not 0.5 and 1.5)
+
+**Example**
+
+```js
+// Configure LPUART port with baudrate = 115200
+serial.setup("lpuart", 115200);
+```
+
+<br>
+
+## write()
+Write data to serial port.
+
+**Parameters**
+
+One or more arguments of the following types:
+- A string
+- Single number, each number is interpreted as a byte
+- Array of numbers, each number is interpreted as a byte
+- ArrayBuffer or DataView
+
+**Example**
+
+```js
+serial.write(0x0a); // Write a single byte 0x0A
+serial.write("Hello, world!"); // Write a string
+serial.write("Hello, world!", [0x0d, 0x0a]); // Write a string followed by two bytes
+```
+
+<br>
+
+## read()
+Read a fixed number of characters from serial port.
+
+**Parameters**
+
+- Number of bytes to read
+- *(optional)* Timeout value in ms
+
+**Returns**
+
+A sting of received characters or undefined if nothing was received before timeout.
+
+**Example**
+
+```js
+serial.read(1); // Read a single byte, without timeout
+serial.read(10, 5000); // Read 10 bytes, with 5s timeout
+```
+
+<br>
+
+## readln()
+Read from serial port until line break character.
+
+**Parameters**
+
+- *(optional)* Timeout value in ms.
+
+**Returns**
+
+A sting of received characters or undefined if nothing was received before timeout.
+
+**Example**
+
+```js
+serial.readln(); // Read without timeout
+serial.readln(5000); // Read with 5s timeout
+```
+
+<br>
+
+## readAny()
+Read any available amount of data from serial port, can help avoid starving your loop with small reads.
+
+**Parameters**
+
+- *(optional)* Timeout value in ms
+
+**Returns**
+
+A sting of received characters or undefined if nothing was received before timeout.
+
+**Example**
+
+```js
+serial.readAny(); // Read without timeout
+serial.readAny(5000); // Read with 5s timeout
+```
+
+<br>
+
+## readBytes()
+Read from serial port until line break character.
+
+**Parameters**
+
+- Number of bytes to read
+- *(optional)* Timeout value in ms
+
+**Returns**
+
+ArrayBuffer with received data or undefined if nothing was received before timeout.
+
+**Example**
+
+```js
+serial.readBytes(4); // Read 4 bytes, without timeout
+
+// Read one byte from receive buffer with zero timeout, returns UNDEFINED if Rx buffer is empty
+serial.readBytes(1, 0);
+```
+
+<br>
+
+## expect()
+Search for a string pattern in received data stream.
+
+**Parameters**
+
+- Single argument or array of the following types:
+    - A string
+    - Array of numbers, each number is interpreted as a byte
+- *(optional)* Timeout value in ms
+
+**Returns**
+
+Index of matched pattern in input patterns list, undefined if nothing was found.
+
+**Example**
+
+```js
+// Wait for root shell prompt with 1s timeout, returns 0 if it was received before timeout, undefined if not
+serial.expect("# ", 1000);
+
+// Infinitely wait for one of two strings, should return 0 if the first string got matched, 1 if the second one
+serial.expect([": not found", "Usage: "]);
+```
+
+<br>
+
+## end()
+Deinitializes serial port, allowing multiple initializations per script run.
+
+**Example**
+
+```js
+serial.end();
+// Configure LPUART port with baudrate = 115200
+serial.setup("lpuart", 115200);
+```
+
+=== FILE: wide\momentum-docs\js\js_storage.md ===
+
+# Storage module {#js_storage}
+
+The module allows you to access files and directories on the Flipper Zero filesystems. Call the `require` function to load the module before first using its methods:
+
+```js
+let storage = require("storage");
+```
+
+## Paths
+
+To work with files and folders, you'll need to specify paths to them. File paths have the following structure:
+
+```
+/ext/example_subdir_1/example_subdir_2/example_file.txt
+\____________________________________/ \__________/ \_/
+                dirPath                  fileName  fileExt
+```
+
+* **dirPath** — directory path starting with `/int/` (small storage in the MCU's flash memory) or `/ext/` (microSD card storage). Specify the sub-directories containing the file using `/` as a separator between directory names.
+* **fileName** — file name.
+* **fileExt** — file extension (separated from the file name by a period).
+
+---
+
+# Structures
+
+## FsInfo 
+
+Filesystem information structure.
+
+**Fields**
+
+- totalSpace: Total size of the filesystem, in bytes
+- freeSpace: Free space in the filesystem, in bytes
+
+<br>
+
+## FileInfo
+
+File information structure.
+
+**Fields**
+
+- path: Full path (e.g. "/ext/test", returned by `stat`) or file name (e.g. "test", returned by `readDirectory`)
+- isDirectory: Returns `true` if path leads to a directory (not a file)
+- size: File size in bytes, or 0 in the case of directories
+- accessTime: Time of last access as a UNIX timestamp
+
+---
+
+# Classes
+
+## File
+
+This class implements methods for working with file. To get an object of the File class, use the `openFile` method.
+
+<br>
+
+### close()
+
+Closes the file. After this method is called, all other operations related to this file become unavailable.
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+<br>
+
+### isOpen()
+
+**Returns**
+
+`true` if file is currently opened, `false` otherwise.
+
+<br>
+
+### read()
+
+Reads bytes from a file opened in read-only or read-write mode.
+
+**Parameters**
+
+- mode: The data type to interpret the bytes as: a `string` decoded from ASCII data (`"ascii"`), or an `ArrayBuf` (`"binary"`)
+- bytes: How many bytes to read from the file
+
+**Returns**
+
+An `ArrayBuf` if the mode is `"binary"`, a `string` if the mode is `ascii`. The number of bytes that was actually read may be fewer than requested.
+
+<br>
+
+### write()
+
+Writes bytes to a file opened in write-only or read-write mode.
+
+**Parameters**
+
+- data: The data to write: a string that will be ASCII-encoded, or an ArrayBuf
+
+**Returns**
+
+The amount of bytes that was actually written.
+
+<br>
+
+### seekRelative()
+
+Moves the R/W pointer forward.
+
+**Parameters**
+
+- bytes: How many bytes to move the pointer forward by
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+<br>
+
+### seekAbsolute()
+
+Moves the R/W pointer to an absolute position inside the file.
+
+**Parameters**
+
+- bytes: The position inside the file
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+<br>
+
+### tell()
+
+Gets the absolute position of the R/W pointer in bytes.
+
+**Returns**
+
+The absolute current position in the file.
+
+<br>
+
+### truncate()
+
+Discards the data after the current position of the R/W pointer in a file opened in either write-only or read-write mode.
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+<br>
+
+### size()
+
+**Returns**
+
+The total size of the file in bytes.
+
+<br>
+
+### eof()
+
+Detects whether the R/W pointer has reached the end of the file.
+
+**Returns**
+
+`true` if end of file reached, `false` otherwise.
+
+<br>
+
+### copyTo()
+
+Copies bytes from the R/W pointer in the current file to the R/W pointer in another file.
+
+**Parameters**
+
+- dest: The file to copy the bytes into
+- bytes: The number of bytes to copy
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+---
+
+# Methods
+
+## openFile()
+
+Opens a file.
+
+**Parameters**
+
+- path: The path to the file
+- accessMode: How to access the file (`"r"`, `"w"` or `"rw"`)
+- openMode: How to open the file (`"open_existing"`, `"open_always"`, `"open_append"`, `"create_new"` or `"create_always"`)
+
+**Returns**
+
+A `File` object on success, `undefined` otherwise.
+
+<br>
+
+## fileExists()
+
+Detects whether a file exists.
+
+**Parameters**
+
+- path: The path to the file
+
+**Returns**
+
+`true` if file exists, `false` otherwise.
+
+<br>
+
+## arePathsEqual()
+
+Determines whether the two paths are equivalent. Respects filesystem-defined path equivalence rules.
+
+**Parameters**
+
+- path1: The first path for comparison
+- path2: The second path for comparison
+
+**Returns**
+
+`true` if path1 and path2 are equals, `false` otherwise.
+
+<br>
+
+## isSubpathOf()
+
+Determines whether a path is a subpath of another path. Respects filesystem-defined path equivalence rules.
+
+**Parameters**
+
+- parentPath: The parent path
+- childPath: The child path
+
+**Returns**
+
+`true` if path1 and path2 are equals, `false` otherwise.
+
+<br>
+
+## fileOrDirExists()
+
+Detects whether a file or a directory exists.
+
+**Parameters**
+
+- path: The path to the file or directory
+
+**Returns**
+
+`true` if file/directory exists, `false` otherwise.
+
+**Example**
+```js
+if (storage.fileOrDirExists("/ext/test_dir")) {
+    print("Test directory exists");
+}
+```
+
+<br>
+
+## fsInfo()
+
+Fetches generic information about a filesystem.
+
+**Parameters**
+
+- filesystem: The path to the filesystem (e.g. `"/ext"` or `"/int"`)
+
+**Returns**
+
+A `fsInfo` structure or `undefined` on failure.
+
+**Example**
+```js
+let fsinfo = storage.fsInfo("/ext");
+if (fsinfo === undefined) {
+    print("Filesystem access error");
+} else {
+    print("Free space on the /ext filesystem:", fsinfo.freeSpace);
+}
+```
+
+<br>
+
+## stat()
+
+Acquires metadata about a file or directory.
+
+**Parameters**
+
+- path: The path to the file or directory
+
+**Returns**
+
+A `FileInfo` structure or `undefined` on failure.
+
+**Example**
+```js
+let finfo = storage.stat("/ext/test_file.txt");
+if (finfo === undefined) {
+    print("File not found");
+} else {
+    print("File size:", finfo.size);
+}
+```
+
+<br>
+
+## directoryExists()
+
+Detects whether a directory exists.
+
+**Parameters**
+
+- path: The path to the directory
+
+**Returns**
+
+`true` if directory exists, `false` otherwise.
+
+<br>
+
+## makeDirectory()
+
+Creates an empty directory.
+
+**Parameters**
+
+- path: The path to the new directory
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+<br>
+
+## readDirectory()
+
+Reads the list of files in a directory.
+
+**Parameters**
+
+- path: The path to the directory
+
+**Returns**
+
+Array of `FileInfo` structures with directory entries, or `undefined` on failure.
+
+<br>
+
+## nextAvailableFilename()
+
+Chooses the next available filename with a numeric suffix in a directory.
+```
+/ext/example_dir/example_file123.txt
+\______________/ \__________/\_/ \_/
+    dirPath        fileName   |   |
+                              |   +--- fileExt
+                              +------- suffix selected by this function
+```
+
+**Parameters**
+
+- dirPath: The directory to look in
+- fileName: The base of the filename (the part before the numeric suffix)
+- fileExt: The extension of the filename (the part after the numeric suffix)
+- maxLen: The maximum length of the filename with the numeric suffix
+
+**Returns**
+
+The base of the filename with the next available numeric suffix, without the extension or the base directory.
+
+<br>
+
+## copy()
+
+Copies a file or recursively copies a possibly non-empty directory.
+
+**Parameters**
+
+- oldPath: The original path to the file or directory
+- newPath: The new path that the copy of the file or directory will be accessible under
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+**Example**
+```js
+if (storage.copy("/ext/src_file.txt", "/ext/dst_file.txt")) {
+    print("File copied");
+}
+```
+
+<br>
+
+## rename()
+
+Renames or moves a file or directory.
+
+**Parameters**
+
+- oldPath: The old path to the file or directory
+- newPath: The new path that the file or directory will become accessible
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+**Example**
+```js
+if (storage.rename("/ext/src_file.txt", "/ext/dst_file.txt")) {
+    print("File moved");
+}
+```
+
+<br>
+
+## remove()
+
+Removes a file or an empty directory.
+
+**Parameters**
+
+- path: The path to the file or directory
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+**Example**
+```js
+let path = "/ext/test_file.txt";
+
+file = storage.openFile(path, "w", "create_always");
+file.write("Test");
+file.close();
+print("File created");
+
+if (storage.remove(path)) {
+    print("File removed");
+}
+```
+
+<br>
+
+## rmrf()
+
+Removes a file or recursively removes a possibly non-empty directory.
+
+**Parameters**
+
+- path: The path to the file or directory
+
+**Returns**
+
+`true` on success, `false` on failure.
+
+**Example**
+```js
+let path = "/ext/test_dir";
+
+if (storage.rmrf(path)) {
+    print("Directory removed");
+}
+```
+
+<br>
+
+## virtualInit()
+
+Initialize virtual mount api with disk image at given path.
+
+**Parameters**
+
+- path: Path to disk image file
+
+**Returns**
+
+Nothing on success, error on failure.
+
+<br>
+
+## virtualMount()
+
+Mount selected disk image at /mnt path.
+
+**Returns**
+
+Nothing on success, error on failure.
+
+<br>
+
+## virtualQuit()
+
+Deinitialize virtual mount api.
+
+**Returns**
+
+Nothing on success, error on failure.
+
+
+=== FILE: wide\momentum-docs\js\js_using_js_modules.md ===
+
+# Using JavaScript modules {#js_using_js_modules}
+
+In the previous guides, we learned how to write a basic JavaScript app using [built-in functions](#js_builtin). However, the set of built-in functions is limited, so when developing your JS apps, you'll likely want to use external JS modules. These modules offer a wide range of functions (methods) for various tasks.
+
+For example:
+* The `serial` module enables transmitting and receiving data via a serial interface
+* The `badusb` module enables USB keyboard emulation and sending key press events via USB
+* The `math` module provides mathematical functions
+
+JS modules are written in C/C++, making them fast and efficient. They come with Flipper Zero firmware and are stored on the microSD card in compiled form as **FAL (Flipper Application File)** files.
+
+> [!note]
+> You can find the implementation of all supported JS modules in the [Flipper Zero firmware repository](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/applications/system/js_app/modules). Also, check out the [docs for JS modules](#js_modules) for more details.
+
+## How to use JS modules in your app
+
+Before using any of the JS module methods, you **must** import the module using the `require()` function. This loads the module into RAM, allowing you to access its methods.
+
+To save RAM and improve performance, avoid loading modules you don't plan to use. Also, all loaded modules will be automatically unloaded from RAM after the app execution ends.
+
+To load a module, call the `require()` function with the module name in quotes. For example, to load the `notification` module, write this:
+
+\code{.js}
+let notify = require("notification");
+\endcode
+
+Now you can call methods of the `notification` module using the `notify` variable to access them:
+
+\code{.js}
+let notify = require("notification");
+
+notify.success();
+print("success notification");
+\endcode
+
+## What's next?
+
+Congratulations, you've completed the **Getting Started** section of our JS docs. You've learned how to run and debug JS apps, and how to use JS modules. Now, we invite you to check out the [main JavaScript page](#js) where you'll find:
+
+* JavaScript app examples
+* Documentation on JS modules
+* Additional resources related to JavaScript on Flipper Zero
+
+
+=== FILE: wide\momentum-docs\js\js_your_first_js_app.md ===
+
+# Your first JavaScript app {#js_your_first_js_app}
+
+In this guide, we'll create a simple script that outputs ordinal numbers with a delay and learn how to run it on Flipper Zero in different ways. All you need is your Flipper Zero, a PC, and a USB cable.
+
+## Step 1. Create the script file
+
+Create a new text file `first_app.js`. Paste the code below into it and save the file:
+
+\code{.js}
+print("start");
+delay(1000);
+print("1");
+delay(500);
+print("2");
+delay(500);
+print("3");
+delay(500);
+print("end");
+\endcode
+
+What the code does:
+* Outputs the text **start**, waits 1 second
+* Outputs the numbers **1**, **2** and **3**, with a 0.5-second pause after each number
+* Outputs the text **end**
+
+The `print()` function is used to output text. The string to be output is in the brackets. This is a built-in function, so you don't need to include additional JS modules. You can use this function anywhere in your application.
+
+Another built-in function, `delay()`, implements delay. The delay time in milliseconds is given in the brackets. Since 1000 milliseconds equals 1 second, a 1-second delay is written as 1000, and a 0.5-second delay as 500.
+
+> [!note]
+> Find the list of built-in functions in [Built-in functions](#js_builtin).
+
+## Step 2. Copy the file to Flipper Zero
+
+To copy the JavaScript file to Flipper Zero, follow these steps:
+1. Connect your Flipper Zero to your PC via USB.
+2. Open the **qFlipper** application.
+3. Go to the **File manager** tab and open the path `SD Card/apps/Scripts/`.
+4. Drag and drop the file into the qFlipper window.
+
+> [!note]
+> To learn more about qFlipper, visit the [dedicated section in our user documentation](https://docs.flipper.net/qflipper).
+
+Your script is now ready to run on Flipper Zero.
+
+## Step 3. Run your script
+
+You can launch your app in two ways:
+
+* From the Flipper Zero menu
+* Remotely from your PC using the CLI (command-line interface)
+
+Let's explore them both.
+
+### How to run a script from Flipper Zero's menu
+
+1. Go to **Apps → Scripts** in your Flipper Zero's menu. Here, you'll see a list of scripts located in the `SD Card/apps/Scripts/` folder.
+2. Select the script you want to run.
+3. Press the **OK** button to run the script.
+
+\image html js_first_app_on_fz.jpg width=500
+
+The Flipper Zero screen will display the strings with the specified delay, as defined by the `print()` and `delay()` functions.
+
+### How to run script using CLI
+
+The command-line interface (CLI) is a text-based interface that lets you control your Flipper Zero from your computer, including running scripts. Running JavaScript apps via CLI is useful for debugging, as it lets you write and test code remotely, without switching between your PC and the device.
+
+To run the script via CLI:
+
+1. Connect your Flipper Zero to your PC via USB.
+2. Access the CLI using one of the [recommended methods](https://docs.flipper.net/development/cli#HfXTy).
+3. Enter the `js path` command, replacing `path` with the path to the script file on your Flipper Zero:
+
+\code{.sh}
+js /ext/apps/Scripts/first_app.js
+\endcode
+
+\image html js_first_app_on_cli.jpg width=700
+
+As you can see, unlike running JavaScript apps from the Flipper Zero UI, all output from the `print()` function is sent to the CLI, not the device screen.
+
+**Next step:** [Developing apps using JavaScript SDK](#js_developing_apps_using_js_sdk)
+
+
+=== FILE: wide\momentum-docs\js\ReadMe.md ===
+
+> [!IMPORTANT]
+> This documentation may not be accurate! This folder contains source for the [Flipper developer docs on JS](https://developer.flipper.net/flipperzero/doxygen/js.html), and is updated by hand. \
+> You should instead look at the TypeScript definitions (`.d.ts`) in [`applications/system/js_app/packages/fz-sdk`](https://github.com/Next-Flip/Momentum-Firmware/tree/dev/applications/system/js_app/packages/fz-sdk) and examples in [`applications/system/js_app/examples/apps/Scripts`](https://github.com/Next-Flip/Momentum-Firmware/tree/dev/applications/system/js_app/examples/apps/Scripts), these will always reflect what is actually available in the JS engine. \
+> Human readable documentation will eventually be automatically generated from this type information, but for now it is maintained by hand and may not always reflect what is available or have discrepancies between Official and Custom Firmwares.
