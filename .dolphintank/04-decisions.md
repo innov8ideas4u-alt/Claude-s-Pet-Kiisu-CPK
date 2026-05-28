@@ -185,3 +185,24 @@ Each decision is numbered, dated, framed as "we picked A over B because..." and 
 **Alternative considered:** Hot-patch the spec immediately. Rejected because Phase 2 single-fragment outbound paths don't exercise the would-be error path; no functional impact. Cleaner to bundle this fix into Phase 2.5 along with the §7.1 §6.4 chunking work.
 **Reasoning:** The error-handling story for fragmented outbound sends in Phase 2.5 needs to account for the fact that `rpc_system_app_exchange_data()` provides NO success/failure signal to the caller. Backpressure and transport-failure detection happen at a different layer (e.g., the next host-side request timing out). Phase 2.5 should redesign §6.4's pseudocode to be realistic.
 **Captured in:** `docs/decisions/DAY9_PHASE2_COOK_LOG.md` §4 (last paragraph), Phase 2.5 carry-forward in 03-active item 1.C
+
+
+### 021 — Phase 3 Cook 1 scope split: infrastructure-only first, migration in Cook 1.5
+**Date:** 2026-05-27 (Day 11)
+**Status:** ACTIVE — Cook 1 in flight per this decision
+**Pick:** Cook 1 adds reader-task scaffolding + new MCP tools (`flipper_cfc_subscribe`, `_listen`, `_unsubscribe`) that USE the reader, but leaves all existing tools on their current `_receive_main_message` path. Migration of existing tools + update of 4 mock tests in `tests/cfc_phase2/` deferred to Cook 1.5.
+**Alternative considered:** (a) Full migration in Cook 1 as originally specced — rejected because cc halt surfaced that 4 mock tests in `tests/cfc_phase2/` hardcode internal call shape; combining wire-model refactor + mock-test migration + CFC routing changes in one cook would force debugging two unfamiliar things at once if anything failed. (b) Hybrid (migrate non-CFC, leave CFC alone) — rejected as architectural debt; creates two parallel mental models for the wire layer.
+**Reasoning:** Phase 2.5's discipline ("small validated step, then build on it") earned 27/27 in 4 cook attempts. Cook 1 as infrastructure-only proves the reader correct in isolation against synthesized frames before any production code depends on it. Cook 1.5 then does the migration with a proven reader, reducing the unknown count per cook. The cc halt is the system working correctly — pre-flight discipline caught a spec blind spot before any code was written.
+**Captured in:** `docs/decisions/DAY11_PHASE3_SPEC.md` §15.2, `D:\Dev\scratch\day11_phase3_cook1_log.md` (cc-maintained)
+
+### 022 — CFC frames routed by inner transaction_id, not outer command_id
+**Date:** 2026-05-27 (Day 11)
+**Status:** ACTIVE — encoded in Phase 3 reader task design
+**Pick:** The host-side reader task maintains TWO parallel pending maps:
+- `_pending: dict[int, Future]` keyed by outer `Main.command_id` for non-CFC tools
+- `_cfc_pending: dict[int, Future]` keyed by inner `cfc_header.transaction_id` for CFC tools
+
+For any incoming frame with `tag == 'app_data_exchange_request'`, the reader parses the 16-byte CFC header and routes by `transaction_id`. The outer `Main.command_id` field is IGNORED for CFC traffic.
+**Alternative considered:** Single pending map keyed by outer command_id (the original §4.3 design). Rejected because Phase 2.5 already documented the Momentum uninit-malloc bug in `rpc_system_app_exchange_data`: the firmware mallocs the command_id field without zeroing, so inbound CFC frames carry garbage there. The `MOMENTUM_RPC_EXCHANGE_DATA_FIXED=False` constant gates this exact issue.
+**Reasoning:** The CFC `transaction_id` is host-allocated and lives in the CFC header (a field WE wrote into the payload). The FAP correctly preserves it. The outer protobuf command_id is not under our control on the FAP side; it's clobbered by firmware mismanagement. Routing by transaction_id is both correct AND independent of the upstream Momentum fix. When the Momentum PR (D:\Dev\scratch\day10_momentum_pr_draft.md) lands, we can OPTIONALLY simplify back to a single pending map, but the dual-map design will keep working unchanged.
+**Captured in:** `docs/decisions/DAY11_PHASE3_SPEC.md` §15.1, Phase 2.5 DAY10 design doc (uninit-malloc discovery)

@@ -140,3 +140,89 @@ NFC vertical slice + host-listener architecture for async opcodes. See spec §6.
 - **Plan:** Pro plan
 - **Last session goal achieved:** Phase 2.5 SHIPPED at 27/27. Multi-fragment outbound working end-to-end. test_stale_transaction passes deterministically 10/10. Commit `6bf1d32` pushed to origin/main.
 - **Next session goal:** Phase 3 — NFC vertical slice + host-listener architecture. OR pick a side-task (Momentum PR submission, F2 fix, R7 mitigation script).
+
+
+---
+
+## Phase 3 Cook 1 — SHIPPED (2026-05-27, commit aa5a1c8, branch phase3-cook1-host-refactor)
+
+**Status:** Cook 1 complete, 33/33 tests green. NOT yet pushed/merged (operator review pending). NOT yet on main.
+
+**What's true now:**
+- Host-side reader-task infrastructure exists in `flipper_mcp/core/protobuf_rpc.py` — ADDITIVE ONLY, dormant. Existing RPC traffic still uses the legacy `_send_rpc_message → _receive_main_message` direct path. The reader is wired but not engaged.
+- Two parallel pending maps live: `_pending` (cmd_id-keyed, non-CFC) and `_cfc_pending` (transaction_id-keyed, CFC; outer cmd_id ignored per Momentum uninit-malloc bug).
+- Multi-fragment reassembly (`_cfc_assembling`, `_broadcast_assembling`) implemented and tested.
+- Subscription dispatcher (`_subscriptions`, `_Subscription` dataclass with overflow-drops-oldest) is STUBBED — no public subscribe/listen/unsubscribe MCP tools yet (Cook 2).
+- 6 new reader-isolation tests in `tests/phase3/` (synthesized frames, no hardware). All 27 Phase 2.5 live-hardware tests unchanged and green.
+
+**Environment fact (NOT committed, but baseline-blocking):**
+- protobuf runtime MUST be >=6.x on this machine. Generated code in `flipper_mcp/core/protobuf_gen/` is gencode 6.33.2. Machine was bumped 5.29.5 → 6.33.6 during Cook 1. Anyone reproducing baseline needs `pip install protobuf==6.33.6` (or any 6.x).
+
+**Backup:** `protobuf_rpc.py.bak` in working dir (scratch, not committed).
+
+**NOT engaged until Cook 1.5:** the reader does not auto-start at connect(). Engaging it before migrating existing paths = racing readers = red suite.
+
+
+---
+
+## Phase 3 Cook 1.5 — SHIPPED (2026-05-27, reader LIVE)
+
+**Status:** Cook 1.5 complete, 33/33 green on live hardware across 4 gates + 11/11 hardware smoke + cli_command. NOT pushed/merged (operator review pending). Same branch (phase3-cook1-host-refactor).
+
+**What's true now — the host genuinely listens:**
+- Reader is ENGAGED. Auto-starts via `_ensure_session_and_reader()`. It is the SOLE caller of `_receive_main_message` (except the reader loop itself + pre-reader session probe).
+- All 19 public methods migrated off `@_with_wire_lock` to the reader path. Wire lock is now SEND-ONLY.
+- §16.1 has_next streams → per-cmd_id asyncio.Queue (`_send_rpc_stream`). device_info/storage_list/storage_read drain until has_next==False.
+- §16.2 storage_write → one cmd_id, one Future, all chunks under one lock hold, single terminal ack, popped only in finally.
+- §16.3 cli_command → stop reader → CLI text I/O under wire lock → restart session+reader (chose stop/restart over bypass).
+- CFC migrated: `_cfc_send_one_frame` registers a txn future, awaits reader reassembly. 4 mock tests rewritten to inject via reader.
+- Runtime DROPPED 4:13 → ~1:56 (old CFC path wasted ~2.5s/fragment draining; reader model removed it).
+
+**Two bugs cc fixed going live (NOT predicted by spec):**
+1. CFC assembly must key on txn ONLY, not cmd_id==0. FAP sends each fragment via separate exchange_data with independently-garbage command_id, so multi-fragment responses would NEVER reassemble once live. Unified on `_cfc_assembling`. (Would have passed all mocks, failed first real card tap in Cook 3.)
+2. conftest self-deadlock — `async with _wire_lock: _send_rpc_message(...)` deadlocked against now-lock-acquiring `_send_rpc_message`. Switched to public `app_exit()`.
+
+**Removed dead code:** `@_with_wire_lock`, `_send_main_raw`, functools import.
+
+**Env fact:** NO .venv. System C:\Python313, protobuf 6.33.6.
+
+**Changed files:** flipper_mcp/core/protobuf_rpc.py, flipper_mcp/modules/cfc/module.py, flipper_mcp/core/flipper_client.py, tests/cfc_phase2/conftest.py, 4 rewritten test mocks. Backup: protobuf_rpc.py.cook15.bak.
+
+**Cook 2 flags (from log):** subscription dispatcher still stubbed (Cook 2 first task); no session-start lock (add asyncio.Lock if Cook 2 has concurrent first-callers); `_broadcast_assembling` now unused (broadcasts will use unified `_cfc_assembling`); broadcasts route via `_deliver_cfc` → tries `_cfc_pending[txn]` then `_subscriptions[op]`.
+
+
+---
+
+## Reference resource — Momentum firmware local mirror (2026-05-27)
+
+**Location:** D:\Dev\Projects\_reference\Momentum-dev\ (sibling to _reference\Bruce\)
+**Commit:** d3ba597 (branch dev, mntm-dev family, dated 2026-05-12), recursive w/ all submodules. 497MB, 22k files.
+**Why:** Full local checkout of the firmware AmorPoee runs. Claude greps/reads real firmware source instantly via Desktop Commander — no re-cloning per recon question. Saves tokens + tool calls.
+**RULE:** READ-ONLY reference mirror. Never commit/push/treat as a project repo. Never confuse with the CPK project repo. When recon needs firmware files: grep here → copy needed file(s) into the relevant notebookN_* upload folder as .txt → curate (never bulk-dump into NotebookLM).
+**NotebookLM notebook5_nfc_firmware** was sourced from THIS commit, so the mirror and the uploaded NFC corpus are version-matched (no drift).
+
+
+---
+
+## Phase 3 Cook 2 — SHIPPED (2026-05-27, 48/48, FIRST "ALIVE" MILESTONE)
+
+**Status:** Cook 2 complete. 48/48 on live AmorPoee (27 Phase-2 hardware no-regression + 21 phase3). FAP builds clean (uvx ufbt, Target 7, API 87.1), deployed to /ext/apps/Tools/cfc.fap. NOT committed/pushed.
+
+**THE PIPE IS ALIVE:** subscribe(0x42) → FAP armed worker → listen got a broadcast in ~2s with txn 0x80000000 (M3 high bit correct), uid=DEADBEEF, type="iso14443a-4", real timestamp_ms → unsubscribe disarmed. Only the card data is mock; every moving part real.
+
+**Mandates VERIFIED in source (not just claimed):**
+- M1+M2: _Subscription buffer = deque(maxlen=SUBSCRIPTION_QUEUE_DEPTH), atomic evict-oldest, NO await put in delivery path. Live-hang + drop-race designed out.
+- M3: txn high-bit partition (CFC_BROADCAST_TXN_BIT=0x80000000) asserted BOTH directions in _deliver_cfc; host allocator masks 0x7FFFFFFF. Broadcast-resolves-wrong-Future is now structurally impossible.
+- M4: guarded stale-subscriber push. M5: chaos tests present.
+- Q2 exclusive subscribe → CFC_ERR_BUSY; idempotent unsubscribe; listener wake-on-close.
+- FAP: CfcWorker FuriThread + 2 queues (stack 2048), ack→delay(20)→arm (Q1), worker never touches wire (Q3), PHASE4-UI-HOOK marker placed, 5-min idle=disarm, clean shutdown.
+
+**Flags:**
+1. 5 pre-M3 tests used high-bit request txns (now illegal) → updated to host namespace. Conformance, not behavior. (Proves M3 assertion fires.)
+2. §5.5 idle = disarm (not full teardown) — avoids re-creation churn, intent preserved.
+3. Wire-interleaving single-writer mutex DEFERRED to Cook 3 — temporally separated in mock; becomes REAL when a tap coincides with a response. = Cook 3 MUST-DO #1.
+
+**⚠️ GIT HYGIENE:** Cook 1.5 is UNCOMMITTED in working tree. HEAD still = Cook 1 (aa5a1c8). Cook 2 layered on top of uncommitted 1.5. Commit before Cook 3.
+
+**Backups:** cfc/cfc.c.cook2.bak, protobuf_rpc.py.cook2.bak.
+**Cook 3 spec draft ready:** D:\Dev\scratch\day11_cook3_spec_DRAFT.md (NFC recon COMPLETE, all sigs verified vs mirror commit d3ba597).
