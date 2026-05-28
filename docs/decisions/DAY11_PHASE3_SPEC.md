@@ -835,3 +835,200 @@ Full detail in D:\Dev\scratch\day11_arena_bug_reflection.md. Summary:
 - Atomic txn counter: use __atomic_fetch_add; worker allocates from the 0x80000000+ range only.
 - ISR context: NFC tap handler (if in interrupt context) cannot malloc/pb_encode/USB — defer to worker via lock-free queue.
 - USB backpressure: worker enqueues non-blocking (FuriWaitNone), drops if full (drop-newest OK for NFC), never blocks on USB.
+
+
+---
+
+## 18. COOK 3 — Real NFC Integration + Live Fire (verified flow, ready to cook)
+
+Sourced from D:\Dev\scratch\day11_cook3_spec_DRAFT.md, flow traced end-to-end against Momentum source commit d3ba597 (dump.c + iso14443_3a poller callback + nfc_cli_scanner.c). NFC recon COMPLETE.
+
+# Cook 3 Spec DRAFT — Real NFC Integration + Live Fire (PRE-DRAFT, finalize after Cook 2 ships)
+
+**Status:** DRAFT. Do not fire until Cook 2 is green (mock broadcasts working end-to-end).
+**Goal:** Replace Cook 2's mock NFC (DE:AD:BE:EF every 2s) with the REAL Momentum NFC
+scanner+poller. Tap a real card → real UID lands host-side. Closes Phase 3. Retires F4.
+**Recon:** COMPLETE. All signatures verified against Momentum source commit d3ba597.
+See D:\Dev\scratch\day11_cook3_nfc_recon.md for the full verified API surface.
+
+---
+
+## What changes from Cook 2 (this is a SWAP, not new architecture)
+
+Cook 2 built the entire pipe with a fake source: worker thread emits a mock event every
+~2s, main drains it, broadcasts, host listener delivers. Cook 3 changes ONLY the worker's
+event source — from "timer emits fake UID" to "real NFC scanner+poller emits real UID."
+Everything downstream (queue, drain, broadcast, txn partition, host dispatch, mJS) is
+UNCHANGED and already proven in Cook 2.
+
+This is the lowest-risk cook of Phase 3 IF Cook 2 shipped clean — the hard parts
+(concurrency, broadcast plumbing, subscription dispatch) are done.
+
+## The verified NFC API (from Momentum source, do not re-research)
+
+Worker flow on the FAP side:
+1. At subscribe (after ack + 20ms delay per Q1): nfc_alloc() — claims the NFC HAL exclusively.
+2. nfc_scanner_alloc(nfc), nfc_scanner_start(scanner, scanner_cb, ctx).
+3. Scanner is GREEDY/CONTINUOUS — scans all protocols, no manual re-arm.
+4. scanner_cb receives NfcScannerEvent:
+   - type == NfcScannerEventTypeDetected
+   - data.protocol_num + data.protocols[] (array of NfcProtocol)
+5. On detection: pick a protocol from protocols[], create+run an NfcPoller for it to read
+   the card, then const uint8_t* uid = nfc_device_get_uid(device, &uid_len).
+6. Copy UID into a result struct, post to worker_out queue (the SAME queue Cook 2 built).
+   Main thread drains + broadcasts (UNCHANGED from Cook 2).
+7. At unsubscribe / exit: nfc_scanner_stop, free scanner, nfc_free() — releases HAL.
+
+Callback signature (verified):
+  typedef void (*NfcScannerCallback)(NfcScannerEvent event, void* context);
+UID accessor (verified):
+  const uint8_t* nfc_device_get_uid(const NfcDevice* instance, size_t* uid_len);
+
+Handoff: callback may set a thread flag (in-tree CLI scanner pattern) OR
+furi_message_queue_put (also safe). Cook 2 already built the worker_out queue — reuse it;
+the scanner callback posts to it. Keep callback work minimal (copy + post, no heavy ops).
+
+## Real-payload mapping (Cook 2's mock keys → real values)
+
+Cook 2 mock → Cook 3 real:
+  uid:  [0xDE,0xAD,0xBE,0xEF]  → nfc_device_get_uid bytes (4 or 7 typically)
+  type: "iso14443a-4"         → nfc_protocol_get_name(protocol) (real protocol name)
+  rssi: null                  → leave null unless a real RSSI source is found (don't block on it)
+  timestamp_ms: real          → unchanged (already real in Cook 2)
+  overflow_since_last: real   → unchanged
+Same msgpack keys = host side + mJS need ZERO changes. Clean drop-in.
+
+## Concurrency (from Arena Cook 3 forecast — design against, see day11_arena_bug_reflection.md)
+- Wire interleaving: worker NEVER calls rpc_system_app_exchange_data directly. Posts to
+  worker_out; main thread is sole sender. (Already Cook 2's design — reaffirm.)
+- Use-after-free: scanner hands protocols[] + device pointers that are NOT valid after the
+  callback returns. COPY the UID bytes immediately inside the callback before posting. Never
+  post a pointer into scanner-owned memory.
+- HAL lock: while our worker holds nfc_alloc(), nothing else (mJS, stock NFC app) can use
+  NFC. nfc_free() on unsubscribe/exit is mandatory or NFC is bricked until reboot.
+- ISR safety: if any part runs in interrupt context, no malloc/blocking — but the scanner
+  callback runs in the NFC worker thread (not ISR) per the in-tree pattern, so standard
+  worker rules apply.
+
+## Acceptance / live-fire
+- All Cook 2 tests stay green (host side unchanged).
+- FAP builds clean with ufbt.
+- LIVE: flipper_cfc_subscribe(0x42) on AmorPoee, tap a KNOWN card (record its real UID
+  first via the stock NFC app), flipper_cfc_listen receives the REAL UID within ~1s of tap.
+- Tap a SECOND different card without re-subscribing — confirms greedy continuous scan
+  (scanner keeps running, no re-arm). Both UIDs delivered.
+- notification.success() on first real tap (device beeps — classroom-demoable).
+- nfc_free on unsubscribe verified: after unsubscribe, stock NFC app can use NFC again.
+
+## HALT conditions (Cook 3 specific)
+- Card tapped but no event within 5s → likely HAL not claimed or wrong protocol mask. HALT.
+- Scanner detects but poller can't read UID → protocol handling gap. HALT, report which protocol.
+- NFC unusable by stock app after our unsubscribe → nfc_free not called / HAL leak. HALT.
+- Any Cook 2 test goes red → the "swap" touched shared code it shouldn't have. HALT.
+
+## Cut-scope
+If real poller-read-after-scan proves fiddly: ship UID-from-scanner-detection-only if the
+scanner event exposes enough (it may only give protocol, not UID — verify). Worst case,
+Cook 3 = "detect + report protocol present" and Cook 3.5 adds full UID read. But recon
+suggests scanner→poller→get_uid is the right and achievable path.
+
+## Reference files (local mirror — grep, don't re-clone)
+D:\Dev\Projects\_reference\Momentum-dev\
+  lib\nfc\nfc_scanner.h, nfc_poller.h, nfc.h, nfc_device.h
+  applications\main\nfc\cli\commands\helpers\nfc_cli_scanner.c  (the reference loop)
+
+---
+
+## ⚠️ COOK 3 MUST-DO #1 — Wire interleaving (deferred from Cook 2, now REAL)
+
+Cook 2 deferred the single-writer wire mutex because in the MOCK flow, responses (callback
+thread) and broadcasts (main thread) were temporally separated — a 2s timer can't collide
+with an RPC response by luck. **Cook 3 removes that safety:** a real NFC tap can fire at the
+EXACT instant an RPC response is being written. Two threads writing the wire = interleaved
+bytes = host reassembly explodes. This is the #1 Arena-forecast Cook 3 bug.
+
+REQUIRED in Cook 3:
+- A single-writer TX mutex on the FAP wire, held from the FIRST to the LAST fragment of ANY
+  message (response OR broadcast). Do NOT release between fragments.
+- OR keep the existing "worker never writes, only main thread sends" rule AND ensure the
+  main thread serializes its own response-send vs broadcast-drain (they're both on the main
+  thread, so a single send function with no preemption point between fragments suffices).
+- Verify: the main-thread drain (cfc_drain_worker_results) and the RPC response path must
+  not interleave. If both run on the main thread cooperatively, confirm neither yields
+  mid-message.
+
+This is the thing that passes the mock gate and corrupts the wire on the first real tap that
+coincides with a response. Test it: subscribe, then hammer storage_read (multi-fragment
+responses) WHILE tapping cards repeatedly. If reassembly errors appear, the interleave is real.
+
+## Git hygiene note (from Cook 2 completion)
+Cook 1.5 is UNCOMMITTED in the working tree; HEAD is still Cook 1 (aa5a1c8). Cook 2 changes
+are layered on top of uncommitted Cook 1.5. Before Cook 3: commit Cook 1.5 and Cook 2 as
+separate logical commits (or at least commit the current state) so the tree has a clean base.
+
+---
+
+## ✅ VERIFIED FLOW (traced through real source, dump.c + iso14443_3a poller cb, commit d3ba597)
+
+The earlier "scanner -> pick protocol -> poller reads UID" was directionally right but the
+REAL shape is more specific. This is now traced end-to-end against working firmware code:
+
+### Step 1 — SCAN (detect which protocol(s) present) — ref: nfc_cli_scanner.c
+- nfc_scanner_alloc(nfc) -> nfc_scanner_start(scanner, detect_cb, ctx)
+- detect_cb fires NfcScannerEventTypeDetected; copies event.data.protocols[] (array) +
+  protocol_num into your struct; sets a thread flag / posts to queue to wake the worker.
+- Scanner reports PROTOCOLS, not UID. nfc_scanner_stop + nfc_scanner_free after detection.
+
+### Step 2 — POLL (read the actual card for a chosen protocol) — ref: dump.c nfc_cli_dump_card
+- Pick a protocol (dump.c uses index 0: the first detected).
+- nfc_poller_alloc(nfc, desired_protocol)
+- Look up the PER-PROTOCOL poller callback (dump.c has a NfcGenericCallback table indexed
+  by NfcProtocol: protocol_poller_callbacks[NfcProtocolIso14443_3a] = ..._iso14443_3a, etc.)
+- nfc_poller_start(poller, callback, ctx)
+- Block on a semaphore (furi_semaphore_acquire) until the callback signals done.
+- nfc_poller_stop + nfc_poller_free.
+
+### Step 3 — EXTRACT (inside the per-protocol poller callback) — ref: nfc_cli_dump_iso14443_3a.c
+- Callback signature: NfcCommand cb(NfcGenericEvent event, void* context)
+- event.event_data is a protocol-specific event (e.g. const Iso14443_3aPollerEvent*).
+- On <Proto>PollerEventTypeReady: nfc_device_set_data(nfc_device, protocol,
+  nfc_poller_get_data(poller)) -> then return NfcCommandStop.
+- On <Proto>PollerEventTypeError: set error, return NfcCommandStop.
+- Release the semaphore when returning Stop.
+- AFTER the poll completes, the NfcDevice* holds the data -> nfc_device_get_uid(dev, &len).
+
+### CRITICAL DESIGN IMPLICATIONS FOR CFC COOK 3
+
+1. **Per-protocol callbacks are required.** There is NO generic "read any card -> UID"
+   call. Each protocol (Iso14443_3a, MfClassic, MfUltralight, ...) has its own poller
+   event type and callback. For Cook 3 MINIMUM, implement ONLY Iso14443_3a (the most
+   common 4/7-byte UID card — covers most access cards/fobs). Add others in Cook 3.5.
+   This SHRINKS Cook 3 scope: one protocol callback, not fourteen.
+
+2. **The dump pattern is BLOCKING (semaphore).** dump.c does scan -> stop scanner ->
+   poll one card -> stop. It is NOT continuous. For CFC's "subscribe and report EVERY
+   tap" we need the scanner-driven CONTINUOUS loop (begin_scan / wait_scan / keep going),
+   then poll-on-each-detection. The worker loop: scanner detects -> poll that protocol
+   for UID -> emit broadcast -> resume scanning. Do NOT free the scanner after first card
+   (that's the one-shot dump pattern). Use begin_scan/wait_scan/end_scan (the continuous
+   variants in nfc_cli_scanner.c), not detect_protocol (the one-shot variant).
+
+3. **NfcCommandContinue vs Stop** is the POLLER callback's loop control (Step 3), separate
+   from the scanner. Return Stop once the card is read; the worker then resumes the scanner
+   for the next tap.
+
+4. **HAL is held the whole subscription.** nfc_alloc() once at subscribe, nfc_free() at
+   unsubscribe. Scanner + pollers all use that one Nfc*. (Confirms F4 root cause.)
+
+### Cook 3 MINIMUM scope (now precisely bounded)
+- nfc_alloc at subscribe; continuous scanner (begin/wait/end); on Iso14443_3a detection,
+  poll with the iso14443_3a callback, nfc_device_get_uid, emit broadcast; resume scan.
+- ONE protocol (Iso14443_3a). Real UID. Real tap. Closes Phase 3.
+- Other protocols (MfClassic UID, etc.) = Cook 3.5, same pattern repeated.
+
+### Reference files (local mirror, grep don't re-clone)
+D:\Dev\Projects\_reference\Momentum-dev\applications\main\nfc\cli\commands\
+  dump\nfc_cli_command_dump.c                 (scan->poll->save orchestration)
+  dump\protocols\iso14443_3a\nfc_cli_dump_iso14443_3a.c  (the UID-read leaf callback)
+  helpers\nfc_cli_scanner.c                   (continuous scan: begin/wait/end variants)
+
