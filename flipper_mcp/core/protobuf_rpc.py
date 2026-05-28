@@ -9,11 +9,125 @@ Uses generated protobuf code from proto/ directory.
 
 import asyncio
 import functools
+import logging
 import os
+import struct
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from .transport.base import FlipperTransport
+
+_log = logging.getLogger(__name__)
+
+# --- Phase 3 reader-task constants (DAY11 spec §13.4) ---
+#
+# These are the canonical values for the Phase 3 single-reader-task pattern.
+# In Cook 1 the reader infrastructure exists but is not yet wired into the
+# existing RPC flow (which still uses _send_rpc_message + direct
+# _receive_main_message calls). Cook 1.5 migrates the existing tools.
+#
+# Sourced from DAY11_PHASE3_SPEC.md §13.4 — do NOT redefine elsewhere.
+
+RPC_TIMEOUT_S: float = 5.0
+READER_POLL_S: float = 0.1
+CFC_MAX_FRAME_SIZE: int = 884
+CFC_HEADER_LEN: int = 16
+CFC_MAX_TRANSACTION_BYTES: int = 8192
+SUBSCRIPTION_QUEUE_DEPTH: int = 16
+
+# CFC frame header layout — must mirror modules/cfc/module.py exactly so the
+# reader can demux CFC traffic without importing the CFC module (which would
+# create a circular import: cfc/module.py already reaches into ProtobufRPC).
+_CFC_MAGIC: int = 0x4346
+_CFC_VERSION: int = 0x01
+_CFC_HEADER_FMT: str = "<HBBIHHI"  # magic u16, version u8, op u8, txn u32, frag_idx u16, frag_total u16, payload_length u32
+assert struct.calcsize(_CFC_HEADER_FMT) == CFC_HEADER_LEN
+
+
+def parse_cfc_header(payload: bytes) -> Optional[tuple]:
+    """Parse a CFC frame header off the front of ``payload``.
+
+    Returns ``(magic, version, op_code, transaction_id, frag_idx, frag_total,
+    payload_length)`` or ``None`` if the payload is too short or has bad
+    magic/version. Used by the Phase 3 reader to demux app_data_exchange
+    frames by their inner CFC transaction_id (the outer Main.command_id is
+    garbage due to the Momentum uninit-malloc bug — see
+    ``MOMENTUM_RPC_EXCHANGE_DATA_FIXED`` in modules/cfc/module.py §3).
+    """
+    if payload is None or len(payload) < CFC_HEADER_LEN:
+        return None
+    try:
+        hdr = struct.unpack(_CFC_HEADER_FMT, payload[:CFC_HEADER_LEN])
+    except struct.error:
+        return None
+    magic, version, op, txn, frag_idx, frag_total, payload_length = hdr
+    if magic != _CFC_MAGIC or version != _CFC_VERSION:
+        return None
+    return hdr
+
+
+class CfcProtocolDesyncError(Exception):
+    """Raised by the Phase 3 reader when it observes a content tag that has
+    no defined route. Indicates wire-state corruption — the RPC session must
+    be torn down for a clean reconnect.
+
+    Mirrors (intentionally) the exception of the same name in
+    modules/cfc/module.py so existing CFC callers see a single type.
+    """
+
+
+# --- Phase 3 reader-task allowlist of content tags ---
+#
+# CFC traffic (tag == 'app_data_exchange_request') is handled separately via
+# CFC-header demux. The remaining tags fall into three buckets:
+#   - SYNC_REPLY_TAGS: synchronous RPC reply tags; route by outer cmd_id
+#     to the per-request future in `_pending`.
+#   - ASYNC_EVENT_TAGS: server-pushed event frames that may arrive at any
+#     time and are not associated with a specific outbound request. In Cook 1
+#     they are silently consumed (no subscription dispatch yet; Cook 2 wires
+#     the worker side, Cook 3 wires real subscribers).
+#
+# Any tag not in either set raises CfcProtocolDesyncError. Adding a new
+# firmware tag means deciding which bucket it belongs in.
+_SYNC_REPLY_TAGS: frozenset = frozenset({
+    "empty",
+    "system_ping_response",
+    "system_device_info_response",
+    "system_get_datetime_response",
+    "system_update_response",
+    "system_power_info_response",
+    "system_protobuf_version_response",
+    "storage_info_response",
+    "storage_stat_response",
+    "storage_list_response",
+    "storage_read_response",
+    "storage_md5sum_response",
+    "storage_backup_create_response",
+    "storage_backup_restore_response",
+    "property_get_response",
+    "app_get_error_response",
+    "app_lock_status_response",
+    "gui_screen_frame",  # also async, see below — but cmd_id-tagged variants are sync
+    "gui_start_virtual_display_request",
+    "gui_stop_virtual_display_request",
+})
+_ASYNC_EVENT_TAGS: frozenset = frozenset({
+    "app_state_response",
+    "desktop_status",
+})
+
+
+@dataclass
+class _Subscription:
+    """Per-op_code subscription state (Phase 3 — Cook 2 wires real callers).
+
+    The reader puts incoming broadcast events into ``queue``. When ``queue``
+    is full, oldest is dropped and ``overflow_count`` increments (§4.4).
+    """
+    op_code: int
+    queue: "asyncio.Queue[tuple]" = field(default_factory=lambda: asyncio.Queue(maxsize=SUBSCRIPTION_QUEUE_DEPTH))
+    overflow_count: int = 0
+    subscribed_at_ms: int = 0  # §13.2 Q1 belt-and-suspenders
 
 
 @dataclass(frozen=True)
@@ -123,11 +237,326 @@ class ProtobufRPC:
         # One lock per RPC instance, serializes every public method (the wire
         # is shared - see _with_wire_lock decorator).
         self._wire_lock = asyncio.Lock()
+
+        # --- Phase 3 reader-task state (Cook 1 — infrastructure only) ---
+        #
+        # In Cook 1 these fields exist but the reader is not started by the
+        # existing RPC flow. New code paths (e.g. Phase 3 subscribe/listen,
+        # added in Cook 2+) opt in via _ensure_reader_started(). Until then,
+        # existing _send_rpc_message + direct _receive_main_message paths run
+        # exactly as in Phase 2.5.
+        #
+        # Routing rules (operator clarification, DAY11 Cook 1 scope):
+        #   - Non-CFC: outer Main.command_id → _pending[cmd_id] (asyncio.Future[Main])
+        #   - CFC: inner CFC header.transaction_id → _cfc_pending[txn]
+        #     (asyncio.Future[(op_code, transaction_id, assembled_payload_bytes,
+        #     payload_length)]). Outer command_id is IGNORED for CFC traffic
+        #     (Momentum uninit-malloc bug — see MOMENTUM_RPC_EXCHANGE_DATA_FIXED).
+        #
+        # _cfc_assembling holds in-flight multi-fragment response state keyed
+        # by transaction_id. _broadcast_assembling does the same for
+        # command_id == 0 broadcast frames (§13.1).
+        self._pending: Dict[int, "asyncio.Future"] = {}
+        self._cfc_pending: Dict[int, "asyncio.Future"] = {}
+        self._cfc_assembling: Dict[int, dict] = {}
+        self._broadcast_assembling: Dict[int, dict] = {}
+        self._subscriptions: Dict[int, _Subscription] = {}
+        self._reader_task: Optional[asyncio.Task] = None
+        self._reader_stop: asyncio.Event = asyncio.Event()
+        self._reader_start_lock: asyncio.Lock = asyncio.Lock()
+        self._reader_desync_error: Optional[Exception] = None
     
     def _get_next_command_id(self) -> int:
         """Get next command ID for RPC calls."""
         self.command_id = (self.command_id + 1) % 0xFFFFFFFF
         return self.command_id
+
+    # =========================================================================
+    # Phase 3 single-reader-task infrastructure (Cook 1 — scaffolding only)
+    # =========================================================================
+    #
+    # The reader is the SOLE consumer of self._receive_main_message when it
+    # is running. In Cook 1 it is NOT started by the existing RPC flow, so
+    # no contention with the Phase 2.5 direct-receive paths. Cook 1.5 will
+    # migrate _send_rpc_message and CFC to use the reader.
+    #
+    # Public callers (Cook 2 subscribe/listen API) call _ensure_reader_started
+    # exactly once when they need broadcast routing. _stop_reader is called
+    # at disconnect to cancel cleanly.
+
+    async def _ensure_reader_started(self) -> None:
+        """Start the single reader task if not already running.
+
+        Idempotent. Safe to call from multiple coroutines concurrently
+        (start race is closed by _reader_start_lock).
+        """
+        if self._reader_task is not None and not self._reader_task.done():
+            return
+        async with self._reader_start_lock:
+            if self._reader_task is not None and not self._reader_task.done():
+                return
+            self._reader_stop.clear()
+            self._reader_desync_error = None
+            self._reader_task = asyncio.create_task(
+                self._reader_loop(), name="protobuf-rpc-reader"
+            )
+
+    async def _stop_reader(self) -> None:
+        """Cancel the reader task and wait for it to exit cleanly.
+
+        Safe to call when the reader is not running. Always clears
+        ``_reader_task`` regardless of which path closed it (cancel,
+        natural exit, or desync). Fails any pending futures with
+        :class:`asyncio.CancelledError` so awaiters unblock instead of
+        hanging forever after disconnect.
+        """
+        self._reader_stop.set()
+        task = self._reader_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._reader_task = None
+        # Drain pending futures so callers don't hang waiting on a stopped reader.
+        self._fail_all_pending(asyncio.CancelledError("reader stopped"))
+
+    def _fail_all_pending(self, error: BaseException) -> None:
+        """Resolve every pending future with ``error`` and clear assembly state.
+
+        Used by the reader on a fatal protocol desync and by ``_stop_reader``
+        on clean shutdown so callers awaiting on response futures don't hang
+        forever. Idempotent on already-done futures.
+        """
+        for fut in list(self._pending.values()):
+            if not fut.done():
+                fut.set_exception(error)
+        self._pending.clear()
+        for fut in list(self._cfc_pending.values()):
+            if not fut.done():
+                fut.set_exception(error)
+        self._cfc_pending.clear()
+        self._cfc_assembling.clear()
+        self._broadcast_assembling.clear()
+
+    async def _reader_loop(self) -> None:
+        """Single reader task — sole consumer of inbound Main frames (§13.1).
+
+        Reads each Main off the wire and routes by content tag:
+          - app_data_exchange_request → CFC demux (txn-keyed, multi-fragment)
+          - sync reply tags (with matching cmd_id) → _pending[cmd_id] future
+          - async event tags → consumed (Cook 2 will route to subscriptions)
+          - unknown tag → CfcProtocolDesyncError → stop + fail-all-pending
+
+        Exceptions other than ``CfcProtocolDesyncError`` and
+        ``CancelledError`` are logged and the loop continues. A single bad
+        frame must not starve subsequent calls (§10.2).
+        """
+        while not self._reader_stop.is_set():
+            try:
+                main = await self._receive_main_message(timeout=READER_POLL_S)
+                if main is None:
+                    # No frame in the poll window; loop and check stop flag.
+                    continue
+                self._dispatch_main(main)
+            except asyncio.CancelledError:
+                break
+            except CfcProtocolDesyncError as e:
+                self._reader_desync_error = e
+                self._fail_all_pending(e)
+                self._reader_stop.set()
+                if self.debug:
+                    print(f"[reader-loop] desync: {e}", file=sys.stderr)
+                return
+            except Exception as e:
+                if self.debug:
+                    print(
+                        f"[reader-loop] exception (continuing): {type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
+
+    def _dispatch_main(self, main: Any) -> None:
+        """Route one inbound Main message to the right waiter.
+
+        See class-doc / __init__ comments for routing rules. CFC traffic
+        is handled separately because outer command_id is garbage for it
+        (Momentum bug); everything else routes by outer cmd_id.
+        """
+        tag = main.WhichOneof("content")
+        cmd_id = main.command_id
+
+        if tag == "app_data_exchange_request":
+            self._dispatch_cfc(main)
+            return
+
+        if tag in _ASYNC_EVENT_TAGS:
+            # Cook 1: silently consume. Cook 2+ will route by event-type to
+            # active subscriptions (§4.4).
+            if self.debug:
+                print(
+                    f"[reader] consumed async event tag={tag} cmd_id={cmd_id}",
+                    file=sys.stderr,
+                )
+            return
+
+        if tag in _SYNC_REPLY_TAGS:
+            fut = self._pending.get(cmd_id)
+            if fut is not None and not fut.done():
+                fut.set_result(main)
+            elif self.debug:
+                print(
+                    f"[reader] stale sync reply tag={tag} cmd_id={cmd_id} "
+                    f"(no pending future — likely cancelled caller)",
+                    file=sys.stderr,
+                )
+            return
+
+        # Unknown tag — wire-lock invariant says this is impossible. If a new
+        # firmware tag appears, add it to _SYNC_REPLY_TAGS or _ASYNC_EVENT_TAGS
+        # after confirming whether it carries a matching cmd_id.
+        raise CfcProtocolDesyncError(
+            f"reader: unknown content tag={tag} cmd_id={cmd_id}. "
+            f"Add to _SYNC_REPLY_TAGS or _ASYNC_EVENT_TAGS once classified."
+        )
+
+    def _dispatch_cfc(self, main: Any) -> None:
+        """Route one inbound CFC (``app_data_exchange_request``) frame.
+
+        Uses the inner CFC header's ``transaction_id`` for routing — outer
+        ``Main.command_id`` is IGNORED because the Momentum
+        rpc_system_app_exchange_data malloc-uninit bug fills it with
+        garbage (see ``MOMENTUM_RPC_EXCHANGE_DATA_FIXED`` in modules/cfc/
+        module.py §3).
+
+        Multi-fragment responses accumulate per §13.1; the future is set
+        only when all fragments arrive. Single-fragment responses fire
+        immediately.
+
+        Broadcasts (``command_id == 0``) and responses (``command_id != 0``)
+        currently share the same txn-keyed delivery path — the operator's
+        clarification: "IGNORE outer command_id entirely for CFC traffic."
+        Cook 2 will introduce a subscription dispatcher; until then, an
+        unsolicited broadcast that happens to have a txn nobody is waiting
+        on is logged and dropped.
+        """
+        cmd_id = main.command_id  # unused for routing; kept for logs
+        payload = bytes(main.app_data_exchange_request.data)
+
+        hdr = parse_cfc_header(payload)
+        if hdr is None:
+            # Short/empty/bad-magic frame. Phase 2.5 mock tests round-trip
+            # tiny payloads through here as a degenerate-case smoke; in real
+            # CFC traffic the FAP never emits these. Log and drop.
+            if self.debug:
+                print(
+                    f"[reader] CFC frame too short or bad header "
+                    f"(len={len(payload)}, cmd_id={cmd_id}) — dropping",
+                    file=sys.stderr,
+                )
+            return
+
+        magic, version, op, txn, frag_idx, frag_total, payload_length = hdr
+        body = payload[CFC_HEADER_LEN:]
+
+        if frag_total == 0:
+            # Defensive: matches the Phase 2.5 negative test for
+            # zero_fragment_total. Drop, don't crash.
+            if self.debug:
+                print(
+                    f"[reader] CFC frame frag_total=0 op=0x{op:02x} txn={txn} — dropping",
+                    file=sys.stderr,
+                )
+            return
+
+        if frag_total == 1:
+            # Single-fragment: deliver immediately.
+            self._deliver_cfc(txn, op, body, payload_length)
+            return
+
+        # Multi-fragment: accumulate. Per §13.1.
+        is_broadcast = cmd_id == 0  # advisory only; not used for routing
+        assembly_map = self._broadcast_assembling if is_broadcast else self._cfc_assembling
+        asm = assembly_map.setdefault(txn, {
+            "fragments": [None] * frag_total,
+            "fragment_total": frag_total,
+            "op": op,
+            "payload_length": payload_length,
+        })
+        # Frame consistency: total/op/payload_length should not change mid-txn.
+        if asm["fragment_total"] != frag_total or asm["op"] != op:
+            if self.debug:
+                print(
+                    f"[reader] CFC reassembly inconsistency for txn={txn}: "
+                    f"frag_total {asm['fragment_total']}!={frag_total} "
+                    f"or op 0x{asm['op']:02x}!=0x{op:02x} — dropping txn",
+                    file=sys.stderr,
+                )
+            assembly_map.pop(txn, None)
+            return
+        if frag_idx < 0 or frag_idx >= frag_total:
+            if self.debug:
+                print(
+                    f"[reader] CFC bad frag_idx={frag_idx}/{frag_total} for txn={txn} — dropping txn",
+                    file=sys.stderr,
+                )
+            assembly_map.pop(txn, None)
+            return
+        asm["fragments"][frag_idx] = body
+
+        if all(f is not None for f in asm["fragments"]):
+            full = b"".join(asm["fragments"])
+            assembly_map.pop(txn, None)
+            self._deliver_cfc(txn, op, full, asm["payload_length"])
+
+    def _deliver_cfc(
+        self,
+        txn: int,
+        op: int,
+        body: bytes,
+        payload_length: int,
+    ) -> None:
+        """Hand a fully-assembled CFC payload to its waiter.
+
+        Resolution order: per-txn future in ``_cfc_pending`` first, then
+        per-op subscription queue (overflow drops oldest, per §4.4). If
+        neither exists, log a stale-frame warning and drop. The two-stage
+        lookup matches §4.3+§13.1: requests register futures by txn before
+        sending; subscriptions handle unsolicited broadcasts arriving on
+        txns nobody is waiting on.
+        """
+        fut = self._cfc_pending.get(txn)
+        if fut is not None and not fut.done():
+            fut.set_result((op, txn, body, payload_length))
+            return
+
+        sub = self._subscriptions.get(op)
+        if sub is not None:
+            try:
+                sub.queue.put_nowait((op, txn, body, payload_length))
+            except asyncio.QueueFull:
+                # Drop oldest (§4.4 backpressure semantics).
+                sub.overflow_count += 1
+                try:
+                    sub.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    sub.queue.put_nowait((op, txn, body, payload_length))
+                except asyncio.QueueFull:
+                    pass
+            return
+
+        if self.debug:
+            print(
+                f"[reader] stale CFC frame op=0x{op:02x} txn={txn} "
+                f"len={len(body)} (no waiter, no subscription)",
+                file=sys.stderr,
+            )
+
+    # =========================================================================
+    # End Phase 3 reader infrastructure
+    # =========================================================================
 
     @staticmethod
     def _encode_varint(n: int) -> bytes:
