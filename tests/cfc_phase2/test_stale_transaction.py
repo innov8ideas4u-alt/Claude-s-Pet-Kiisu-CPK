@@ -21,8 +21,12 @@ from flipper_mcp.modules.cfc.module import (
 def test_stale_transaction(cfc_client, decode_resp):
     asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
 
-    txn1 = 0xCD000011
-    txn2 = 0xCD000022
+    # M3 namespace partition (Cook 2): host request txns must have the high bit
+    # CLEAR. The FAP echoes these txns in its BUSY error (txn2) and PING
+    # completion (txn1); the dispatcher drops high-bit "responses" as protocol
+    # bugs. (were 0xCD000011 / 0xCD000022 pre-M3.)
+    txn1 = 0x4D000011
+    txn2 = 0x4D000022
 
     # Build a 2-fragment payload for txn1
     big = msgpack.packb({"echo": "Y" * 950})

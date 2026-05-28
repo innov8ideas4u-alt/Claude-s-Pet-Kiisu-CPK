@@ -1,9 +1,12 @@
-"""§4.5b — allowlisted async events are consumed during drain.
+"""§4.5b — async/sync-reply event frames are consumed by the reader; the CFC
+response that follows is still delivered (Cook 1.5 reader model).
 
-Pure unit test. Critical for v6 correctness; the v5 design would have raised
-desync on these frames. For each of the 3 known async event tags (Q6 allowlist
-minus app_data_exchange_request itself), verify that the drain consumes the
-event frame, continues draining, and returns the subsequent CFC data frame.
+Phase 2.5 verified the inline drain consumed allowlisted events then returned
+the next CFC data frame. Cook 1.5 moves this into the single reader task: an
+async-event tag (``app_state_response`` / ``desktop_status``) or a sync-reply tag
+with no matching waiter (``gui_screen_frame`` / ``empty``) is consumed/dropped,
+and the subsequent ``app_data_exchange`` frame for our txn is delivered to the
+CFC future. ``_cfc_send_one_frame`` then returns the reconstructed CFC frame.
 """
 
 from __future__ import annotations
@@ -11,35 +14,18 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
-from flipper_mcp.core.protobuf_gen import flipper_pb2
-from flipper_mcp.modules.cfc.module import _cfc_send_one_frame
-
-
-def _build_mock_rpc(receive_side_effect):
-    rpc = MagicMock()
-    rpc._wire_lock = AsyncMock()
-    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
-    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
-    rpc._get_next_command_id = MagicMock(return_value=42)
-    rpc._send_main_raw = AsyncMock(return_value=True)
-    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
-    return rpc
-
-
-def _make_app_data_exchange_main(payload: bytes, command_id: int = 0):
-    m = flipper_pb2.Main()
-    m.command_id = command_id
-    m.app_data_exchange_request.data = payload
-    return m
-
-
-def _make_async_event_main(field_name: str):
-    m = flipper_pb2.Main()
-    sub = getattr(m, field_name)
-    sub.SetInParent()
-    return m
+from flipper_mcp.modules.cfc.module import (
+    CFC_HEADER_SIZE,
+    OP_PING,
+    _cfc_send_one_frame,
+)
+from tests.phase3._helpers import (
+    make_app_data_main,
+    make_rpc_with_mock_receive,
+    make_tagged_main,
+    pack_cfc,
+)
 
 
 @pytest.mark.parametrize("field_name", [
@@ -49,12 +35,25 @@ def _make_async_event_main(field_name: str):
     "empty",
 ])
 def test_async_event_consumed_then_cfc_data_returned(field_name):
-    rpc = _build_mock_rpc([
-        _make_async_event_main(field_name),
-        _make_app_data_exchange_main(b"data", command_id=0),
-    ])
-    result = asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
-    assert result == b"data", (
-        f"async event {field_name} was not consumed during drain; "
-        f"got {result!r} instead of b'data'"
+    async def _run():
+        rpc, feed = make_rpc_with_mock_receive()
+        rpc._rpc_session_started = True
+        txn = 0x00770077
+        outbound = pack_cfc(OP_PING, txn, 0, 1, 4, b"req")
+        response = pack_cfc(OP_PING, txn, 0, 1, 4, b"data")
+        try:
+            task = asyncio.create_task(_cfc_send_one_frame(rpc, outbound))
+            await asyncio.sleep(0.1)
+            # Event frame first (no matching waiter → consumed/dropped by reader),
+            # then the real CFC response (routed to our txn future).
+            feed(make_tagged_main(field_name, command_id=0))
+            feed(make_app_data_main(response, command_id=0xDEADBEEF))
+            return await asyncio.wait_for(task, timeout=2.0)
+        finally:
+            await rpc._stop_reader()
+
+    result = asyncio.run(_run())
+    assert result is not None, (
+        f"async event {field_name} was not consumed; CFC response not delivered"
     )
+    assert result[CFC_HEADER_SIZE:] == b"data"

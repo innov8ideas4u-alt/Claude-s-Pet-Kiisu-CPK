@@ -230,6 +230,15 @@ class FlipperClient:
     
     async def disconnect(self) -> None:
         """Disconnect from Flipper Zero."""
+        # Phase 3: stop the single reader task BEFORE closing the transport so it
+        # isn't left reading a closing/closed port (in a long-lived event loop the
+        # reader would otherwise leak; under per-call asyncio.run it's already
+        # cancelled at loop close, so this is a no-op there).
+        try:
+            if self.rpc is not None and getattr(self.rpc, "protobuf_rpc", None) is not None:
+                await self.rpc.protobuf_rpc._stop_reader()
+        except Exception as e:
+            self.last_connection_error = str(e)
         try:
             await self.transport.disconnect()
         except Exception as e:

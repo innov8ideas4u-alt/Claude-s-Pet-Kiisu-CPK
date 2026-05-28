@@ -69,6 +69,11 @@ OP_META_VERSION: int = 0x02
 OP_RESET: int = 0xFE
 OP_ERROR: int = 0xFF
 
+# --- Phase 3 Cook 2: NFC subscription opcodes (spec §6.1) ---
+OP_NFC_SUBSCRIBE_CAPTURE: int = 0x40  # host -> FAP: arm the NFC capture worker
+OP_NFC_UNSUBSCRIBE: int = 0x41        # host -> FAP: disarm the worker
+OP_NFC_EVENT: int = 0x42              # FAP -> host: capture broadcast (command_id == 0)
+
 ERR_BAD_FRAME: int = 1
 ERR_BAD_FRAGMENT: int = 2
 ERR_PAYLOAD_TOO_LARGE: int = 3
@@ -77,6 +82,13 @@ ERR_BUSY: int = 5
 ERR_BAD_PAYLOAD: int = 6
 ERR_UNKNOWN_OPCODE: int = 7
 ERR_INTERNAL: int = 99
+
+# --- Phase 3 Cook 2: subscription error codes (spec §6.2) ---
+# Distinct from the Phase 2 assembling-state ERR_BUSY (== 5): these are the
+# subscription-layer codes the FAP returns for the NFC vertical slice.
+ERR_SUB_BUSY: int = 0x10        # Q2 exclusive: op_code already subscribed / worker armed
+ERR_NOT_SUBSCRIBED: int = 0x11  # unsubscribe with no active subscription
+ERR_WORKER_BUSY: int = 0x12     # worker-thread stop in flight
 
 # --- Exceptions ---
 
@@ -94,6 +106,15 @@ class CfcTimeoutError(Exception):
 
 class CfcProtocolError(Exception):
     pass
+
+
+class CfcNotSubscribedError(Exception):
+    """Raised by ``flipper_cfc_listen`` when there is no active subscription for
+    the requested op_code. The caller must ``flipper_cfc_subscribe`` first."""
+
+    def __init__(self, op_code: int) -> None:
+        super().__init__(f"no active subscription for op_code 0x{op_code:02x}")
+        self.op_code = op_code
 
 
 # --- Header pack/unpack ---
@@ -139,8 +160,17 @@ _txn_counter = itertools.count(1)
 
 
 def _next_transaction_id() -> int:
+    """Allocate a host-initiated request transaction_id.
+
+    M3 namespace partition (Cook 2 adversarial-review mandate): host request
+    txns occupy 0x00000000–0x7FFFFFFF (high bit CLEAR); firmware-initiated
+    broadcast txns occupy 0x80000000–0xFFFFFFFF (high bit SET). Masking with
+    0x7FFFFFFF guarantees a request txn can never collide with a broadcast txn,
+    so a broadcast frame can never resolve a pending request Future. The
+    dispatcher (protobuf_rpc._deliver_cfc) re-asserts the partition.
+    """
     with _txn_lock:
-        return next(_txn_counter) & 0xFFFFFFFF
+        return next(_txn_counter) & 0x7FFFFFFF
 
 
 def _get_protobuf_rpc(client: Any) -> Any:
@@ -160,16 +190,16 @@ def _get_protobuf_rpc(client: Any) -> Any:
 # --- Wire-level primitive: send one CFC-framed envelope, receive one envelope's bytes ---
 
 
-class CfcProtocolDesyncError(Exception):
-    """Raised when CFC observes wire state that should be impossible under
-    the wire-lock invariant. Indicates the RPC session is corrupted and
-    must be torn down for a clean reconnect.
-
-    This is intentionally fatal. Callers should NOT catch and ignore this —
-    it means another tool's response leaked into CFC's drain window despite
-    the wire lock being held, which is a state-machine corruption that
-    cannot be safely recovered from in-place.
-    """
+# Phase 3 (Cook 1.5): unify the desync exception with the reader's. The single
+# reader task (protobuf_rpc.ProtobufRPC._reader_loop) raises
+# CfcProtocolDesyncError on an unroutable inbound tag and fails every pending
+# future with it, so a CFC caller awaiting its txn future receives that exact
+# class. Re-exported here so existing `from ...cfc.module import
+# CfcProtocolDesyncError` call sites and tests keep resolving one shared type.
+from flipper_mcp.core.protobuf_rpc import (  # noqa: F401
+    CfcProtocolDesyncError,
+    _Subscription,
+)
 
 
 async def _cfc_send_one_frame(
@@ -178,114 +208,85 @@ async def _cfc_send_one_frame(
     wait_for_response: bool = True,
     followup_timeout: float = 2.5,
 ) -> Optional[bytes]:
-    """Send one CFC frame; receive at most one app_data_exchange response.
+    """Send one CFC frame; return the inbound CFC response frame bytes, or None.
 
-    Holds the ProtobufRPC ``_wire_lock`` for the duration of the send+receive.
+    Phase 3 reader-driven (DAY11 §15.1 / §16). The single background reader task
+    owns ALL inbound reads and demultiplexes CFC traffic by the inner CFC
+    header's ``transaction_id`` — the outer ``Main.command_id`` is garbage
+    (Momentum ``rpc_system_app_exchange_data`` uninit-malloc bug). This function:
 
-    Route-by-tag drain (v6/v8.2 design): inbound frames are routed by their
-    ``which_content`` tag. ``app_data_exchange_request`` returns its payload
-    bytes. The Q6 closed set of asynchronous event frames
-    (``app_state_response``, ``gui_screen_frame``, ``desktop_status``) and
-    the per-request synchronous RPC ack frame (``empty``, command_id matches
-    our outbound request — previously absorbed by _send_rpc_message's strict
-    matcher) are consumed silently and the drain continues. Any other content
-    tag during CFC's drain window means the wire-lock invariant was violated
-    and is raised as ``CfcProtocolDesyncError`` so callers can tear down the
-    RPC session for a clean reconnect.
+      1. Parses the OUTBOUND frame's transaction_id directly from the header
+         (offset 4, u32 LE) WITHOUT validating magic/version — the negative
+         tests deliberately send bad-magic / bad-version frames, and the FAP
+         still echoes their txn in its error response (cfc.c cfc_send_error).
+      2. Registers a per-txn future with the reader (``_cfc_pending[txn]``).
+      3. Sends the ``app_data_exchange`` Main while holding the wire lock only
+         for the brief send.
+      4. Awaits the reader's reassembled ``(op, txn, body, payload_length)`` and
+         reconstructs a SINGLE-fragment CFC frame (header + reassembled body) so
+         existing callers (``flipper_cfc_call`` / ``cfc_recv_response_assembled``
+         / ``decode_resp``) parse it unchanged — the reader already did any
+         multi-fragment reassembly (§13.1).
+
+    With ``wait_for_response=False`` the frame is fired and ``None`` returned
+    without registering/awaiting (used for non-final outbound fragments, which
+    the FAP never answers).
+
+    On a protocol desync, the reader fails the txn future with
+    ``CfcProtocolDesyncError``; that propagates out of this function (it is NOT a
+    timeout) so callers can tear the session down.
     """
     rpc = _get_protobuf_rpc(client)
-    async with rpc._wire_lock:
-        # Build outbound Main
-        main_request = flipper_pb2.Main()
-        main_request.command_id = rpc._get_next_command_id()
-        main_request.has_next = False
-        req = application_pb2.DataExchangeRequest()
-        req.data = frame_bytes
-        main_request.app_data_exchange_request.CopyFrom(req)
 
-        # Send raw (bypass strict matcher)
-        ok = await rpc._send_main_raw(main_request)
-        if not ok:
-            return None
+    # Read the outbound transaction_id straight from the header. parse_cfc_header
+    # would reject bad magic (negative tests), but the FAP echoes the txn anyway.
+    if frame_bytes is not None and len(frame_bytes) >= 8:
+        txn = struct.unpack_from("<I", frame_bytes, 4)[0]
+    else:
+        txn = 0
 
-        if not wait_for_response:
-            return None
+    main_request = flipper_pb2.Main()
+    main_request.command_id = rpc._get_next_command_id()
+    main_request.has_next = False
+    req = application_pb2.DataExchangeRequest()
+    req.data = frame_bytes
+    main_request.app_data_exchange_request.CopyFrom(req)
 
-        # Drain inbound: accept app_data_exchange regardless of command_id
-        # (workaround for Momentum bug — see §3 sunset). Non-CFC frames are
-        # protocol desync (wire lock should prevent them) and raise loudly.
-        deadline = time.monotonic() + followup_timeout
-        PER_READ_TIMEOUT = 0.5
+    await rpc._ensure_session_and_reader()
+    message_data = main_request.SerializeToString()
+    framed = rpc._encode_varint(len(message_data)) + message_data
 
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None  # legitimate timeout — no frame arrived in window
-            this_timeout = min(PER_READ_TIMEOUT, remaining)
-            resp = await rpc._receive_main_message(timeout=this_timeout)
-            if resp is None:
-                continue  # transport returned nothing; keep waiting
+    if not wait_for_response:
+        async with rpc._wire_lock:
+            await rpc.transport.send(framed)
+        return None
 
-            # v6/v8.2: route-by-tag pattern (matches qFlipper's canonical
-            # implementation per NotebookLM Round 3 Q8). Check which_content
-            # tag FIRST. CFC's data frame returns. Known asynchronous event
-            # frames (per Round 3 Q6 — closed set of 4) and the per-request
-            # synchronous RPC ack frame (`empty`, command_id matches our
-            # outbound request — v8.2 addition) are consumed and the drain
-            # continues. Truly unknown content raises desync.
-            if resp.HasField("app_data_exchange_request"):
-                # v5 fix preserved: decouple type-check from payload-check.
-                # Empty bytes (b"") is falsy in Python; structure alone
-                # determines CFC-ness, an empty payload is still a valid
-                # CFC frame.
-                payload_bytes = resp.app_data_exchange_request.data
-                return bytes(payload_bytes) if payload_bytes else b""
-
-            if resp.HasField("empty"):
-                # Synchronous RPC ack-reply from the Flipper RPC dispatcher.
-                # Every request gets one of these with command_id matching
-                # the request, when the registered handler has no specific
-                # reply payload. Previously absorbed by _send_rpc_message's
-                # strict matcher; visible here because _send_main_raw bypasses
-                # matching. (v8.2 addition per cook attempt #1 empirical
-                # finding — Q6 enumeration missed sync-reply category.)
-                continue
-
-            if resp.HasField("app_state_response"):
-                # APP_STARTED / APP_CLOSED event with garbage command_id
-                # (Momentum bug — see §3, mirrors the app_data_exchange
-                # one). Per Round 3 Q7, these arrive AFTER the app_start
-                # reply, so they naturally land here. Consume and continue
-                # draining — the host's real reply may follow.
-                continue
-
-            if resp.HasField("gui_screen_frame"):
-                # Screen streaming event. command_id is clean per Q6 but
-                # the frame is still asynchronous; consume and continue.
-                # NOTE: if GUI streaming is somehow active during CFC ops,
-                # screen-frame flooding could starve the CFC response within
-                # the followup_timeout budget. Per Arena Model A — acceptable
-                # risk for Phase 2.5 (GUI streaming and CFC don't normally
-                # coexist). Phase 3 may need a frame-budget guard here.
-                continue
-
-            if resp.HasField("desktop_status"):
-                # Desktop lock/unlock event. command_id is clean per Q6;
-                # consume and continue.
-                continue
-
-            # Truly unknown content tag during CFC drain. The wire lock
-            # should make non-event, non-CFC frames unreachable. If this
-            # fires, the wire-lock invariant was violated or the firmware
-            # is emitting a frame type that wasn't in the Q6/v8.2 allowlist —
-            # either way, surface as fatal protocol desync.
-            field = resp.WhichOneof('content')
-            raise CfcProtocolDesyncError(
-                f"unknown content tag during CFC drain (wire lock held): "
-                f"command_id={resp.command_id}, content_field={field}. "
-                f"RPC session must be torn down. If this is a legitimate "
-                f"new firmware event type, add it to the v8.2 allowlist."
+    fut = asyncio.get_event_loop().create_future()
+    rpc._cfc_pending[txn] = fut
+    try:
+        async with rpc._wire_lock:  # held only for the send
+            await rpc.transport.send(framed)
+        try:
+            op, r_txn, body, payload_length = await asyncio.wait_for(
+                fut, timeout=followup_timeout
             )
+        except asyncio.TimeoutError:
+            return None  # legitimate timeout — no frame arrived in the window
+
+        # Reconstruct a single-fragment CFC frame from the reader's reassembled
+        # payload. body has the inner CFC header stripped, so re-add one; callers
+        # that re-parse the header (flipper_cfc_call, cfc_recv_response_assembled,
+        # decode_resp) then work exactly as before.
+        return pack_cfc_frame(
+            op_code=op,
+            transaction_id=r_txn,
+            fragment_index=0,
+            fragment_total=1,
+            payload_length=payload_length,
+            fragment_data=body,
+        )
+    finally:
+        rpc._cfc_pending.pop(txn, None)
 
 
 async def cfc_send_raw_frame(
@@ -334,77 +335,21 @@ async def cfc_recv_response_assembled(
             f"first_fragment_bytes claims frag_idx={frag_idx}, expected 0"
         )
 
-    # Collect fragment 0's payload section.
-    payload_parts: list[bytes] = [first_fragment_bytes[CFC_HEADER_SIZE:]]
+    body = first_fragment_bytes[CFC_HEADER_SIZE:]
 
-    # Single-fragment fast path: nothing more to receive.
-    if frag_total == 1:
-        return payload_parts[0]
-
-    # Multi-fragment: read remaining frag_total - 1 fragments off the wire.
-    deadline = time.monotonic() + timeout_s
-    rpc = _get_protobuf_rpc(client)
-    fragments_received = 1
-
-    while fragments_received < frag_total:
-        if time.monotonic() > deadline:
-            raise CfcTimeoutError(
-                f"reassembly timeout: got {fragments_received}/{frag_total} fragments"
-            )
-
-        async with rpc._wire_lock:
-            followup = await rpc._receive_main_message(timeout=2.5)
-
-        if followup is None:
-            raise CfcTimeoutError(
-                f"no fragment received: got {fragments_received}/{frag_total} so far"
-            )
-        if not followup.HasField("app_data_exchange_request"):
-            # An unexpected non-data Main arrived. Could be a stray async event;
-            # we don't try to be clever here — surface as protocol error and let
-            # the test diagnose. (The wire lock should prevent foreign frames,
-            # but defensive raise matches the §2.2 drain loop's discipline.)
-            content_field = followup.WhichOneof("content")
-            raise CfcProtocolError(
-                f"unexpected non-data-exchange Main during reassembly: "
-                f"content_field={content_field}"
-            )
-
-        resp_bytes = bytes(followup.app_data_exchange_request.data)
-        if len(resp_bytes) < CFC_HEADER_SIZE:
-            raise CfcProtocolError(f"reassembly fragment too short: {len(resp_bytes)}")
-
-        (f_magic, f_version, f_op, f_txn, f_idx, f_total, f_plen) = parse_cfc_header(
-            resp_bytes
-        )
-        if f_magic != CFC_MAGIC or f_version != CFC_VERSION:
-            raise CfcProtocolError(
-                f"reassembly bad magic/version: {f_magic:#x}/{f_version:#x}"
-            )
-        if f_txn != txn:
-            raise CfcProtocolError(
-                f"reassembly txn mismatch: got {f_txn}, expected {txn}"
-            )
-        if f_total != frag_total:
-            raise CfcProtocolError(
-                f"reassembly frag_total mismatch: got {f_total}, expected {frag_total}"
-            )
-        if f_plen != payload_length:
-            raise CfcProtocolError(
-                f"reassembly payload_length mismatch: got {f_plen}, expected {payload_length}"
-            )
-
-        payload_parts.append(resp_bytes[CFC_HEADER_SIZE:])
-        fragments_received += 1
-
-    assembled = b"".join(payload_parts)
-    # Sanity check: total bytes should equal payload_length from the header.
-    if len(assembled) != payload_length:
+    # Phase 3 (Cook 1.5): the single reader task reassembles multi-fragment CFC
+    # responses BEFORE delivery, so a caller always receives a single-fragment
+    # frame (frag_total == 1) whose body IS the complete payload. This function
+    # therefore no longer reads the wire itself (the reader is the sole reader);
+    # it just validates and returns the body. A frag_total > 1 reaching here means
+    # the reader's reassembly contract was violated.
+    if frag_total != 1:
         raise CfcProtocolError(
-            f"reassembly size mismatch: got {len(assembled)} bytes, "
-            f"header claimed {payload_length}"
+            f"cfc_recv_response_assembled: frag_total={frag_total} (expected 1); "
+            f"the reader reassembles multi-fragment responses before delivery "
+            f"(txn={txn})"
         )
-    return assembled
+    return body
 
 
 # --- High-level call API ---
@@ -475,11 +420,16 @@ async def flipper_cfc_call(
             fragment_data=frag,
         )
 
-        resp_bytes = await _cfc_send_one_frame(client, frame_bytes)
+        # Only the FINAL outbound fragment gets a response; the FAP stays silent
+        # while assembling. Fire non-final fragments without awaiting so all
+        # fragments land well inside the FAP's 5s ASSEMBLING window (reader-driven
+        # waits would otherwise add ~followup_timeout per non-final fragment).
+        is_final = idx == total - 1
+        resp_bytes = await _cfc_send_one_frame(
+            client, frame_bytes, wait_for_response=is_final
+        )
         if resp_bytes is None:
-            # On the LAST outbound fragment we expect at least one response frame.
-            # On earlier fragments, the FAP sends no response (still assembling).
-            if idx == total - 1:
+            if is_final:
                 raise CfcTimeoutError(
                     f"no response after final outbound fragment (txn={txn})"
                 )
@@ -519,32 +469,11 @@ async def flipper_cfc_call(
         if response_fragments_seen >= (response_expected_total or 1):
             break
 
-    # Drain remaining response fragments if outbound was multi-fragment and inbound
-    # is also multi-fragment.
-    while (
-        response_expected_total is not None
-        and response_fragments_seen < response_expected_total
-    ):
-        if time.monotonic() > deadline:
-            raise CfcTimeoutError("timeout assembling inbound fragments")
-        rpc = _get_protobuf_rpc(client)
-        async with rpc._wire_lock:
-            followup = await rpc._receive_main_message(timeout=2.5)
-        if followup is None:
-            raise CfcTimeoutError("inbound fragment drain timeout")
-        if not followup.HasField("app_data_exchange_request"):
-            raise CfcProtocolError("unexpected non-data-exchange Main during drain")
-        resp_bytes = bytes(followup.app_data_exchange_request.data)
-        (magic, version, r_op, r_txn, r_frag_idx, r_frag_total, r_payload_length) = parse_cfc_header(
-            resp_bytes
-        )
-        if magic != CFC_MAGIC or version != CFC_VERSION:
-            raise CfcProtocolError(f"bad drain magic/version: {magic:#x}/{version:#x}")
-        if r_txn != txn:
-            raise CfcProtocolError(f"drain frame txn={r_txn} != {txn}")
-        response_buffers.append(resp_bytes[CFC_HEADER_SIZE:])
-        response_fragments_seen += 1
-        deadline = time.monotonic() + timeout_s
+    # Phase 3 (Cook 1.5): the reader reassembles multi-fragment CFC responses, so
+    # _cfc_send_one_frame returns a single reconstructed frame (frag_total == 1)
+    # carrying the full payload. The old inbound multi-fragment drain loop (which
+    # read the wire directly via _receive_main_message) is therefore gone — there
+    # is never more than one inbound "frame" to collect here.
 
     assembled = b"".join(response_buffers)
     if response_payload_length is not None and len(assembled) != response_payload_length:
@@ -572,3 +501,167 @@ async def flipper_cfc_call(
         raise CfcProtocolError(f"response is not a dict: {type(decoded).__name__}")
 
     return decoded
+
+
+# --- Phase 3 Cook 2: subscription dispatcher public surface (spec §4.5) ---
+#
+# A subscription is identified by the EVENT op_code the caller wants to receive
+# (e.g. OP_NFC_EVENT 0x42). Arming the FAP-side producer is a separate request
+# op_code (NFC_SUBSCRIBE_CAPTURE 0x40 / NFC_UNSUBSCRIBE 0x41). This map routes
+# event op -> arm/disarm request op. Cook 2 ships one stream (NFC); a host-only
+# op_code with no entry registers a buffer without touching the FAP (used by the
+# chaos/overflow unit tests, which feed broadcasts directly through the reader).
+_SUBSCRIBE_ARM_OP: dict[int, int] = {OP_NFC_EVENT: OP_NFC_SUBSCRIBE_CAPTURE}
+_SUBSCRIBE_DISARM_OP: dict[int, int] = {OP_NFC_EVENT: OP_NFC_UNSUBSCRIBE}
+
+
+async def flipper_cfc_subscribe(
+    client: Any,
+    op_code: int,
+    *,
+    arm_timeout_s: float = 5.0,
+) -> dict:
+    """Subscribe to unsolicited CFC broadcast events for ``op_code`` (spec §4.5).
+
+    Registers a host-side subscription buffer (``deque`` + ``Event``, M1/M2) keyed
+    by the event ``op_code`` and — if that op_code maps to a FAP-side producer —
+    arms it by sending the corresponding capture request and awaiting the ack.
+
+    Q2 exclusive (spec §3): a second subscribe to an already-subscribed op_code
+    raises ``CfcRemoteError(ERR_SUB_BUSY)`` without touching the FAP.
+
+    The host buffer is registered BEFORE the arm request is sent, so no broadcast
+    the FAP emits after its ack (it delays arming 20 ms past the ack per §13.2)
+    can be missed. If arming fails the host subscription is rolled back so state
+    stays consistent.
+
+    Returns a dict describing the subscription; raises on a busy op_code or an
+    arm failure.
+    """
+    rpc = _get_protobuf_rpc(client)
+    await rpc._ensure_session_and_reader()
+
+    if op_code in rpc._subscriptions:
+        raise CfcRemoteError(
+            ERR_SUB_BUSY, f"op_code 0x{op_code:02x} already subscribed (Q2 exclusive)"
+        )
+
+    sub = _Subscription(op_code=op_code, subscribed_at_ms=int(time.monotonic() * 1000))
+    rpc._subscriptions[op_code] = sub
+
+    arm_op = _SUBSCRIBE_ARM_OP.get(op_code)
+    if arm_op is None:
+        # No FAP-side producer to arm — a host-only subscription is sufficient.
+        return {"op_code": op_code, "subscribed": True, "armed": False}
+
+    try:
+        ack = await flipper_cfc_call(client, arm_op, None, timeout_s=arm_timeout_s)
+    except Exception:
+        # Arm failed — roll back so the host doesn't think it's subscribed to a
+        # stream the FAP never started.
+        rpc._subscriptions.pop(op_code, None)
+        raise
+
+    return {"op_code": op_code, "subscribed": True, "armed": True, "ack": ack}
+
+
+async def flipper_cfc_listen(
+    client: Any,
+    op_code: int,
+    timeout_ms: int = 5000,
+) -> Optional[dict]:
+    """Wait for the next broadcast event matching ``op_code`` (spec §4.5).
+
+    Returns the event as ``{"op_code", "txn", "payload", "overflow_count_so_far"}``
+    or ``None`` if none arrives within ``timeout_ms``. ``overflow_count_so_far`` is
+    the host-side drop count (deque evictions); the FAP's own per-event
+    ``overflow_since_last`` lives inside ``payload``.
+
+    Drains the subscription's ``deque`` (M2) and waits on its ``asyncio.Event``
+    (M1) — never on a queue the reader would have to ``await put`` into. The
+    empty-buffer wait uses a clear-then-recheck to close the set/clear race with
+    the producing reader.
+
+    Raises ``CfcNotSubscribedError`` if no subscription is active for ``op_code``.
+    """
+    rpc = _get_protobuf_rpc(client)
+    sub = rpc._subscriptions.get(op_code)
+    if sub is None:
+        raise CfcNotSubscribedError(op_code)
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + max(0.0, timeout_ms / 1000.0)
+
+    while True:
+        if sub.buffer:
+            ev_op, txn, body, _payload_length = sub.buffer.popleft()
+            if not sub.buffer:
+                sub.event.clear()
+            payload = _decode_msgpack(body) if body else None
+            return {
+                "op_code": ev_op,
+                "txn": txn,
+                "payload": payload,
+                "overflow_count_so_far": sub.overflow_count,
+            }
+
+        if sub.closed:
+            # Unsubscribed out from under us — stop waiting.
+            return None
+
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return None
+
+        # Buffer empty: arm the wake, then re-check before sleeping so an event
+        # appended between the empty-check and the clear is not lost.
+        sub.event.clear()
+        if sub.buffer or sub.closed:
+            continue
+        try:
+            await asyncio.wait_for(sub.event.wait(), timeout=remaining)
+        except asyncio.TimeoutError:
+            return None
+
+
+async def flipper_cfc_unsubscribe(
+    client: Any,
+    op_code: int,
+    *,
+    disarm_timeout_s: float = 5.0,
+) -> dict:
+    """Cancel the subscription for ``op_code`` and disarm its FAP producer (§4.5).
+
+    Idempotent (spec §9.2): unsubscribing an op_code with no active subscription
+    is a no-op success, not an error. Removes the host subscription, wakes any
+    blocked listener, and — if the op_code maps to a FAP producer — sends the
+    disarm request (best-effort: the FAP's 5-min idle failsafe covers a lost
+    disarm).
+    """
+    rpc = _get_protobuf_rpc(client)
+    sub = rpc._subscriptions.pop(op_code, None)
+    if sub is None:
+        return {"op_code": op_code, "unsubscribed": False, "was_subscribed": False}
+
+    # Wake any in-flight listener so it returns promptly instead of blocking out
+    # its full timeout on a subscription that no longer exists.
+    sub.closed = True
+    sub.event.set()
+
+    disarm_op = _SUBSCRIBE_DISARM_OP.get(op_code)
+    disarmed = False
+    if disarm_op is not None:
+        try:
+            await flipper_cfc_call(client, disarm_op, None, timeout_s=disarm_timeout_s)
+            disarmed = True
+        except Exception:
+            # Host subscription is already gone; the FAP's idle auto-stop (§5.5)
+            # disarms the worker if this request was lost.
+            disarmed = False
+
+    return {
+        "op_code": op_code,
+        "unsubscribed": True,
+        "was_subscribed": True,
+        "disarmed": disarmed,
+    }

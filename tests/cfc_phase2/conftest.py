@@ -49,15 +49,12 @@ async def _launch_cfc(client: FlipperClient) -> None:
     if rpc is None:
         raise RuntimeError("ProtobufRPC unavailable (protobuf_gen import failed?)")
     # Best-effort: exit any prior CFC instance so we land in a known clean state.
+    # Phase 3: use the public app_exit() (reader-driven, acquires the wire lock
+    # itself) rather than manually holding _wire_lock then calling
+    # _send_rpc_message — the latter would now self-deadlock (the migrated
+    # _send_rpc_message acquires the non-reentrant wire lock for its send).
     try:
-        from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
-        async with rpc._wire_lock:
-            main = flipper_pb2.Main()
-            main.command_id = rpc._get_next_command_id()
-            main.has_next = False
-            req = application_pb2.AppExitRequest()
-            main.app_exit_request.CopyFrom(req)
-            await rpc._send_rpc_message(main)
+        await rpc.app_exit()
         await asyncio.sleep(0.2)
     except Exception:
         pass
@@ -73,17 +70,11 @@ async def _launch_cfc(client: FlipperClient) -> None:
 async def _exit_cfc(client: FlipperClient) -> None:
     """Send AppExit RPC so the FAP terminates cleanly."""
     try:
-        from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
         rpc = client.rpc.protobuf_rpc
         if rpc is None:
             return
-        async with rpc._wire_lock:
-            main = flipper_pb2.Main()
-            main.command_id = rpc._get_next_command_id()
-            main.has_next = False
-            req = application_pb2.AppExitRequest()
-            main.app_exit_request.CopyFrom(req)
-            await rpc._send_rpc_message(main)
+        # Public app_exit() is reader-driven and acquires the wire lock itself.
+        await rpc.app_exit()
     except Exception:  # best-effort
         pass
     await asyncio.sleep(0.2)

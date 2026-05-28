@@ -1,9 +1,15 @@
-"""§4.5 — unknown content tag during CFC drain raises CfcProtocolDesyncError.
+"""§4.5 — an unroutable inbound tag desyncs the reader, which fails the CFC
+caller's pending future (Cook 1.5 reader model).
 
-Pure unit test. ``system_ping_response`` is a synchronous-reply tag NOT in
-the v6 Q6 allowlist (allowlist = app_data_exchange_request, app_state_response,
-gui_screen_frame, desktop_status). If it appears during CFC's drain window
-the wire-lock invariant was violated and the defensive branch must raise loudly.
+Phase 2.5 tested this on the direct ``_cfc_send_one_frame`` drain: a tag outside
+the CFC allowlist raised ``CfcProtocolDesyncError`` inline. Cook 1.5 moves all
+reads into the single reader task, which has a global tag allowlist
+(``_SYNC_REPLY_TAGS`` / ``_ASYNC_EVENT_TAGS``). ``system_ping_response`` is now a
+legitimate sync-reply tag, so it no longer desyncs — it is routed by command_id.
+To trigger a desync we feed ``stop_session``, an OUTBOUND-only request tag that
+must never appear inbound. The reader then fails every pending future
+(including the CFC txn future) with ``CfcProtocolDesyncError``, which propagates
+out of ``_cfc_send_one_frame``.
 """
 
 from __future__ import annotations
@@ -11,33 +17,32 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
-from flipper_mcp.core.protobuf_gen import flipper_pb2
 from flipper_mcp.modules.cfc.module import (
     CfcProtocolDesyncError,
+    OP_PING,
     _cfc_send_one_frame,
+)
+from tests.phase3._helpers import (
+    make_rpc_with_mock_receive,
+    make_tagged_main,
+    pack_cfc,
 )
 
 
-def _build_mock_rpc(receive_side_effect):
-    rpc = MagicMock()
-    rpc._wire_lock = AsyncMock()
-    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
-    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
-    rpc._get_next_command_id = MagicMock(return_value=42)
-    rpc._send_main_raw = AsyncMock(return_value=True)
-    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
-    return rpc
-
-
-def _make_system_ping_response_main():
-    m = flipper_pb2.Main()
-    m.system_ping_response.SetInParent()
-    return m
-
-
 def test_unknown_content_tag_raises_desync():
-    rpc = _build_mock_rpc([_make_system_ping_response_main()])
-    with pytest.raises(CfcProtocolDesyncError, match="unknown content tag"):
-        asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
+    async def _run():
+        rpc, feed = make_rpc_with_mock_receive()
+        rpc._rpc_session_started = True
+        outbound = pack_cfc(OP_PING, 0x00550055, 0, 1, 0, b"")
+        try:
+            task = asyncio.create_task(_cfc_send_one_frame(rpc, outbound))
+            await asyncio.sleep(0.1)
+            # stop_session is an outbound request tag — never legitimately inbound.
+            feed(make_tagged_main("stop_session", command_id=999))
+            with pytest.raises(CfcProtocolDesyncError):
+                await asyncio.wait_for(task, timeout=2.0)
+        finally:
+            await rpc._stop_reader()
+
+    asyncio.run(_run())

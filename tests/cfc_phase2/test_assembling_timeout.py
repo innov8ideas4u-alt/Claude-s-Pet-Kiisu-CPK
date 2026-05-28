@@ -18,7 +18,10 @@ def test_assembling_timeout(cfc_client, decode_resp):
     # Reset first to ensure IDLE
     asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
 
-    txn = 0xABBA0001
+    # M3 namespace partition (Cook 2): host request txns must have the high bit
+    # CLEAR — the FAP echoes this txn in its orphan-fragment error and the
+    # dispatcher drops high-bit "responses" as protocol bugs. (was 0xABBA0001.)
+    txn = 0x2BBA0001
     chunk = b"\x00" * 100
     payload_length = len(chunk) + 50  # 50 more bytes expected in fragment 2
 

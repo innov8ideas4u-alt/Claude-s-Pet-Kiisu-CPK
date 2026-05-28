@@ -1,0 +1,958 @@
+# CFC Phase 2 + 2.5 Test Suite (27/27 passing as of Day 10, commit 6bf1d32)
+# Bundled for NotebookLM ingestion. Each file separated by =============== FILE: <name> ===============
+
+=============== FILE: conftest.py ===============
+"""Shared fixtures for CFC Phase 2 live-hardware tests.
+
+The fixture launches the CFC FAP on AmorPoee (mntm-dev) and provides a
+connected ``FlipperClient`` for the test, then exits the FAP on teardown.
+
+Auto-skip when no Flipper hardware is reachable: set env CFC_REQUIRE_HW=1 to
+force tests to error out instead of being skipped.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import time
+from typing import Any
+
+import pytest
+
+from flipper_mcp.core.flipper_client import FlipperClient
+from flipper_mcp.core.transport.usb import USBTransport
+
+CFC_FAP_PATH = "/ext/apps/Tools/cfc.fap"
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, "1" if default else "").lower() in ("1", "true", "yes", "on")
+
+
+async def _make_client() -> FlipperClient:
+    port_override = os.environ.get("CFC_FLIPPER_PORT")  # optional manual override
+    config: dict[str, Any] = {"baudrate": 115200}
+    if port_override:
+        config["port"] = port_override
+    transport = USBTransport(config)
+    client = FlipperClient(transport)
+    ok = await client.connect()
+    if not ok:
+        raise RuntimeError(
+            f"could not open Flipper transport (port={transport.port}); "
+            f"last_error={client.last_connection_error}"
+        )
+    return client
+
+
+async def _launch_cfc(client: FlipperClient) -> None:
+    """app_start('cfc', 'RPC') — firmware rewrites args to pass the RpcAppSystem pointer."""
+    client.rpc._ensure_protobuf_rpc()
+    rpc = client.rpc.protobuf_rpc
+    if rpc is None:
+        raise RuntimeError("ProtobufRPC unavailable (protobuf_gen import failed?)")
+    # Best-effort: exit any prior CFC instance so we land in a known clean state.
+    try:
+        from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
+        async with rpc._wire_lock:
+            main = flipper_pb2.Main()
+            main.command_id = rpc._get_next_command_id()
+            main.has_next = False
+            req = application_pb2.AppExitRequest()
+            main.app_exit_request.CopyFrom(req)
+            await rpc._send_rpc_message(main)
+        await asyncio.sleep(0.2)
+    except Exception:
+        pass
+    result = await rpc.app_start(CFC_FAP_PATH, "RPC")
+    if not result:
+        raise RuntimeError(
+            f"app_start(cfc, RPC) failed: status_name={result.status_name}"
+        )
+    # Small grace period for the FAP to call rpc_system_app_send_started()
+    await asyncio.sleep(0.4)
+
+
+async def _exit_cfc(client: FlipperClient) -> None:
+    """Send AppExit RPC so the FAP terminates cleanly."""
+    try:
+        from flipper_mcp.core.protobuf_gen import flipper_pb2, application_pb2
+        rpc = client.rpc.protobuf_rpc
+        if rpc is None:
+            return
+        async with rpc._wire_lock:
+            main = flipper_pb2.Main()
+            main.command_id = rpc._get_next_command_id()
+            main.has_next = False
+            req = application_pb2.AppExitRequest()
+            main.app_exit_request.CopyFrom(req)
+            await rpc._send_rpc_message(main)
+    except Exception:  # best-effort
+        pass
+    await asyncio.sleep(0.2)
+
+
+@pytest.fixture
+def cfc_client():
+    """Per-test fixture: opens transport, starts CFC FAP, yields client, exits FAP."""
+
+    async def _setup():
+        client = await _make_client()
+        try:
+            await _launch_cfc(client)
+        except Exception:
+            await client.disconnect()
+            raise
+        return client
+
+    require_hw = _bool_env("CFC_REQUIRE_HW", default=False)
+
+    try:
+        client = asyncio.run(_setup())
+    except Exception as e:
+        if require_hw:
+            raise
+        pytest.skip(f"CFC hardware unavailable: {e}")
+
+    yield client
+
+    try:
+        asyncio.run(_exit_cfc(client))
+    finally:
+        try:
+            asyncio.run(client.disconnect())
+        except Exception:
+            pass
+
+
+@pytest.fixture
+def cfc_call(cfc_client):
+    """Sync wrapper around flipper_cfc_call so tests don't all juggle asyncio.run."""
+    from flipper_mcp.modules.cfc.module import flipper_cfc_call
+
+    def _call(op_code: int, payload: Any = None, timeout_s: float = 10.0) -> dict:
+        return asyncio.run(flipper_cfc_call(cfc_client, op_code, payload, timeout_s))
+
+    return _call
+
+
+@pytest.fixture
+def cfc_send_raw(cfc_client):
+    """Sync wrapper around cfc_send_raw_frame for negative tests."""
+    from flipper_mcp.modules.cfc.module import cfc_send_raw_frame
+
+    def _send(raw: bytes):
+        return asyncio.run(cfc_send_raw_frame(cfc_client, raw))
+
+    return _send
+
+
+def _decode_msgpack_or_none(data: bytes):
+    import msgpack
+
+    try:
+        return msgpack.unpackb(data, raw=False, strict_map_key=False)
+    except Exception:
+        return None
+
+
+@pytest.fixture
+def decode_resp():
+    """Helper: given raw inbound bytes (CFC frame), return (op_code, txn, decoded_dict_or_none)."""
+    from flipper_mcp.modules.cfc.module import (
+        CFC_HEADER_SIZE,
+        CFC_MAGIC,
+        CFC_VERSION,
+        parse_cfc_header,
+    )
+
+    def _decode(raw: bytes):
+        assert raw is not None, "no response from FAP"
+        assert len(raw) >= CFC_HEADER_SIZE, f"response too short: {len(raw)} bytes"
+        magic, version, op, txn, frag_idx, frag_total, payload_length = parse_cfc_header(raw)
+        assert magic == CFC_MAGIC, f"bad magic 0x{magic:04x}"
+        assert version == CFC_VERSION, f"bad version 0x{version:02x}"
+        payload = raw[CFC_HEADER_SIZE:]
+        return op, txn, _decode_msgpack_or_none(payload)
+
+    return _decode
+
+
+=============== FILE: test_assembling_timeout.py ===============
+"""Frag 1 of 2-frag txn, wait 6s, send frag 2 → frag 2 rejected (timer cleaned state)."""
+
+import asyncio
+import time
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_MAX_FRAGMENT_PAYLOAD,
+    ERR_BAD_FRAGMENT,
+    OP_PING,
+    OP_RESET,
+    cfc_send_raw_frame,
+    flipper_cfc_call,
+    pack_cfc_frame,
+)
+
+
+def test_assembling_timeout(cfc_client, decode_resp):
+    # Reset first to ensure IDLE
+    asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
+
+    txn = 0xABBA0001
+    chunk = b"\x00" * 100
+    payload_length = len(chunk) + 50  # 50 more bytes expected in fragment 2
+
+    frag1 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=txn,
+        fragment_index=0,
+        fragment_total=2,
+        payload_length=payload_length,
+        fragment_data=chunk,
+    )
+    asyncio.run(cfc_send_raw_frame(cfc_client, frag1))
+
+    # Wait for 5s ASSEMBLING timer to expire
+    time.sleep(6.0)
+
+    frag2 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=txn,
+        fragment_index=1,
+        fragment_total=2,
+        payload_length=payload_length,
+        fragment_data=b"\x00" * 50,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frag2))
+    op, _txn, body = decode_resp(raw)
+    # Timer cleared state -> FAP is IDLE -> frag_idx=1 is an orphan fragment
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAGMENT
+
+
+=============== FILE: test_async_event_consumed_during_drain.py ===============
+"""§4.5b — allowlisted async events are consumed during drain.
+
+Pure unit test. Critical for v6 correctness; the v5 design would have raised
+desync on these frames. For each of the 3 known async event tags (Q6 allowlist
+minus app_data_exchange_request itself), verify that the drain consumes the
+event frame, continues draining, and returns the subsequent CFC data frame.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from flipper_mcp.core.protobuf_gen import flipper_pb2
+from flipper_mcp.modules.cfc.module import _cfc_send_one_frame
+
+
+def _build_mock_rpc(receive_side_effect):
+    rpc = MagicMock()
+    rpc._wire_lock = AsyncMock()
+    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
+    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
+    rpc._get_next_command_id = MagicMock(return_value=42)
+    rpc._send_main_raw = AsyncMock(return_value=True)
+    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
+    return rpc
+
+
+def _make_app_data_exchange_main(payload: bytes, command_id: int = 0):
+    m = flipper_pb2.Main()
+    m.command_id = command_id
+    m.app_data_exchange_request.data = payload
+    return m
+
+
+def _make_async_event_main(field_name: str):
+    m = flipper_pb2.Main()
+    sub = getattr(m, field_name)
+    sub.SetInParent()
+    return m
+
+
+@pytest.mark.parametrize("field_name", [
+    "app_state_response",
+    "gui_screen_frame",
+    "desktop_status",
+    "empty",
+])
+def test_async_event_consumed_then_cfc_data_returned(field_name):
+    rpc = _build_mock_rpc([
+        _make_async_event_main(field_name),
+        _make_app_data_exchange_main(b"data", command_id=0),
+    ])
+    result = asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
+    assert result == b"data", (
+        f"async event {field_name} was not consumed during drain; "
+        f"got {result!r} instead of b'data'"
+    )
+
+
+=============== FILE: test_broadcast_path_mock.py ===============
+"""§4.4 — broadcast path accepts command_id == 0 (incl. empty payload).
+
+Pure unit test (no hardware). Uses the §4.0 scaffold verbatim.
+Validates v5's empty-payload fix: a CFC frame with structurally present
+``app_data_exchange_request`` and ``data=b""`` returns ``b""``, NOT None,
+NOT raises ``CfcProtocolDesyncError``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from flipper_mcp.core.protobuf_gen import flipper_pb2
+from flipper_mcp.modules.cfc.module import _cfc_send_one_frame
+
+
+def _build_mock_rpc(receive_side_effect):
+    rpc = MagicMock()
+    rpc._wire_lock = AsyncMock()
+    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
+    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
+    rpc._get_next_command_id = MagicMock(return_value=42)
+    rpc._send_main_raw = AsyncMock(return_value=True)
+    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
+    return rpc
+
+
+def _make_app_data_exchange_main(payload: bytes, command_id: int = 0):
+    m = flipper_pb2.Main()
+    m.command_id = command_id
+    m.app_data_exchange_request.data = payload
+    return m
+
+
+def test_broadcast_path_returns_data():
+    rpc = _build_mock_rpc([_make_app_data_exchange_main(b"hello", command_id=0)])
+    result = asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
+    assert result == b"hello"
+
+
+def test_broadcast_path_returns_empty_bytes_not_none():
+    """v5 fix: structurally present app_data_exchange_request with empty bytes
+    payload must return b"", not fall through to defensive desync branch."""
+    rpc = _build_mock_rpc([_make_app_data_exchange_main(b"", command_id=0)])
+    result = asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
+    assert result == b""
+    assert result is not None
+
+
+=============== FILE: test_cfc_timeout_returns_none.py ===============
+"""§4.4b — timeout returns None (v8 addition).
+
+Pure unit test. Validates the timeout-math branch (``remaining <= 0: return None``)
+which has historically been a v1 bug surface. Per Arena Model A — closes the
+most likely timeout-math bug surface.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import itertools
+import time
+
+from unittest.mock import AsyncMock, MagicMock
+
+from flipper_mcp.modules.cfc.module import _cfc_send_one_frame
+
+
+def _build_mock_rpc(receive_side_effect):
+    rpc = MagicMock()
+    rpc._wire_lock = AsyncMock()
+    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
+    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
+    rpc._get_next_command_id = MagicMock(return_value=42)
+    rpc._send_main_raw = AsyncMock(return_value=True)
+    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
+    return rpc
+
+
+def test_timeout_returns_none_no_hang():
+    # _receive_main_message returns None on every call (infinite); drain loop
+    # must honor wall-clock deadline and return None. itertools.repeat is used
+    # instead of a fixed-length list because mocked returns are instantaneous,
+    # so a tight Python loop can iterate thousands of times in 0.5s.
+    rpc = _build_mock_rpc(itertools.repeat(None))
+
+    start = time.monotonic()
+    result = asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes", followup_timeout=0.5))
+    elapsed = time.monotonic() - start
+
+    assert result is None
+    # Wall-clock should be within roughly followup_timeout + one PER_READ_TIMEOUT (0.5s) of slack.
+    assert elapsed < 2.0, f"timeout drain looped past deadline: {elapsed:.2f}s"
+
+
+=============== FILE: test_chunked_ping_roundtrip.py ===============
+"""§4.3 — chunked PING roundtrip (Phase 2.5 Item B).
+
+Sends a ~2KB msgpack payload via flipper_cfc_call(OP_PING, ...). The payload
+exceeds CFC_MAX_FRAGMENT_PAYLOAD (884), so flipper_cfc_call fragments the
+request into multiple frames. The FAP echoes the structure; response must be
+byte-identical to the request and may itself be multi-fragment.
+"""
+
+from flipper_mcp.modules.cfc.module import OP_PING
+
+
+def _build_2kb_echo() -> dict:
+    # ~2KB of nested-dict echo content; sentinel "echo" key preserves structure
+    # so assertion compares against the exact value sent.
+    inner = {"k_" + str(i): "v_" + str(i) * 4 for i in range(80)}
+    return {"echo": {"nested": inner, "sentinel": "chunked_ping_v1"}}
+
+
+def test_chunked_ping_roundtrip(cfc_call):
+    payload = _build_2kb_echo()
+    resp = cfc_call(OP_PING, payload, timeout_s=30.0)
+    assert resp.get("status") == "ok"
+    assert resp.get("echo") == payload["echo"]
+
+
+=============== FILE: test_meta_capabilities.py ===============
+"""META_CAPABILITIES returns the Phase 2 opcode list."""
+
+from flipper_mcp.modules.cfc.module import (
+    OP_META_CAPABILITIES,
+    OP_PING,
+    OP_META_VERSION,
+    OP_RESET,
+    OP_ERROR,
+)
+
+
+def test_meta_capabilities(cfc_call):
+    resp = cfc_call(OP_META_CAPABILITIES, None)
+    assert resp.get("status") == "ok"
+    opcodes = resp.get("opcodes")
+    assert isinstance(opcodes, list)
+    for op in (OP_PING, OP_META_CAPABILITIES, OP_META_VERSION, OP_RESET, OP_ERROR):
+        assert op in opcodes, f"opcode 0x{op:02x} missing from META_CAPABILITIES"
+
+
+=============== FILE: test_meta_version.py ===============
+"""META_VERSION returns non-empty cfc_version and firmware strings."""
+
+from flipper_mcp.modules.cfc.module import OP_META_VERSION
+
+
+def test_meta_version(cfc_call):
+    resp = cfc_call(OP_META_VERSION, None)
+    assert resp.get("status") == "ok"
+    assert isinstance(resp.get("cfc_version"), str) and resp["cfc_version"]
+    assert isinstance(resp.get("firmware"), str) and resp["firmware"]
+    assert isinstance(resp.get("schema_major"), int)
+    assert isinstance(resp.get("schema_minor"), int)
+
+
+=============== FILE: test_msgpack_roundtrip.py ===============
+"""PING with nested structured payload — FAP must echo byte-identical structure."""
+
+from flipper_mcp.modules.cfc.module import OP_PING
+
+
+def test_msgpack_roundtrip(cfc_call):
+    val = {"nested": [1, 2.5, "string", True, None]}
+    resp = cfc_call(OP_PING, {"echo": val})
+    assert resp.get("status") == "ok"
+    assert resp.get("echo") == val
+
+
+=============== FILE: test_negative_bad_fragment_index.py ===============
+"""fragment_index=5, fragment_total=3 → ERROR code=BAD_FRAGMENT (2)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_BAD_FRAGMENT,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_bad_fragment_index(cfc_client, decode_resp):
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD4,
+        fragment_index=5,
+        fragment_total=3,
+        payload_length=10,
+        fragment_data=b"\x00" * 4,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAGMENT
+
+
+=============== FILE: test_negative_bad_magic.py ===============
+"""magic=0x0000 → ERROR code=BAD_FRAME (1)."""
+
+import asyncio
+import struct
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_VERSION,
+    ERR_BAD_FRAME,
+    cfc_send_raw_frame,
+)
+
+
+def test_bad_magic(cfc_client, decode_resp):
+    frame = struct.pack("<HBBIHHI", 0x0000, CFC_VERSION, 0x00, 0xDEAD1, 0, 1, 0)
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF, f"expected ERROR, got 0x{op:02x}"
+    assert isinstance(body, dict)
+    assert body.get("code") == ERR_BAD_FRAME
+
+
+=============== FILE: test_negative_bad_version.py ===============
+"""version=0x99 → ERROR code=BAD_FRAME (1)."""
+
+import asyncio
+import struct
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_MAGIC,
+    ERR_BAD_FRAME,
+    cfc_send_raw_frame,
+)
+
+
+def test_bad_version(cfc_client, decode_resp):
+    frame = struct.pack("<HBBIHHI", CFC_MAGIC, 0x99, 0x00, 0xDEAD2, 0, 1, 0)
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAME
+
+
+=============== FILE: test_negative_malformed_msgpack.py ===============
+"""Valid frame, garbage msgpack payload → ERROR code=BAD_PAYLOAD (6)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_BAD_PAYLOAD,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_malformed_msgpack(cfc_client, decode_resp):
+    # 0xC1 is reserved/unused in msgpack — guaranteed to fail decode as a map
+    garbage = b"\xc1\xc1\xc1\xc1"
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD5,
+        fragment_index=0,
+        fragment_total=1,
+        payload_length=len(garbage),
+        fragment_data=garbage,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_PAYLOAD
+
+
+=============== FILE: test_negative_orphan_fragment.py ===============
+"""fragment_index=1, fragment_total=2 to IDLE FAP → ERROR code=BAD_FRAGMENT (2)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_BAD_FRAGMENT,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_orphan_fragment(cfc_client, decode_resp):
+    # Reset first to guarantee IDLE
+    from flipper_mcp.modules.cfc.module import flipper_cfc_call, OP_RESET
+    asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
+
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD8,
+        fragment_index=1,
+        fragment_total=2,
+        payload_length=20,
+        fragment_data=b"x" * 10,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAGMENT
+
+
+=============== FILE: test_negative_oversized_frame_data.py ===============
+"""Declared payload_length=500 but sends 800 bytes → ERROR code=BAD_FRAGMENT (2)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_BAD_FRAGMENT,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_oversized_frame_data(cfc_client, decode_resp):
+    # Reset first
+    from flipper_mcp.modules.cfc.module import flipper_cfc_call, OP_RESET
+    asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
+
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD9,
+        fragment_index=0,
+        fragment_total=1,
+        payload_length=500,
+        fragment_data=b"x" * 800,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAGMENT
+
+
+=============== FILE: test_negative_oversized_payload.py ===============
+"""payload_length=8193 → ERROR code=PAYLOAD_TOO_LARGE (3)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_PAYLOAD_TOO_LARGE,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_oversized_payload(cfc_client, decode_resp):
+    # Send first fragment with payload_length=8193 (claimed, doesn't matter how much data we attach)
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD3,
+        fragment_index=0,
+        fragment_total=1,
+        payload_length=8193,
+        fragment_data=b"x" * 4,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_PAYLOAD_TOO_LARGE
+
+
+=============== FILE: test_negative_unknown_opcode.py ===============
+"""op_code=0xAA (unused) → ERROR code=UNKNOWN_OPCODE (7)."""
+
+import asyncio
+
+import msgpack
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_UNKNOWN_OPCODE,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_unknown_opcode(cfc_client, decode_resp):
+    payload = msgpack.packb({})
+    frame = pack_cfc_frame(
+        op_code=0xAA,
+        transaction_id=0xDEAD6,
+        fragment_index=0,
+        fragment_total=1,
+        payload_length=len(payload),
+        fragment_data=payload,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_UNKNOWN_OPCODE
+
+
+=============== FILE: test_negative_zero_fragment_total.py ===============
+"""fragment_total=0 → ERROR code=BAD_FRAGMENT (2)."""
+
+import asyncio
+
+from flipper_mcp.modules.cfc.module import (
+    ERR_BAD_FRAGMENT,
+    OP_PING,
+    cfc_send_raw_frame,
+    pack_cfc_frame,
+)
+
+
+def test_zero_fragment_total(cfc_client, decode_resp):
+    frame = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xDEAD7,
+        fragment_index=0,
+        fragment_total=0,
+        payload_length=10,
+        fragment_data=b"x" * 4,
+    )
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, frame))
+    op, _txn, body = decode_resp(raw)
+    assert op == 0xFF
+    assert body.get("code") == ERR_BAD_FRAGMENT
+
+
+=============== FILE: test_non_cfc_frame_raises_desync.py ===============
+"""§4.5 — unknown content tag during CFC drain raises CfcProtocolDesyncError.
+
+Pure unit test. ``system_ping_response`` is a synchronous-reply tag NOT in
+the v6 Q6 allowlist (allowlist = app_data_exchange_request, app_state_response,
+gui_screen_frame, desktop_status). If it appears during CFC's drain window
+the wire-lock invariant was violated and the defensive branch must raise loudly.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from flipper_mcp.core.protobuf_gen import flipper_pb2
+from flipper_mcp.modules.cfc.module import (
+    CfcProtocolDesyncError,
+    _cfc_send_one_frame,
+)
+
+
+def _build_mock_rpc(receive_side_effect):
+    rpc = MagicMock()
+    rpc._wire_lock = AsyncMock()
+    rpc._wire_lock.__aenter__ = AsyncMock(return_value=rpc._wire_lock)
+    rpc._wire_lock.__aexit__ = AsyncMock(return_value=None)
+    rpc._get_next_command_id = MagicMock(return_value=42)
+    rpc._send_main_raw = AsyncMock(return_value=True)
+    rpc._receive_main_message = AsyncMock(side_effect=receive_side_effect)
+    return rpc
+
+
+def _make_system_ping_response_main():
+    m = flipper_pb2.Main()
+    m.system_ping_response.SetInParent()
+    return m
+
+
+def test_unknown_content_tag_raises_desync():
+    rpc = _build_mock_rpc([_make_system_ping_response_main()])
+    with pytest.raises(CfcProtocolDesyncError, match="unknown content tag"):
+        asyncio.run(_cfc_send_one_frame(rpc, b"frame_bytes"))
+
+
+=============== FILE: test_ping_roundtrip.py ===============
+"""PING with a simple echo payload — first empirical validation of Q-IMPL-5."""
+
+from flipper_mcp.modules.cfc.module import OP_PING
+
+
+def test_ping_roundtrip(cfc_call):
+    resp = cfc_call(OP_PING, {"echo": "hello"})
+    assert resp.get("status") == "ok"
+    assert resp.get("echo") == "hello"
+
+
+=============== FILE: test_recovery_after_bad_frame.py ===============
+"""Bad-frame ERROR followed by a clean PING — proves recovery."""
+
+import asyncio
+import struct
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_HEADER_SIZE,
+    CFC_VERSION,
+    OP_PING,
+    cfc_send_raw_frame,
+    flipper_cfc_call,
+    parse_cfc_header,
+)
+
+
+def test_recovery_after_bad_frame(cfc_client, decode_resp):
+    # Manually-crafted frame with bad magic
+    bad = struct.pack("<HBBIHHI", 0x0000, CFC_VERSION, 0x00, 0xBAD1, 0, 1, 0)
+    raw = asyncio.run(cfc_send_raw_frame(cfc_client, bad))
+    op, txn, body = decode_resp(raw)
+    assert op == 0xFF, f"expected ERROR opcode, got 0x{op:02x}"
+
+    # Now PING — must succeed
+    resp = asyncio.run(flipper_cfc_call(cfc_client, OP_PING, {"echo": "recovered"}, timeout_s=10.0))
+    assert resp.get("status") == "ok"
+    assert resp.get("echo") == "recovered"
+
+
+=============== FILE: test_reset_during_assembling.py ===============
+"""Send frag 1 of a 2-frag txn, RESET, then PING — buffer must be cleaned."""
+
+import asyncio
+
+import msgpack
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_MAX_FRAGMENT_PAYLOAD,
+    OP_PING,
+    OP_RESET,
+    pack_cfc_frame,
+    cfc_send_raw_frame,
+    flipper_cfc_call,
+)
+
+
+def test_reset_during_assembling(cfc_client):
+    # Build a 2-fragment outbound transaction (payload_length > 884 bytes)
+    fake_payload = msgpack.packb({"echo": "x" * 1000})
+    payload_length = len(fake_payload)
+    assert payload_length > CFC_MAX_FRAGMENT_PAYLOAD
+
+    chunk_a = fake_payload[:CFC_MAX_FRAGMENT_PAYLOAD]
+    frag1 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=0xCAFE0001,
+        fragment_index=0,
+        fragment_total=2,
+        payload_length=payload_length,
+        fragment_data=chunk_a,
+    )
+    # Send fragment 1 — no response expected, FAP enters ASSEMBLING
+    asyncio.run(cfc_send_raw_frame(cfc_client, frag1))
+
+    # Now RESET via the normal call API (different txn)
+    resp = asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
+    assert resp.get("status") == "ok"
+
+    # PING should succeed (buffer cleared)
+    resp2 = asyncio.run(flipper_cfc_call(cfc_client, OP_PING, {"echo": "clean"}, timeout_s=10.0))
+    assert resp2.get("status") == "ok"
+    assert resp2.get("echo") == "clean"
+
+
+=============== FILE: test_reset_returns_idle.py ===============
+"""RESET in IDLE returns ok; subsequent PING succeeds."""
+
+from flipper_mcp.modules.cfc.module import OP_PING, OP_RESET
+
+
+def test_reset_then_ping(cfc_call):
+    resp = cfc_call(OP_RESET, None)
+    assert resp.get("status") == "ok"
+    resp2 = cfc_call(OP_PING, {"echo": "after_reset"})
+    assert resp2.get("status") == "ok"
+    assert resp2.get("echo") == "after_reset"
+
+
+=============== FILE: test_stale_transaction.py ===============
+"""Frag 1 of txn 1, then frag 1 of txn 2 → BUSY for txn 2; txn 1 still completes."""
+
+import asyncio
+import time
+
+import msgpack
+
+from flipper_mcp.modules.cfc.module import (
+    CFC_HEADER_SIZE,
+    CFC_MAX_FRAGMENT_PAYLOAD,
+    ERR_BUSY,
+    OP_PING,
+    OP_RESET,
+    cfc_recv_response_assembled,  # v8.4 addition
+    cfc_send_raw_frame,
+    flipper_cfc_call,
+    pack_cfc_frame,
+)
+
+
+def test_stale_transaction(cfc_client, decode_resp):
+    asyncio.run(flipper_cfc_call(cfc_client, OP_RESET, None, timeout_s=10.0))
+
+    txn1 = 0xCD000011
+    txn2 = 0xCD000022
+
+    # Build a 2-fragment payload for txn1
+    big = msgpack.packb({"echo": "Y" * 950})
+    assert len(big) > CFC_MAX_FRAGMENT_PAYLOAD
+    chunk_a = big[:CFC_MAX_FRAGMENT_PAYLOAD]
+    chunk_b = big[CFC_MAX_FRAGMENT_PAYLOAD:]
+    payload_length = len(big)
+
+    frag1_txn1 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=txn1,
+        fragment_index=0,
+        fragment_total=2,
+        payload_length=payload_length,
+        fragment_data=chunk_a,
+    )
+    # No-wait: FAP won't send a response for this non-final fragment, so don't
+    # burn 2.5s on a futile drain (we want txn2 to arrive well within the 5s
+    # ASSEMBLING timer window).
+    asyncio.run(cfc_send_raw_frame(cfc_client, frag1_txn1, wait_for_response=False))
+
+    # Now hit FAP with a different txn — should get BUSY
+    frag1_txn2 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=txn2,
+        fragment_index=0,
+        fragment_total=1,
+        payload_length=8,
+        fragment_data=b"\x80\x80\x00\x00\x00\x00\x00\x00",  # not msgpack-relevant, won't be decoded
+    )
+    raw_busy = asyncio.run(cfc_send_raw_frame(cfc_client, frag1_txn2))
+    op_b, _txn_b, body_b = decode_resp(raw_busy)
+    assert op_b == 0xFF
+    assert body_b.get("code") == ERR_BUSY
+
+    # Finish txn1 before its 5s timer fires
+    frag2_txn1 = pack_cfc_frame(
+        op_code=OP_PING,
+        transaction_id=txn1,
+        fragment_index=1,
+        fragment_total=2,
+        payload_length=payload_length,
+        fragment_data=chunk_b,
+    )
+    # v8.4: PING completions can now be multi-fragment (Phase 2.5 §6.4).
+    # cfc_send_raw_frame returns only fragment 0; assemble the rest via the
+    # new helper before decoding.
+    raw_done_frag0 = asyncio.run(cfc_send_raw_frame(cfc_client, frag2_txn1))
+    assembled_payload = asyncio.run(
+        cfc_recv_response_assembled(cfc_client, raw_done_frag0)
+    )
+    # decode_resp expects header + payload bytes (header parsed, payload
+    # msgpack-decoded). Synthesize that shape from frag0's header + assembled
+    # payload.
+    op_d, _txn_d, body_d = decode_resp(
+        raw_done_frag0[:CFC_HEADER_SIZE] + assembled_payload
+    )
+    assert op_d == OP_PING, f"expected PING response for txn1, got 0x{op_d:02x}"
+    assert body_d.get("status") == "ok"
+    assert body_d.get("echo") == "Y" * 950
+
+
+

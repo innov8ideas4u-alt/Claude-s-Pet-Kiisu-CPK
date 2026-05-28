@@ -38,11 +38,6 @@
 #define CFC_OP_RESET              0xFEu
 #define CFC_OP_ERROR              0xFFu
 
-/* Phase 3 Cook 2 — NFC subscription opcodes (spec §6.1) */
-#define CFC_OP_NFC_SUBSCRIBE_CAPTURE 0x40u
-#define CFC_OP_NFC_UNSUBSCRIBE       0x41u
-#define CFC_OP_NFC_EVENT             0x42u /* broadcast (command_id == 0) */
-
 #define CFC_ERR_BAD_FRAME         1
 #define CFC_ERR_BAD_FRAGMENT      2
 #define CFC_ERR_PAYLOAD_TOO_LARGE 3
@@ -52,57 +47,12 @@
 #define CFC_ERR_UNKNOWN_OPCODE    7
 #define CFC_ERR_INTERNAL          99
 
-/* Phase 3 Cook 2 — subscription error codes (spec §6.2). Distinct from the
- * assembling-state CFC_ERR_BUSY (== 5) above. */
-#define CFC_ERR_SUB_BUSY          0x10 /* Q2 exclusive: already subscribed/armed */
-#define CFC_ERR_NOT_SUBSCRIBED    0x11
-#define CFC_ERR_WORKER_BUSY       0x12
-
 #define CFC_RESPONSE_SCRATCH      1024u
-
-/* Phase 3 Cook 2 — worker / broadcast tunables (spec §5.4, §5.5, §13.4) */
-#define CFC_WORKER_STACK_SIZE        2048u   /* §5.4: NFC-class worker */
-#define CFC_WORKER_IN_DEPTH          8u      /* main -> worker control events */
-#define CFC_WORKER_OUT_DEPTH         16u     /* worker -> main results */
-#define CFC_WORKER_MOCK_INTERVAL_MS  2000u   /* mock broadcast cadence */
-#define CFC_WORKER_IDLE_TIMEOUT_MS   300000u /* §5.5/Q6: 5-min idle failsafe */
-#define CFC_MAIN_POLL_MS             100u    /* main-loop drain/idle tick */
-#define CFC_BROADCAST_TXN_BIT        0x80000000u /* M3: broadcast txn namespace */
 
 typedef enum {
     CfcStateIdle,
     CfcStateAssembling,
 } CfcState;
-
-/* ------- Phase 3 Cook 2: worker thread (spec §5.1-§5.3) ------- */
-
-typedef enum {
-    CfcWorkerEventTypeStop,
-    CfcWorkerEventTypeNfcArm,
-    CfcWorkerEventTypeNfcDisarm,
-} CfcWorkerEventType;
-
-typedef struct {
-    CfcWorkerEventType type;
-} CfcWorkerEvent;
-
-/* Worker -> main capture result. Cook 2 MOCK: uid/type/rssi are FAKE; only
- * timestamp_ms and overflow_since_last are REAL, so the backpressure path is
- * genuinely exercised. Cook 3 replaces the mock with the real Momentum NFC API.
- * Passed BY VALUE through the queue — never a pointer to worker stack (UAF). */
-typedef struct {
-    uint8_t uid[8];
-    size_t uid_len;
-    uint32_t timestamp_ms;        /* REAL: furi_get_tick() at "capture" */
-    uint32_t overflow_since_last; /* REAL: worker_out drops since last delivered */
-} CfcWorkerResult;
-
-typedef struct {
-    FuriThread* thread;
-    FuriMessageQueue* worker_in;  /* main -> worker (CfcWorkerEvent) */
-    FuriMessageQueue* worker_out; /* worker -> main (CfcWorkerResult) */
-    bool worker_nfc_armed;        /* WORKER-THREAD-PRIVATE: only the worker r/w */
-} CfcWorker;
 
 typedef struct {
     RpcAppSystem* rpc_app;
@@ -118,12 +68,6 @@ typedef struct {
     uint16_t fragments_received;
     uint8_t* assemble_buffer;
     size_t assemble_pos;
-
-    /* Phase 3 Cook 2 — NFC subscription / worker (all MAIN-THREAD-ONLY fields) */
-    CfcWorker worker;
-    bool nfc_subscribed;            /* subscription active? (BUSY + idle checks) */
-    uint32_t worker_arm_ms;         /* tick at last arm — 5-min idle failsafe */
-    uint32_t broadcast_txn_counter; /* next broadcast txn sequence (high-bit set) */
 } CfcContext;
 
 typedef struct {
@@ -325,133 +269,6 @@ static void cfc_send_status_ok(CfcContext* cfc, uint32_t transaction_id, uint8_t
     cfc_send_response_frame(cfc, op_code, transaction_id, payload, wb.pos);
 }
 
-/* ------- Phase 3 Cook 2: worker thread + broadcast plumbing (§5) ------- */
-
-/*
- * Worker thread (spec §5.2). Heavy hardware work runs HERE, off the RPC callback
- * context. For Cook 2 the "hardware" is mocked: when armed, emit one fake NFC
- * capture every ~2s. The worker NEVER touches the wire (Q3) — it only enqueues
- * results to worker_out; the MAIN thread drains and sends them.
- *
- * Backpressure (arena review): the queue put is NON-BLOCKING (0 timeout). If
- * worker_out is full (main thread slow draining), the event is dropped and
- * counted; the count rides out on the next delivered event's
- * overflow_since_last, so the REAL backpressure path is exercised by the mock.
- *
- * worker_nfc_armed is WORKER-THREAD-PRIVATE: only this function reads/writes it,
- * set via control events on worker_in. The main thread tracks subscription state
- * separately (CfcContext.nfc_subscribed), so there is no shared-flag data race.
- */
-static int32_t cfc_worker_thread(void* context) {
-    CfcWorker* w = (CfcWorker*)context;
-    uint32_t last_emit = furi_get_tick();
-    uint32_t pending_overflow = 0;
-
-    while(true) {
-        CfcWorkerEvent ev;
-        FuriStatus s = furi_message_queue_get(w->worker_in, &ev, CFC_MAIN_POLL_MS);
-        if(s == FuriStatusOk) {
-            if(ev.type == CfcWorkerEventTypeStop) {
-                break;
-            } else if(ev.type == CfcWorkerEventTypeNfcArm) {
-                w->worker_nfc_armed = true;
-                last_emit = furi_get_tick(); /* first mock event ~interval from now */
-            } else if(ev.type == CfcWorkerEventTypeNfcDisarm) {
-                w->worker_nfc_armed = false;
-            }
-        }
-
-        if(w->worker_nfc_armed) {
-            uint32_t now = furi_get_tick();
-            if((now - last_emit) >= furi_ms_to_ticks(CFC_WORKER_MOCK_INTERVAL_MS)) {
-                last_emit = now;
-
-                CfcWorkerResult result = {0};
-                /* MOCK card — Cook 3 replaces with the real Momentum NFC API. */
-                result.uid[0] = 0xDE;
-                result.uid[1] = 0xAD;
-                result.uid[2] = 0xBE;
-                result.uid[3] = 0xEF;
-                result.uid_len = 4;
-                result.timestamp_ms = furi_get_tick();    /* REAL */
-                result.overflow_since_last = pending_overflow;
-
-                /* NON-BLOCKING put — never stall the worker on a full queue. */
-                if(furi_message_queue_put(w->worker_out, &result, 0) == FuriStatusOk) {
-                    pending_overflow = 0;
-                } else {
-                    pending_overflow++; /* dropped; reported on next delivery */
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-/*
- * Encode + send one NFC_EVENT broadcast (spec §6.4 payload). Runs on the MAIN
- * thread only. Payload map: uid(bin) / type(str) / rssi(nil) / timestamp_ms /
- * overflow_since_last. Only timestamp_ms + overflow_since_last are real in the
- * Cook 2 mock; uid/type/rssi are fake.
- */
-static void cfc_send_nfc_event(CfcContext* cfc, uint32_t txn, const CfcWorkerResult* r) {
-    uint8_t payload[128];
-    CfcWriteBuf wb = {.data = payload, .pos = 0, .cap = sizeof(payload)};
-    cmp_ctx_t cmp;
-    cmp_init(&cmp, &wb, NULL, NULL, cfc_cmp_writer);
-
-    if(!cmp_write_map(&cmp, 5)) return;
-    if(!cmp_write_str(&cmp, "uid", 3)) return;
-    if(!cmp_write_bin(&cmp, r->uid, (uint32_t)r->uid_len)) return;
-    if(!cmp_write_str(&cmp, "type", 4)) return;
-    if(!cmp_write_str(&cmp, "iso14443a-4", 11)) return;
-    if(!cmp_write_str(&cmp, "rssi", 4)) return;
-    if(!cmp_write_nil(&cmp)) return;
-    if(!cmp_write_str(&cmp, "timestamp_ms", 12)) return;
-    if(!cmp_write_uinteger(&cmp, r->timestamp_ms)) return;
-    if(!cmp_write_str(&cmp, "overflow_since_last", 19)) return;
-    if(!cmp_write_uinteger(&cmp, r->overflow_since_last)) return;
-
-    cfc_send_response_frame(cfc, CFC_OP_NFC_EVENT, txn, payload, wb.pos);
-}
-
-/*
- * Drain worker_out and broadcast each result (spec §5.3). MAIN thread only —
- * the worker never calls rpc_system_app_exchange_data (Q3). Broadcast txns get
- * the high bit SET (M3 namespace partition) so they can never collide with a
- * host-allocated request txn on the host side.
- *
- * NOTE (deferred to Cook 3 per day11_arena_bug_reflection.md): RPC responses
- * are still emitted from the RPC-callback thread while these broadcasts go out
- * from the main thread — two sender threads. They are temporally separated in
- * the mock flow (ack at subscribe, broadcasts every 2s), but the single-writer
- * mutex that makes this strictly safe is a Cook 3 item.
- */
-static void cfc_drain_worker_results(CfcContext* cfc) {
-    CfcWorkerResult result;
-    while(furi_message_queue_get(cfc->worker.worker_out, &result, 0) == FuriStatusOk) {
-        uint32_t txn = CFC_BROADCAST_TXN_BIT | (cfc->broadcast_txn_counter++ & 0x7FFFFFFFu);
-        // PHASE4-UI-HOOK: per-event UI reaction fires here
-        cfc_send_nfc_event(cfc, txn, &result);
-    }
-}
-
-/*
- * 5-minute idle failsafe (spec §5.5 / Q6). If a subscription has been armed for
- * >5 min with no host activity, disarm the worker and clear the subscription so
- * a client that walked away stops the (mock) NFC work. MAIN thread only.
- */
-static void cfc_check_idle_timeout(CfcContext* cfc) {
-    if(!cfc->nfc_subscribed) return;
-    uint32_t now = furi_get_tick();
-    if((now - cfc->worker_arm_ms) > furi_ms_to_ticks(CFC_WORKER_IDLE_TIMEOUT_MS)) {
-        FURI_LOG_I(TAG, "NFC idle >5min — auto-disarm failsafe");
-        CfcWorkerEvent ev = {.type = CfcWorkerEventTypeNfcDisarm};
-        furi_message_queue_put(cfc->worker.worker_in, &ev, 100);
-        cfc->nfc_subscribed = false;
-    }
-}
-
 /* ------- handlers ------- */
 
 static void cfc_handle_ping(CfcContext* cfc, uint32_t txn, const uint8_t* msgpack, size_t mp_len) {
@@ -612,39 +429,6 @@ static void cfc_dispatch(CfcContext* cfc, uint8_t op_code, uint32_t txn, const u
         /* RESET in IDLE is a no-op confirmation; in ASSEMBLING the caller below clears the buffer. */
         cfc_send_status_ok(cfc, txn, CFC_OP_RESET);
         break;
-    case CFC_OP_NFC_SUBSCRIBE_CAPTURE: {
-        /* Q2 exclusive (spec §3): a second subscribe while armed is BUSY. */
-        if(cfc->nfc_subscribed) {
-            cfc_send_error(cfc, txn, CFC_ERR_SUB_BUSY, "already subscribed");
-            break;
-        }
-        /* Q1 ack-timing race fix (spec §13.2): ack FIRST, yield ~20ms so the ack
-         * is on the wire, THEN arm the worker — so no broadcast can reach the
-         * host before the subscribe ack does. */
-        cfc_send_status_ok(cfc, txn, CFC_OP_NFC_SUBSCRIBE_CAPTURE);
-        furi_delay_ms(20);
-        CfcWorkerEvent arm = {.type = CfcWorkerEventTypeNfcArm};
-        if(furi_message_queue_put(cfc->worker.worker_in, &arm, 100) == FuriStatusOk) {
-            cfc->nfc_subscribed = true;
-            cfc->worker_arm_ms = furi_get_tick();
-        } else {
-            /* Ack already sent OK but the worker couldn't be signalled. Leave
-             * nfc_subscribed false so the host's next subscribe retries. */
-            FURI_LOG_E(TAG, "subscribe: worker_in full, arm dropped");
-        }
-        break;
-    }
-    case CFC_OP_NFC_UNSUBSCRIBE: {
-        if(!cfc->nfc_subscribed) {
-            cfc_send_error(cfc, txn, CFC_ERR_NOT_SUBSCRIBED, "not subscribed");
-            break;
-        }
-        CfcWorkerEvent disarm = {.type = CfcWorkerEventTypeNfcDisarm};
-        furi_message_queue_put(cfc->worker.worker_in, &disarm, 100);
-        cfc->nfc_subscribed = false;
-        cfc_send_status_ok(cfc, txn, CFC_OP_NFC_UNSUBSCRIBE);
-        break;
-    }
     default:
         cfc_send_error(cfc, txn, CFC_ERR_UNKNOWN_OPCODE, "unknown opcode");
         break;
@@ -898,50 +682,18 @@ int32_t cfc_app_main(void* p) {
     cfc.exit_queue = furi_message_queue_alloc(2, sizeof(uint32_t));
     cfc.assemble_timer = furi_timer_alloc(cfc_on_assemble_timeout, FuriTimerTypeOnce, &cfc);
 
-    /* Phase 3 Cook 2: start the worker thread BEFORE accepting RPC traffic so a
-     * subscribe arriving immediately after send_started has a worker to arm. */
-    cfc.worker.worker_in = furi_message_queue_alloc(CFC_WORKER_IN_DEPTH, sizeof(CfcWorkerEvent));
-    cfc.worker.worker_out =
-        furi_message_queue_alloc(CFC_WORKER_OUT_DEPTH, sizeof(CfcWorkerResult));
-    cfc.worker.worker_nfc_armed = false;
-    cfc.worker.thread =
-        furi_thread_alloc_ex("CfcWorker", CFC_WORKER_STACK_SIZE, cfc_worker_thread, &cfc.worker);
-    furi_thread_start(cfc.worker.thread);
-
     rpc_system_app_set_callback(cfc.rpc_app, cfc_rpc_callback, &cfc);
     rpc_system_app_send_started(cfc.rpc_app);
 
     FURI_LOG_I(TAG, "CFC started (rpc_app=%p)", (void*)cfc.rpc_app);
 
-    /* Main loop: wait for an exit signal, but wake every CFC_MAIN_POLL_MS to do
-     * main-thread periodic work — drain the worker's results onto the wire
-     * (§5.3) and run the 5-min idle failsafe (§5.5). ONLY this thread sends
-     * broadcasts; the worker never touches the wire (Q3). */
     uint32_t signal = 0;
-    while(true) {
-        FuriStatus s = furi_message_queue_get(cfc.exit_queue, &signal, CFC_MAIN_POLL_MS);
-        if(s == FuriStatusOk) {
-            break; /* session close / app exit */
-        }
-        cfc_drain_worker_results(&cfc);
-        cfc_check_idle_timeout(&cfc);
-    }
+    furi_message_queue_get(cfc.exit_queue, &signal, FuriWaitForever);
 
     FURI_LOG_I(TAG, "CFC exiting");
 
     rpc_system_app_set_callback(cfc.rpc_app, NULL, NULL);
     rpc_system_app_send_exited(cfc.rpc_app);
-
-    /* Worker shutdown (spec §5.6): signal stop, join, then free thread + queues.
-     * Stop implicitly disarms (the worker exits its loop). */
-    {
-        CfcWorkerEvent stop = {.type = CfcWorkerEventTypeStop};
-        furi_message_queue_put(cfc.worker.worker_in, &stop, FuriWaitForever);
-        furi_thread_join(cfc.worker.thread);
-        furi_thread_free(cfc.worker.thread);
-        furi_message_queue_free(cfc.worker.worker_in);
-        furi_message_queue_free(cfc.worker.worker_out);
-    }
 
     furi_timer_stop(cfc.assemble_timer);
     furi_timer_free(cfc.assemble_timer);

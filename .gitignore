@@ -51,3 +51,7 @@ mission_logs/
 *.pem
 *.key
 gittoken.txt
+
+# Cook backups (scratch, never commit)
+*.bak
+

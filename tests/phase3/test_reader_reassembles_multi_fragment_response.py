@@ -25,9 +25,13 @@ from tests.phase3._helpers import (
 async def test_reader_reassembles_multi_fragment_response():
     rpc, feed = make_rpc_with_mock_receive()
 
-    # Build a 3-fragment response payload. Op_code 0x00 (PING), txn 0xCAFEBABE.
+    # Build a 3-fragment response payload. Op_code 0x00 (PING).
+    # M3 namespace partition (Cook 2): a RESPONSE txn must have the high bit
+    # CLEAR (host request namespace); the dispatcher drops high-bit responses as
+    # protocol bugs. Real callers get this via _next_transaction_id's mask, so
+    # this synthetic txn must be high-bit-clear too. (was 0xCAFEBABE pre-M3.)
     op = 0x00
-    txn = 0xCAFEBABE
+    txn = 0x4AFEBABE
     body_full = b"A" * 1500
     chunk_size = 600
     chunks = [body_full[i : i + chunk_size] for i in range(0, len(body_full), chunk_size)]
