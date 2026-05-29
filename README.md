@@ -75,11 +75,12 @@ Then in Claude: *"What's connected? Run the ping mission."* — and watch.
                                                     responses
 ```
 
-Three independent layers:
+The layers:
 
 | Layer | What it does |
 |---|---|
 | **`flipper_mcp/`** | The Python MCP server. Wraps the Flipper's protobuf RPC into tools Claude can call (`flipper_app_start`, `flipper_gui_send_input`, `storage_write`, etc.). |
+| **`cfc/`** | The **CPK Companion app** — a custom Flipper app (`.fap`) that exposes clean NFC / Sub-GHz capture primitives to Claude over a framed RPC channel, so it doesn't have to puppeteer the stock apps. |
 | **`missions/`** | Higher-level mission framework. Reusable JS mission scripts + Python orchestration for multi-step flows. |
 | **`proto/`** | The wire-protocol definitions. Reference for anyone adding new RPCs. |
 
@@ -89,20 +90,31 @@ For deeper architecture see **[`docs/architecture.md`](./docs/architecture.md)**
 
 ## What works today
 
+### 🆕 The CPK Companion app (CFC) — first-class RF capture
+
+CPK now ships a **custom Flipper app** that gives Claude direct, structured access to the radio hardware — no stock-app button-press choreography. Through it, Claude can:
+
+- ✅ **Live NFC capture** — Claude arms the reader, you tap a card, and the real card data (UID + type) comes straight back through the AI. Verified on hardware against a real NTAG: continuous multi-tap capture under one subscription, with the radio cleanly released afterward (the stock NFC app still works once Claude is done).
+- ✅ **Live Sub-GHz decoding** — Claude tunes the Flipper to 433.92 MHz and reports the **protocol, bit length, and key** of every decoded fixed-code transmission (garage remotes, weather sensors, etc.). Proven closed-loop: a second Flipper transmitting a known *Princeton* signal, decoded back with the exact key (`0xA34E44`, 24-bit), twenty presses in a row, zero drops.
+
+Both were validated by **live-fire on real hardware**, not just unit tests — see [`docs/decisions/`](./docs/decisions/) for the full engineering story (including the firmware bugs only a real radio could expose).
+
+### Driving the stock device
+
 - ✅ **Direct app launch via RPC** — no CLI text-shell required. JS missions, NFC app, Sub-GHz app, all launchable without typing.
 - ✅ **Synthetic button presses** — `flipper_gui_send_input(BACK)` etc. emit the full PRESS→SHORT→RELEASE triplet a real hardware press produces. All six keys validated on Momentum mntm-dev.
 - ✅ **Lock-screen detection + dismissal** via direct RPC (`flipper_desktop_unlock`).
 - ✅ **Mission cleanup** with a single BACK press — works for success screens, error dialogs, and stuck-running scripts alike.
-- ✅ **Visible/audible mission feedback** via `notification.success()` and `notification.error()` from inside JS scripts — wakes the backlight, plays a sound, screen lights up so the student/instructor can *see* Claude doing things.
+- ✅ **Visible/audible mission feedback** via `notification.success()` / `notification.error()` from inside JS scripts — wakes the backlight, plays a sound, so the student/instructor can *see* Claude doing things.
 - ✅ **Full diagnostic responses** — `app_start` returns the firmware's actual error name (`ERROR_INVALID_PARAMETERS`, `ERROR_APP_SYSTEM_LOCKED`, etc.) instead of just true/false.
 
 ## What's in flight
 
-- 🚧 BLE transport — protocol-validated (see [`experiments/ble_probe/`](./experiments/ble_probe/)), needs final wire-up
-- 🚧 NFC capture mission with auto-save via synthetic input — the "Claude takes a card scan for you" flow
-- 🚧 **Active-protocol mission category** (red-team / authorized-testing missions) — Sub-GHz replay, NFC clone, IR replay, RFID brute, BadUSB. All gated to owned-hardware / CTF-lab / explicit-authorization-only use. Catalog sketched at [`innov8ideas4u-alt/LLMDR_redteam`](https://github.com/innov8ideas4u-alt/LLMDR_redteam); first missions will land in `missions/redteam/` as they're implemented.
-- 🚧 Fix for `storage_info` MCP tool — currently returns SD card stats for `/int` requests (F2 from Day 7 live-fire findings)
-- 🚧 Investigation of `require("gpio")` failure on `mntm-dev` (F1)
+- 🚧 **On-device companion UI** — a playful "Clawd walks Kiisu" animation on the Flipper's 128×64 screen (Phase 4).
+- 🚧 **More Sub-GHz protocols** — the decoder starts with fixed-code (Princeton). Rolling-code (KeeLoq etc.) needs a keystore and is deliberately deferred.
+- 🚧 **BLE transport** — protocol-validated (see [`experiments/ble_probe/`](./experiments/ble_probe/)), needs final wire-up.
+- 🚧 **Active-protocol mission category** (red-team / authorized-testing) — Sub-GHz replay, NFC clone, IR replay, RFID brute, BadUSB. All gated to owned-hardware / CTF-lab / explicit-authorization-only use. First missions will land in `missions/redteam/` as they're implemented.
+- 🚧 **Minor fixes** — `storage_info` returning SD stats for `/int` requests (F2); a `kill_stale` helper so orphaned reader processes get cleaned up on exit.
 
 See **[ROADMAP.md](./ROADMAP.md)** for what's planned.
 
