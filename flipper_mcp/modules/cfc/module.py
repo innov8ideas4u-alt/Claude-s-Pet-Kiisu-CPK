@@ -74,6 +74,16 @@ OP_NFC_SUBSCRIBE_CAPTURE: int = 0x40  # host -> FAP: arm the NFC capture worker
 OP_NFC_UNSUBSCRIBE: int = 0x41        # host -> FAP: disarm the worker
 OP_NFC_EVENT: int = 0x42              # FAP -> host: capture broadcast (command_id == 0)
 
+# --- Phase 3 Cook 3.2: NFC diagnostic broadcast op_code (the live-fire reroute) ---
+# FAP -> host: detect-cb / poll-outcome diagnostics, on a SEPARATE op_code from
+# OP_NFC_EVENT so they route to a distinct subscription buffer and can never
+# pollute the real-event assertions (live_fire_nfc._check_real_event reads 0x42
+# only). Deliberately has NO entry in _SUBSCRIBE_ARM_OP below: subscribing to it
+# registers a host-side buffer WITHOUT sending a FAP arm request (the worker is
+# already armed by the OP_NFC_EVENT subscribe; the diag stream rides that same
+# armed worker). Broadcasts on this op carry the M3 high-bit txn like any other.
+OP_NFC_DIAG: int = 0x4F              # FAP -> host: diagnostic broadcast (command_id == 0)
+
 ERR_BAD_FRAME: int = 1
 ERR_BAD_FRAGMENT: int = 2
 ERR_PAYLOAD_TOO_LARGE: int = 3
