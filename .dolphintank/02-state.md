@@ -290,3 +290,13 @@ Real NFC capture live-fired on AmorPoee. NFC vertical slice + host-listener asyn
 **Verified:** tests/phase3 41/41 green AND runtime collapsed 34.4s→2.5s (the 32s WAS the spin); tests/cfc_phase2 27/27 green on live AmorPoee (no healthy-read regression). Post-fix: 0 flipper_mcp processes spinning; CPU calm.
 
 **Residual (NOT urgent, R7 follow-up):** the fix stops the HEAT, not the LINGER — orphaned readers can still survive a dead session as idle (near-zero-CPU) processes. A clean shutdown hook (stop reader + close port) or a `python -m flipper_mcp.tools.kill_stale` helper would stop them piling up. Side-task, queued.
+
+
+---
+
+## REPO PUSHED TO PUBLIC (2026-05-28, Day 12) — supersedes the "Repository state" block above
+
+- **GitHub `main` = `2d9ecd6`** (pushed). Fast-forwarded from be550df; now contains: NFC Phase 3 (425b62e), Sub-GHz Cook 1 (1e81379), reader CPU-spin fix (107c034), README refresh (2d9ecd6).
+- `phase3-cook1-host-refactor` also pushed and equal to main (2d9ecd6).
+- The earlier "operator review pending / NOT pushed" posture is CLOSED — operator (Victor) approved the push. README "What works today" now advertises the Companion app + live NFC + live Sub-GHz; architecture table lists `cfc/`.
+- Public progress-update post written (D:\Dev\scratch or chat artifact "CPK progress update") — describes the same milestones.
