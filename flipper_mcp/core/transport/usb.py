@@ -1,6 +1,7 @@
 """USB Serial transport for Flipper Zero."""
 
 import asyncio
+import atexit
 import sys
 from typing import Optional
 import serial
@@ -35,7 +36,24 @@ class USBTransport(FlipperTransport):
         self.baudrate = config.get("baudrate", 115200)
         self.timeout = config.get("timeout", 1.0)
         self.serial: Optional[serial.Serial] = None
-    
+        # R7-killstale Deliverable A: synchronous last-resort port-close net.
+        # Fires on normal interpreter shutdown / sys.exit() even when the async
+        # disconnect finally-path never completes (hard client kill). Plain bound
+        # closure (NOT a weakref -- spec P1) so it survives a live-but-idle
+        # transport, instead of dying exactly when the hook is needed. Idempotent
+        # via the is_open guard. Does NOT import or await asyncio.
+        self._atexit_hook = lambda: self._sync_close()
+        atexit.register(self._atexit_hook)
+
+    def _sync_close(self) -> None:
+        """Synchronous, idempotent, exception-swallowing serial close (atexit net)."""
+        s = self.serial
+        if s is not None and s.is_open:
+            try:
+                s.close()
+            except Exception:
+                pass
+
     def _auto_detect_port(self) -> str:
         """
         Auto-detect Flipper Zero USB port.
@@ -128,6 +146,12 @@ class USBTransport(FlipperTransport):
         if self.serial and self.serial.is_open:
             self.serial.close()
         self.connected = False
+        # R7-killstale Deliverable A: a cleanly-disconnected transport should not
+        # leave a dangling atexit hook. Best-effort unregister (spec P1).
+        try:
+            atexit.unregister(self._atexit_hook)
+        except Exception:
+            pass
     
     async def send(self, data: bytes) -> None:
         """
