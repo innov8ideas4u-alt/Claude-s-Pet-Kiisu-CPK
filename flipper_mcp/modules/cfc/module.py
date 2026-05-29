@@ -84,6 +84,17 @@ OP_NFC_EVENT: int = 0x42              # FAP -> host: capture broadcast (command_
 # armed worker). Broadcasts on this op carry the M3 high-bit txn like any other.
 OP_NFC_DIAG: int = 0x4F              # FAP -> host: diagnostic broadcast (command_id == 0)
 
+# --- Phase 3 Cook 1: Sub-GHz decoded-stream RX opcodes (the 0x5x twin of the
+# NFC 0x4x block, spec §3). Subscribe/listen/unsubscribe reuse the SAME generic
+# flipper_cfc_subscribe/_listen/_unsubscribe machinery — no new verb. The host
+# subscribes to the EVENT op (0x52); the arm/disarm request ops (0x50/0x51) are
+# routed via _SUBSCRIBE_ARM_OP/_DISARM_OP below. 0x5F DIAG is a host-only buffer
+# (no arm entry) that rides the already-armed worker, exactly like NFC's 0x4F.
+OP_SUBGHZ_SUBSCRIBE_CAPTURE: int = 0x50  # host -> FAP: arm the Sub-GHz RX worker
+OP_SUBGHZ_UNSUBSCRIBE: int = 0x51        # host -> FAP: disarm the worker
+OP_SUBGHZ_EVENT: int = 0x52              # FAP -> host: decoded fixed-code broadcast
+OP_SUBGHZ_DIAG: int = 0x5F               # FAP -> host: per-decode diagnostic broadcast
+
 ERR_BAD_FRAME: int = 1
 ERR_BAD_FRAGMENT: int = 2
 ERR_PAYLOAD_TOO_LARGE: int = 3
@@ -521,8 +532,17 @@ async def flipper_cfc_call(
 # event op -> arm/disarm request op. Cook 2 ships one stream (NFC); a host-only
 # op_code with no entry registers a buffer without touching the FAP (used by the
 # chaos/overflow unit tests, which feed broadcasts directly through the reader).
-_SUBSCRIBE_ARM_OP: dict[int, int] = {OP_NFC_EVENT: OP_NFC_SUBSCRIBE_CAPTURE}
-_SUBSCRIBE_DISARM_OP: dict[int, int] = {OP_NFC_EVENT: OP_NFC_UNSUBSCRIBE}
+_SUBSCRIBE_ARM_OP: dict[int, int] = {
+    OP_NFC_EVENT: OP_NFC_SUBSCRIBE_CAPTURE,
+    OP_SUBGHZ_EVENT: OP_SUBGHZ_SUBSCRIBE_CAPTURE,  # Cook 1 (Sub-GHz vertical)
+}
+_SUBSCRIBE_DISARM_OP: dict[int, int] = {
+    OP_NFC_EVENT: OP_NFC_UNSUBSCRIBE,
+    OP_SUBGHZ_EVENT: OP_SUBGHZ_UNSUBSCRIBE,
+}
+# Note: OP_SUBGHZ_DIAG (0x5F) deliberately has NO entry above — subscribing to it
+# registers a host-side buffer WITHOUT sending a FAP arm (the worker is already
+# armed by the 0x52 subscribe; the diag stream rides that same armed worker).
 
 
 async def flipper_cfc_subscribe(
@@ -674,4 +694,64 @@ async def flipper_cfc_unsubscribe(
         "unsubscribed": True,
         "was_subscribed": True,
         "disarmed": disarmed,
+    }
+
+
+# --- Phase 3 Cook 1: thin decoder for the 0x52 Sub-GHz event shape (spec §8) ---
+
+SUBGHZ_KEY_MAX: int = (1 << 64) - 1  # uint64 ceiling — high-bit keys are valid
+
+
+def decode_subghz_event(payload: Any) -> dict:
+    """Validate + normalize a 0x52 ``SUBGHZ_EVENT`` msgpack payload (§4 / P0 / P4).
+
+    ``payload`` is the already-msgpack-decoded map carried by a 0x52 broadcast —
+    i.e. the ``"payload"`` field of a :func:`flipper_cfc_listen` result. Returns a
+    dict with the typed fields::
+
+        {"protocol": str, "bits": int, "key": int, "frequency": int,
+         "timestamp_ms": int, "drops": int}
+
+    ``key`` is a **uint64**: the FAP encodes it with msgpack ``uinteger`` so a key
+    with the high bit set (> ``INT64_MAX``, up to ``2**64 - 1``) round-trips as a
+    plain non-negative Python int. This decoder pins that contract — it rejects a
+    negative or out-of-uint64-range key so a signed-misinterpretation upstream is
+    caught loudly rather than silently corrupting a real garage-remote key (P6).
+
+    Raises :class:`CfcProtocolError` if the payload is not a dict, or any field is
+    missing / the wrong type / out of range.
+    """
+    if not isinstance(payload, dict):
+        raise CfcProtocolError(
+            f"subghz event payload is not a dict: {type(payload).__name__}"
+        )
+
+    def _req_uint(name: str, ceiling: int) -> int:
+        if name not in payload:
+            raise CfcProtocolError(f"subghz event missing field {name!r}")
+        v = payload[name]
+        # bool is an int subclass — reject it so True/False can't pose as a count.
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise CfcProtocolError(
+                f"subghz event field {name!r} not an int: {type(v).__name__}"
+            )
+        if v < 0 or v > ceiling:
+            raise CfcProtocolError(
+                f"subghz event field {name!r}={v} out of range [0, {ceiling}]"
+            )
+        return v
+
+    protocol = payload.get("protocol")
+    if not isinstance(protocol, str):
+        raise CfcProtocolError(
+            f"subghz event protocol not a str: {type(protocol).__name__}"
+        )
+
+    return {
+        "protocol": protocol,
+        "bits": _req_uint("bits", 0xFFFFFFFF),
+        "key": _req_uint("key", SUBGHZ_KEY_MAX),
+        "frequency": _req_uint("frequency", 0xFFFFFFFF),
+        "timestamp_ms": _req_uint("timestamp_ms", 0xFFFFFFFF),
+        "drops": _req_uint("drops", 0xFFFFFFFF),
     }

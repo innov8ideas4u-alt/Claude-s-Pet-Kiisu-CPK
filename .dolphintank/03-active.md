@@ -6,21 +6,25 @@
 
 ---
 
-**Last updated:** 2026-05-27 (Day 11 — Cook 1 IN FLIGHT)
+**Last updated:** 2026-05-27 (Day 11 — PHASE 3 GREEN; Phase 4 is next)
 
 ---
 
 ## 🔥 Currently in flight (active work)
 
-### 1. CPK Companion FAP — Phase 3 Cook 2 (subscription dispatcher + FAP worker + MOCK NFC)
+### 1. Phase 4 — "Clawd walks Kiisu" companion UI
 
-**Status:** Cook 1 + Cook 1.5 SHIPPED. Reader is LIVE (33/33, all 19 tools migrated, host genuinely listens). Cook 2 is next. Fire prompt ready at `D:\Dev\scratch\day11_phase3_cook2_fire_prompt.md`.
+**Status:** NOT STARTED. Phase 3 closed GREEN (real NFC capture live-fired, committed 425b62e). This is the next thing to work on.
 
-**Cook 2 = FIRST "it's alive" moment.** After this cook Victor can run `flipper_cfc_subscribe` + `flipper_cfc_listen` and watch FAKE NFC events (DE:AD:BE:EF) stream every ~2s. Every moving part real (reader, worker thread, broadcast lane, dispatch) — only the card data is faked.
+**Concept:** Crab (Claude Code mascot) + cat (Kiisu) on the Flipper screen. Ideas doc at `D:\Dev\scratch\cfc_companion_ui_ideas.md`. The PHASE4-UI-HOOK comment marker is already placed in the FAP worker (Cook 2 left the seam).
 
-**Cook 2 scope:** un-stub subscription dispatcher (host MCP tools) + FAP FuriThread worker + mock broadcasts. Leave Phase-4 UI hook seam (comment marker only). Use the EXISTING reader — do NOT spin a second.
+**Before starting:** read the ideas doc + decide scope of the first cook. No fire prompt drafted yet.
 
-**Then Cook 3:** swap mock for real Momentum NFC, live card tap, closes Phase 3.
+---
+
+### (historical) Phase 3 Cook 2 — subscription dispatcher + FAP worker + MOCK NFC
+
+**Status:** ✅ SHIPPED Day 11 (48/48, first "it's alive" milestone). Superseded by Cook 3.x which swapped mock for real NFC. Kept for history.
 
 ---
 

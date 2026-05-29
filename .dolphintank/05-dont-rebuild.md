@@ -139,6 +139,17 @@ If your new doc would substantially duplicate any of these, update the existing 
 
 ---
 
+## Working NFC capture EXISTS (Phase 3, Day 11) — don't rebuild
+
+CPK reads real NFC cards end-to-end. Don't re-architect this; build on it.
+
+- **FAP worker** (`cfc/cfc.c`): NFC FuriThread detects, polls, and broadcasts real card UIDs over the 0x42 lane. Persistent scanner (re-arms after each detect — continuous capture across taps). Accepts the whole ISO14443-3A family via `nfc_protocol_has_parent` walk. `nfc_free()` on disarm/stop/exit (clean HAL release — no F4-class lockup).
+- **Host side** (`flipper_mcp/modules/cfc/module.py` + reader in `protobuf_rpc.py`): `flipper_cfc_subscribe(0x42)` / `_listen` / `_unsubscribe` deliver reassembled events. Broadcasts route by txn high-bit (0x80000000); reader keys CFC on transaction_id, not command_id.
+- **PROVEN:** live-fire read real UID 04:6D:D7:0A:48:20:90 off an NTAG, two taps, committed 425b62e on `phase3-cook1-host-refactor`.
+- **0x4F diag broadcast** is a reusable worker→host visibility tool — if you need to see inside the worker, reuse this pattern (decision 024), don't invent a new one.
+
+---
+
 ## Documentation that is INTENTIONALLY duplicated
 
 Some content appears in multiple places on purpose:
@@ -153,3 +164,15 @@ Some content appears in multiple places on purpose:
 ## What this file is for
 
 If you're a Claude (any flavor) reading this in a future session: this file is your "stop and check before starting" reference. Most "let me design X" thoughts have a "X already exists at Y" answer somewhere in here. When in doubt, search the file by topic before writing new code.
+
+
+---
+
+## Working Sub-GHz decoded-stream capture EXISTS (Sub-GHz Cook 1, Day 12) — don't rebuild
+
+CPK reads real fixed-code Sub-GHz off-air end-to-end. Don't re-architect; build on it.
+
+- **FAP worker** (`cfc/cfc.c`): SubGhzWorker on 433.92/OOK650, `SubGhzProtocolFlag_Decodable` filter, rx callback copies primitives by value, broadcasts {protocol,bits,key,frequency,timestamp_ms,drops} on op **0x52**; **0x5F** diag lane mirrors every decode pre-gate (reuse for any "is the worker decoding?" question). Arm does NOT gate on `subghz_devices_begin` (internal CC1101 begin==NULL). Decoder fields read via firmware-accurate `CfcMtmGeneric` cast (NOT the SDK's generic — see decision 026).
+- **Host** (`flipper_mcp/modules/cfc/module.py`): `flipper_cfc_subscribe(0x52)`/`_listen`/`_unsubscribe`; reuses Cook 1.5 reader + 0x80000000 broadcast routing.
+- **PROVEN:** live-fire Princeton key 0xA34E44 / 24-bit, 20 parcels one subscription, clean disarm. Allowlist = Princeton only (gate on protocol name before the cast; extend allowlist for more protocols — never blind-cast a foreign decoder prefix).
+- **Rolling-code (KeeLoq etc.) NOT done** — needs keystore; deferred by design.

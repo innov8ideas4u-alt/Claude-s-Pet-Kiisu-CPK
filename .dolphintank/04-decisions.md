@@ -206,3 +206,36 @@ For any incoming frame with `tag == 'app_data_exchange_request'`, the reader par
 **Alternative considered:** Single pending map keyed by outer command_id (the original §4.3 design). Rejected because Phase 2.5 already documented the Momentum uninit-malloc bug in `rpc_system_app_exchange_data`: the firmware mallocs the command_id field without zeroing, so inbound CFC frames carry garbage there. The `MOMENTUM_RPC_EXCHANGE_DATA_FIXED=False` constant gates this exact issue.
 **Reasoning:** The CFC `transaction_id` is host-allocated and lives in the CFC header (a field WE wrote into the payload). The FAP correctly preserves it. The outer protobuf command_id is not under our control on the FAP side; it's clobbered by firmware mismanagement. Routing by transaction_id is both correct AND independent of the upstream Momentum fix. When the Momentum PR (D:\Dev\scratch\day10_momentum_pr_draft.md) lands, we can OPTIONALLY simplify back to a single pending map, but the dual-map design will keep working unchanged.
 **Captured in:** `docs/decisions/DAY11_PHASE3_SPEC.md` §15.1, Phase 2.5 DAY10 design doc (uninit-malloc discovery)
+
+
+### 023 — Persistent NFC scanner: keep sweeping after detect, don't stop-on-first
+**Date:** 2026-05-27 (Day 11, Cook 3.1)
+**Status:** ACTIVE — PROVEN on hardware
+**Pick:** The FAP NFC worker keeps the scanner running continuously while armed, re-arming after each detect, rather than stopping on the first card seen.
+**Alternative considered:** Stop scanner on first detect, restart on next subscribe cycle. Rejected — the Cook 3.2 diagnostic proved detect_cb fires 60+ times in 30s on a held card; a stop-on-first design would deliver one event then go silent, defeating continuous capture.
+**Reasoning:** Continuous capture (the M3 milestone behavior) requires the scanner to stay live across multiple taps without re-subscribe. Verified: tap#1 and tap#2 both delivered under one subscription.
+**Captured in:** `D:\Dev\scratch\day11_phase3_cook3_log.md`, cfc.c worker loop.
+
+### 024 — 0x4F diagnostic broadcast as a reusable worker→host visibility tool
+**Date:** 2026-05-27 (Day 11, Cook 3.2)
+**Status:** ACTIVE — reusable pattern
+**Pick:** When the harness needs to SEE what a FAP worker is doing internally (not just final results), the worker emits a diagnostic broadcast on a SEPARATE op_code (0x4F), into a host-only buffer, drained by a concurrent drainer in the harness alongside the real 0x42 event lane.
+**Alternative considered:** Inline logging to Flipper's own log / printf. Rejected — host can't see device-side logs during an automated harness run; the diag must come back over the same wire as a structured frame.
+**Reasoning:** The 0x4F diag is what cracked Cook 3.3: it showed detect_cb firing reliably while zero poll outcomes / zero 0x42 events arrived — pinpointing the bug as the downstream protocol gate, not the scanner. Any future "is the worker even reaching this code path" question should use the same shape: separate op_code, host-only buffer, concurrent harness drainer.
+**Captured in:** `D:\Dev\scratch\day11_phase3_cook3_log.md`, NEXT_CHAT_HANDOFF.md patterns section.
+
+### 025 — Protocol-family filtering via parent-walk, not exact-enum-equality
+**Date:** 2026-05-27 (Day 11, Cook 3.3)
+**Status:** ACTIVE — the fix that turned Phase 3 GREEN
+**Pick:** To accept a family of NFC protocols (not a single type), walk the firmware's protocol parent chain with `nfc_protocol_has_parent(protocol, Iso14443_3a)` rather than testing `protocol == NfcProtocolIso14443_3a`.
+**Alternative considered:** Hardcode an allowlist of leaf enums (MfUltralight, MfClassic, etc.). Rejected — brittle, must be maintained as firmware adds protocols, and duplicates knowledge the firmware already encodes in its parent tree.
+**Reasoning:** Root cause of the Cook 3 silence: `nfc_scanner_filter_detected_protocols` strips PARENT protocols, so NTAGs surface as the LEAF `NfcProtocolMfUltralight`, never the parent `Iso14443_3a` the gate was testing for. Exact-equality rejected every NTAG. The parent-walk is the firmware's own canonical mechanism and is additive — the original Iso14443_3a path is unchanged. Reusable for any future filter that must accept a family of types.
+**Captured in:** `D:\Dev\scratch\day11_phase3_cook3_log.md`, cfc.c lines ~697-698.
+
+### 026 — Sub-GHz Cook 1 fixes: begin-gate + firmware-accurate generic cast (live-fire)
+**Date:** 2026-05-28 (Day 12, Sub-GHz Cook 1 live-fire)
+**Status:** ACTIVE — live-fire GREEN
+**Pick:** (a) Do NOT gate arm on `subghz_devices_begin()` return — the internal CC1101 has `.begin==NULL` so it returns false by design (begin is the EXTERNAL-radio handshake). (b) Pin the decoder struct-cast's `generic` member to a firmware-accurate `CfcMtmGeneric` (with Momentum's `data_2`/`cnt_2`/`seed`), NOT the stock SDK's `SubGhzBlockGeneric`.
+**Alternative considered:** (b-alt) Extract bits/key via the layout-safe `subghz_protocol_decoder_base_serialize` (function-ABI-stable, version-independent) instead of a struct cast. Rejected for Cook 1 because it requires constructing a non-NULL `SubGhzRadioPreset` and running FlipperFormat on the ~2KB worker thread (heavier); the firmware-pinned cast is light and CPK targets Momentum mntm-dev only. **If CPK ever supports multiple firmware families, switch to the serialize path — the cast is inherently firmware-version-coupled.**
+**Reasoning:** Both bugs were invisible to 49 mock tests (mocks don't touch the radio) and only surfaced at live-fire. The ABI-drift is the load-bearing lesson: **the ufbt SDK headers are stock/upstream and do NOT reflect Momentum's struct extensions. Never trust an SDK struct's field offsets for a private FAP cast — verify against the mirror (d3ba597).** Diagnosed by byte-comparing SDK vs mirror generic.h (SDK data_count_bit@20, firmware@28; the 8-byte gap = Momentum's inserted `data_2`).
+**Captured in:** `cfc/cfc.c` (CfcMtmGeneric + cfc_subghz_arm), `D:\Dev\scratch\day12_subghz_cook1_log.md` (to write), live-fire `key=0xA34E44 bits=24`.

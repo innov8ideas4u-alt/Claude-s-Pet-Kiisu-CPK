@@ -6,18 +6,18 @@
 
 ---
 
-**Last updated:** 2026-05-27 (Day 10 session close — Phase 2.5 SHIPPED at 27/27)
+**Last updated:** 2026-05-27 (Day 11 session close — PHASE 3 GREEN, real NFC capture live-fired)
 **Updated by:** Victor + Claude Desktop
-**Confidence:** HIGH — values verified during this session
+**Confidence:** HIGH — Phase 3 live-fire PASSED on hardware; commit verified
 
 ---
 
 ## Repository state
 
 - **Default branch on GitHub:** `main` at commit `6bf1d32` (Phase 2.5 shipped, pushed to GitHub)
-- **Active experiment branch:** none
+- **Active branch:** `phase3-cook1-host-refactor` at commit `425b62e` (Phase 3 Cook 1→3.3, NOT pushed/merged — operator review pending)
 - **Stargazers:** 2
-- **Working tree (Day 10 close):** CLEAN. Phase 2.5 commit pushed to origin/main.
+- **Working tree (Day 11 close):** CLEAN. Phase 3 stack committed at 425b62e (Cook 3+3.1+3.2+3.3 squashed into one commit; per-cook story lives in scratch cook log).
 - **Day 10 commit on main (pushed):**
   - `6bf1d32` Phase 2.5: CFC multi-fragment outbound + wire-layer hardening
 - **Day 9 commits on main (already pushed):**
@@ -110,9 +110,9 @@ Unchanged from Day 8 (CFC Phase 3 will subsume F1 and F4):
 - The Flipper RPC dispatcher emits a per-request `empty` Main as a sync ack for EVERY host RPC request. Invisibly absorbed by `_send_rpc_message`'s strict matcher in all existing flipper-mcp tools; exposed for the first time when CFC bypassed strict matching. Added to Q6 allowlist as a 5th frame type.
 - The PING handler had a hardcoded 884-byte stack-buffer ceiling — Phase 2 never reached this code path because the wire-layer desync blocked fragment-2 assembly. Phase 2.5's wire fix exposed it; v8.3 lifted it via multi-fragment outbound.
 
-### Phase 3: QUEUED
+### Phase 3: GREEN ✅ (Day 11, commit `425b62e`)
 
-NFC vertical slice + host-listener architecture for async opcodes. See spec §6.5 and DAY10 design doc §6 for forward-compat notes. The route-by-tag pattern and `cfc_recv_response_assembled` helper are both reusable for Phase 3 integration tests.
+Real NFC capture live-fired on AmorPoee. NFC vertical slice + host-listener async opcodes complete. The route-by-tag pattern and `cfc_recv_response_assembled` helper carried forward from Phase 2.5. See "Phase 3 Cook 3→3.3 — GREEN" section at bottom for full detail.
 
 ---
 
@@ -226,3 +226,54 @@ NFC vertical slice + host-listener architecture for async opcodes. See spec §6.
 
 **Backups:** cfc/cfc.c.cook2.bak, protobuf_rpc.py.cook2.bak.
 **Cook 3 spec draft ready:** D:\Dev\scratch\day11_cook3_spec_DRAFT.md (NFC recon COMPLETE, all sigs verified vs mirror commit d3ba597).
+
+
+---
+
+## Phase 3 Cook 3 → 3.3 — GREEN (2026-05-27, committed 425b62e)
+
+**Status:** Phase 3 functionally COMPLETE. Real NFC capture live-fired on AmorPoee. Committed as ONE commit on `phase3-cook1-host-refactor` (Cook 3+3.1+3.2+3.3 squashed — edits were intermingled in cfc.c/module.py, never separately committed; per-cook story preserved in `D:\Dev\scratch\day11_phase3_cook3_log.md`). NOT pushed/merged — operator review pending.
+
+**What each cook did:**
+- **Cook 3:** swapped mock broadcasts for live Momentum NFC — FAP worker detects, polls, broadcasts real card UIDs over the 0x42 lane; host reader reassembles + delivers.
+- **Cook 3.1:** persistent scanner — keep sweeping after `detect_cb` instead of stop-on-first. PROVEN correct on hardware (detect_cb fired 60+ times in the Cook 3.2 diagnostic).
+- **Cook 3.2:** 0x4F diag broadcast (separate op_code, host-only buffer, concurrent harness drainer) — exposed that detect fired reliably but never transitioned to poll. Reusable diagnostic pattern.
+- **Cook 3.3:** widened the accepted-protocol gate. Root cause: gate was exact-enum-equality `if(detected[i] != NfcProtocolIso14443_3a) continue`, but NTAGs arrive as the LEAF `NfcProtocolMfUltralight` because `nfc_scanner_filter_detected_protocols` strips parent protocols. Fix: 2-line change using firmware's own `nfc_protocol_has_parent(protocol, Iso14443_3a)` walk to accept the whole ISO14443-3A family. ADDITIVE — Iso14443_3a path unchanged.
+
+**Gates passed (driven by Claude Desktop from PowerShell, see meltdown note):**
+- 51 host tests green, zero regressions from the widened gate.
+- FAP clean -Werror build, Target 7 / API 87.1, `nfc_protocol_has_parent` linked clean (exported on f7 per api_symbols.csv).
+- Deploy via `uvx ufbt launch`.
+- **LIVE-FIRE PASS:**
+  ```
+  tap#1: uid=04:6d:d7:0a:48:20:90 type=ISO14443-3A txn=0x80000002
+  tap#2: uid=04:6d:d7:0a:48:20:90 type=ISO14443-3A txn=0x80000005
+  PASS: real NFC UIDs delivered host-side; continuous scan confirmed.
+  ```
+  Real UID off Victor's NTAG/Ultralight, two sequential taps, M3 high-bit txn, continuous capture without re-subscribe, HAL released clean on unsubscribe (stock NFC app confirmed working post-test — no F4-class bug).
+
+**cc tool-layer meltdown (operational fact):** Cook 3.3's cc (Opus 4.8) session had Read/Grep/Bash return empty mid-cook, one Bash flooded "the the the" garbage, then a 400 API error on final reply (`thinking blocks in latest assistant message cannot be modified` — protocol-level, not model). cc HALTED HONESTLY rather than fabricating green results — the 4.8 strict-honesty muscle. Claude Desktop finished the mechanical gates (pytest/build/deploy/live-fire) from PowerShell directly. Workaround if it recurs: don't restart cc into a degraded session; Desktop drives remaining mechanical work.
+
+**Deferred (optional, belt-and-suspenders):** `tests/phase3/test_nfc_ntag_event.py` — synthesize a 0x42 broadcast with 7-byte UID + type="ISO14443-3A", assert `_check_real_event` accepts it. Live-fire already proved this in reality.
+
+
+---
+
+## Phase 3 Sub-GHz Cook 1 — GREEN (2026-05-28, live-fire passed; UNCOMMITTED→committing now)
+
+**Status:** Second RF vertical COMPLETE. Real fixed-code Sub-GHz (Princeton) decoded off-air end-to-end and delivered host-side. Branch phase3-cook1-host-refactor, layered on 425b62e. Live-fire PASSED.
+
+**What's true now:**
+- FAP `cfc/cfc.c` gains a Sub-GHz decoded-stream RX worker (twin of the NFC worker): subscribe(0x52) arms a SubGhzWorker on 433.92/OOK650, every decoded fixed-code parcel broadcasts {protocol,bits,key,frequency,timestamp_ms,drops} on op 0x52; 0x5F diag lane mirrors every decode pre-gate. Host `flipper_mcp/modules/cfc/module.py` decodes the 0x52 event; reuses the Cook 1.5 reader + 0x80000000 broadcast routing unchanged.
+- Mock suite `tests/phase3/test_subghz_decode_and_drops.py` (17) + full regression 49 green.
+- **LIVE-FIRE PASS** (Kiisu#2 TX Princeton 433.92 → AmorPoee RX): `protocol=Princeton bits=24 key=0xA34E44 freq=433920000 drops=0`, M3 high-bit txns, 20 parcels delivered under one subscription, clean unsubscribe/disarm. Expected key 0x00A34E44 matched exactly.
+
+**TWO real bugs found AT LIVE-FIRE (both invisible to the 49 mock tests — mocks don't touch the radio):**
+1. **begin-NULL fatal-gate bug.** `cfc_subghz_arm` treated `!subghz_devices_begin()` as fatal. The INTERNAL CC1101 interconnect has `.begin == NULL` (cc1101_int_interconnect.c), so `subghz_devices_begin()` returns false BY DESIGN (begin is the EXTERNAL-radio power-on handshake). Fix: call begin for external-device compat, do NOT gate on its return; real bring-up is reset/load_preset/set_frequency/set_rx; `.end`=furi_hal_subghz_shutdown still pairs in disarm. Dead error-unwind/fail: path removed.
+2. **SubGhzBlockGeneric ABI drift (THE big one).** ufbt SDK `generic.h` is STOCK and narrower than Momentum's: Momentum inserts `data_2`(uint64) after `data`, plus `cnt_2`/`seed`. SDK puts `data_count_bit` at offset 20; firmware keeps it at 28. The struct-cast read bits from inside the firmware's unused `data_2` → always 0 (fingerprint: protocol=Princeton, bits=0, accepted=false). `data`/key at offset 8 in both, so key was fine. Fix: `CfcSubghzDecoderHead.generic` pinned to a firmware-accurate `CfcMtmGeneric` struct (not the SDK's). **GENERAL LESSON: ufbt SDK headers are stock/upstream and do NOT reflect Momentum struct extensions — never trust an SDK struct's field offsets for a private FAP cast; pin to the mirror (d3ba597).**
+
+**Diagnostics added & kept:** `cfc_subghz_arm` now returns a reason code (1=no device, 2=freq invalid, 3=begin) surfaced as a distinct CFC error string — turned an opaque "subghz arm failed" into a one-run diagnosis. Keep.
+
+**Live-fire harness:** `D:\Dev\scratch\live_fire_subghz.py` (EXPECTED_KEY=0x00A34E44 wired). FAP deployed via `uvx ufbt launch` (full path `C:\Users\N01\.local\bin\uvx.exe` from non-interactive shells; cfc.fap 28KB→/ext/apps/Tools/).
+
+**ENVIRONMENTAL BUG FOUND (ship-blocker, see 03-active #1):** orphaned `flipper_mcp.cli.main` reader processes busy-spin a full core each (4.16% on a 24-thread box = 1 core at 100%); one had burned 1967 CPU-sec. They cooked the CPU for 8h AND caused the COM9 "Access is denied" + MCP wedging all night. Killed all this session. ROOT cause likely the Cook 1.5 reader loop not blocking/backing-off + no orphan cleanup on exit (R7). A fresh git-clone user would hit this immediately.

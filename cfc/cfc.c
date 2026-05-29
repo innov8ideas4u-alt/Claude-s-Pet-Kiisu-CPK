@@ -32,6 +32,36 @@
 #include <notification/notification.h>
 #include <notification/notification_messages.h>
 
+/* Phase 3 Cook 1 (Sub-GHz vertical) — decoded-stream RX worker. The SECOND CFC
+ * capture vertical, structural twin of the NFC worker above: only the capture
+ * engine changes (NFC scanner -> Sub-GHz receiver). Every symbol below is
+ * exported in targets/f7/api_symbols.csv and confirmed against the Momentum
+ * mirror d3ba597; this is original MIT code reusing only the public
+ * alloc -> configure -> rx-callback -> free API pattern (AGPL hygiene §10).
+ *
+ * Extraction is a DIRECT-FIELD read of the decoder's embedded SubGhzBlockGeneric
+ * (v2 PATCH P0): NO subghz_block_generic_serialize, no FlipperFormat, no preset.
+ * The concrete decoder struct (SubGhzProtocolDecoderPrinceton) is private to
+ * princeton.c, so we mirror the universal fixed-code prefix {base; decoder;
+ * generic;} — all three sub-structs ARE public+complete (base.h / decoder.h /
+ * generic.h) so the compiler computes byte-identical offsets to the real struct.
+ * The prefix is confirmed identical across Princeton/Came/Holtek in the mirror. */
+#include <lib/subghz/environment.h>
+#include <lib/subghz/receiver.h>
+#include <lib/subghz/subghz_worker.h>
+#include <lib/subghz/subghz_protocol_registry.h>
+#include <lib/subghz/devices/devices.h>
+#include <lib/subghz/devices/preset.h>
+#include <lib/subghz/devices/cc1101_int/cc1101_int_interconnect.h>
+#include <lib/subghz/blocks/decoder.h>
+#include <lib/subghz/blocks/generic.h>
+#include <lib/subghz/protocols/base.h>
+/* NB: per-protocol headers (protocols/princeton.h) are NOT shipped in the ufbt
+ * SDK — only base.h / public_api.h / raw.h are. We don't need princeton.h: the
+ * concrete decoder struct is opaque either way (we use the CfcSubghzDecoderHead
+ * mirror), and the only other thing it exposed was the protocol name string,
+ * defined below as the stable registry fact CFC_SUBGHZ_PRINCETON_NAME. */
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +100,15 @@
  * GPIO is host->FAP whereas this is a FAP->host broadcast; if Phase 4 GPIO ever
  * lands it must avoid 0x4F (or this diag op moves). See COOK 3.2 cook log. */
 #define CFC_OP_NFC_DIAG              0x4Fu /* broadcast (command_id == 0) */
+
+/* Phase 3 Cook 1 (Sub-GHz vertical) — opcodes, the 0x5x twin of the NFC 0x4x
+ * block (spec §3). 0x52 EVENT is the decoded-stream broadcast lane; 0x5F DIAG is
+ * the live-fire reroute seam (twin of NFC 0x4F) so a silent live-fire can be
+ * triaged in ONE run instead of blind (the Cook 3.1 failure mode). */
+#define CFC_OP_SUBGHZ_SUBSCRIBE_CAPTURE 0x50u /* host -> FAP: arm the RX worker */
+#define CFC_OP_SUBGHZ_UNSUBSCRIBE       0x51u /* host -> FAP: disarm the worker */
+#define CFC_OP_SUBGHZ_EVENT             0x52u /* broadcast: decoded fixed-code hit */
+#define CFC_OP_SUBGHZ_DIAG              0x5Fu /* broadcast: per-decode diagnostic */
 
 #define CFC_ERR_BAD_FRAME         1
 #define CFC_ERR_BAD_FRAGMENT      2
@@ -123,10 +162,33 @@
 #define CFC_DIAG_REASON_POLLER_ERR   2u /* poller signalled Iso14443_3a Error */
 #define CFC_DIAG_REASON_NO_UID       3u /* poll ok but device UID empty/null */
 
+/* Phase 3 Cook 1 (Sub-GHz vertical) — capture/worker tunables.
+ * One frequency, one modulation, decodable-only, Princeton-allowlisted (spec §2). */
+#define CFC_SUBGHZ_FREQUENCY         433920000u /* 433.92 MHz, the live-fire dial */
+#define CFC_SUBGHZ_EVENT_QUEUE_DEPTH 16u        /* P4: worker(rx-cb) -> main events */
+#define CFC_SUBGHZ_DIAG_QUEUE_DEPTH  8u         /* worker(rx-cb) -> main diagnostics */
+#define CFC_SUBGHZ_MIN_BITS          8u         /* P4/G5: <8 bits is noise */
+#define CFC_SUBGHZ_MAX_BITS          64u        /* P4/G5: largest fixed-code key */
+#define CFC_SUBGHZ_PROTOCOL_MAXLEN   24u        /* copied protocol name buffer */
+#define CFC_SUBGHZ_IDLE_TIMEOUT_MS   300000u    /* 5-min idle auto-disarm (charge) */
+/* The allowlisted protocol's registry name (== SUBGHZ_PROTOCOL_PRINCETON_NAME in
+ * princeton.h, which the SDK doesn't ship). Defined locally as the stable fact. */
+#define CFC_SUBGHZ_PRINCETON_NAME    "Princeton"
+
 typedef enum {
     CfcStateIdle,
     CfcStateAssembling,
 } CfcState;
+
+/* Sub-GHz worker lifecycle state (G6 — enum, not bool). Guards subscribe/
+ * unsubscribe churn and makes teardown state-guarded (G7): a charge-suppress
+ * exit / worker_stop fires ONLY if the matching enter / start happened. */
+typedef enum {
+    CfcSubghzStateIdle,     /* not armed; HAL released */
+    CfcSubghzStateStarting, /* mid bring-up (transient; goto-cleanup target, G4) */
+    CfcSubghzStateRunning,  /* armed: charge suppressed, async RX live, worker up */
+    CfcSubghzStateStopping, /* mid teardown (transient) */
+} CfcSubghzState;
 
 /* ------- Phase 3 Cook 2: worker thread (spec §5.1-§5.3) ------- */
 
@@ -192,6 +254,85 @@ typedef struct {
     NfcProtocol detected[NfcProtocolNum];
 } CfcWorker;
 
+/* ------- Phase 3 Cook 1: Sub-GHz worker (decoded-stream RX) ------- */
+
+/* Mirror of the universal fixed-code decoder prefix. The concrete
+ * SubGhzProtocolDecoderPrinceton is opaque in princeton.h (body private to
+ * princeton.c), so the spec's literal cast won't compile. We re-declare the prefix
+ * — base + decoder + generic, in struct order — and dereference ONLY after the
+ * protocol-name allowlist gate (P0). NOTE the generic sub-struct below is pinned to
+ * the FIRMWARE layout, not the SDK's (see the comment on CfcMtmGeneric). */
+/* Momentum's SubGhzBlockGeneric is WIDER than the stock ufbt SDK's generic.h:
+ * Momentum inserts `data_2` (uint64) right after `data`, plus `cnt_2`/`seed` at the
+ * end. The SDK header this FAP compiles against therefore places data_count_bit at
+ * offset 20, but the firmware ACTUALLY on the device keeps it at offset 28. Casting
+ * through the SDK's SubGhzBlockGeneric read data_count_bit from inside the firmware's
+ * unused `data_2` => always 0 (live-fire fingerprint: protocol=Princeton, bits=0,
+ * accepted=false). `data` (the key) is at offset 8 in BOTH, so only the bit count was
+ * wrong. Pin the cast to the FIRMWARE's real layout (mirror d3ba597). CPK targets
+ * Momentum mntm-dev ONLY, so this is correct; revisit if the firmware family changes.
+ * GENERAL LESSON: the ufbt SDK headers are stock/upstream and do NOT reflect Momentum's
+ * struct extensions — never trust an SDK struct's field offsets for a private cast. */
+typedef struct {
+    const char* protocol_name;
+    uint64_t data;
+    uint64_t data_2;         /* Momentum-only; absent from stock SDK generic.h */
+    uint32_t serial;
+    uint16_t data_count_bit; /* firmware offset 28 (SDK header wrongly puts it at 20) */
+    uint8_t btn;
+    uint32_t cnt;
+    uint8_t cnt_2;           /* Momentum-only */
+    uint32_t seed;           /* Momentum-only */
+} CfcMtmGeneric;
+
+typedef struct {
+    SubGhzProtocolDecoderBase base;
+    SubGhzBlockDecoder decoder;
+    CfcMtmGeneric generic; /* firmware-accurate layout, NOT the SDK's SubGhzBlockGeneric */
+} CfcSubghzDecoderHead;
+
+/* rx-callback -> main decoded result. Passed BY VALUE through the queue; the
+ * decoder_base pointer is valid ONLY inside the rx callback (runs on the SubGhz
+ * worker thread), same UAF discipline as the NFC UID. protocol[] is an OWNED copy
+ * of the registry's static name string (copy-by-value, zero lifetime assumption). */
+typedef struct {
+    char protocol[CFC_SUBGHZ_PROTOCOL_MAXLEN]; /* e.g. "Princeton" */
+    uint32_t bits;                             /* generic.data_count_bit */
+    uint64_t key;                              /* generic.data (uint64) */
+    uint32_t frequency;                        /* CFC_SUBGHZ_FREQUENCY (const) */
+    uint32_t timestamp_ms;                     /* furi_get_tick() at decode (P6) */
+} CfcSubghzResult;
+
+/* rx-callback -> main diagnostic (0x5F seam). Emitted on EVERY decode the
+ * receiver completes, BEFORE the allowlist/G5 gate, so a silent live-fire is
+ * triaged in one run: no diag at all => receiver decoded nothing (RF/preset/
+ * freq/wiring); diag with protocol != Princeton => decoding something else;
+ * diag Princeton + accepted=false => G5 dropped it; accepted=true => should have
+ * broadcast. Passed BY VALUE; best-effort (dropped silently on a full queue). */
+typedef struct {
+    char protocol[CFC_SUBGHZ_PROTOCOL_MAXLEN];
+    uint32_t bits;     /* 0 for non-allowlisted (never cast a foreign prefix) */
+    bool accepted;     /* passed allowlist AND G5 (key!=0 && bits in [8,64]) */
+} CfcSubghzDiag;
+
+/* Sub-GHz worker state. The SubGhzWorker IS the background decode thread (it owns
+ * its own FuriThread), so — unlike the NFC CfcWorker — there is NO custom polling
+ * thread here. The receiver rx callback fires synchronously on that worker thread
+ * and copies primitives into `events` (P1); the MAIN thread drains + builds the
+ * msgpack + broadcasts. Allocated ONCE at app start; fields RESET (never realloc)
+ * on re-subscribe (G6). `device` is the const registry handle (init once, G2). */
+typedef struct {
+    SubGhzEnvironment* environment; /* registry holder (no keystore — fixed-code) */
+    SubGhzReceiver* receiver;       /* runs the decoders; our rx cb hangs off it */
+    SubGhzWorker* worker;           /* the decode thread (start on arm, stop on disarm) */
+    const SubGhzDevice* device;     /* CC1101 internal; resolved once after init */
+    bool devices_inited;            /* G2: subghz_devices_init called once */
+    FuriMessageQueue* events;       /* rx cb -> main (CfcSubghzResult), depth 16 */
+    FuriMessageQueue* diag;         /* rx cb -> main (CfcSubghzDiag), depth 8 */
+    uint32_t drops;                 /* P4: running count of events-queue drop-on-full */
+    CfcSubghzState state;           /* G6/G7 lifecycle guard */
+} CfcSubghzWorker;
+
 typedef struct {
     RpcAppSystem* rpc_app;
     FuriMessageQueue* exit_queue;
@@ -220,6 +361,17 @@ typedef struct {
     uint32_t broadcast_txn_counter; /* next broadcast txn sequence (high-bit set) */
     bool first_tap_pending;         /* beep on the first tap after each subscribe */
     NotificationApp* notifications; /* RECORD_NOTIFICATION (gate f beep) */
+
+    /* Phase 3 Cook 1 — Sub-GHz vertical (additive; independent of NFC above).
+     * The two verticals can be armed concurrently: each pairs its own
+     * charge-suppress enter/exit (the firmware counter is ref-counted) and its
+     * own worker, so they compose without interference (P3). subghz_lock guards
+     * the arm/disarm/idle critical sections against the one cross-thread race:
+     * unsubscribe (RPC-callback thread) vs the idle failsafe (main thread). */
+    CfcSubghzWorker subghz;
+    bool subghz_subscribed;     /* subscription active? (BUSY + idle checks) */
+    uint32_t subghz_arm_ms;     /* tick at last arm — 5-min idle failsafe */
+    FuriMutex* subghz_lock;     /* serialize arm/disarm/idle transitions */
 } CfcContext;
 
 typedef struct {
@@ -901,6 +1053,330 @@ static void cfc_check_idle_timeout(CfcContext* cfc) {
     }
 }
 
+/* ------- Phase 3 Cook 1: Sub-GHz decoded-stream RX worker (§5, §7, P0-P6) ------- */
+
+/*
+ * Receiver rx callback — fires SYNCHRONOUSLY on the SubGhz worker thread when a
+ * protocol fully decodes (receiver.c). decoder_base is valid ONLY inside this
+ * call: copy by value, NEVER retain the pointer (same UAF rule as the NFC UID).
+ *
+ * Extraction is a DIRECT-FIELD read (P0): gate on the protocol NAME first
+ * (Princeton allowlist), and only THEN cast to the fixed-code prefix to read the
+ * embedded generic block. Casting before the gate would read `generic` at a
+ * struct offset that differs per protocol — the exact reason the allowlist
+ * exists. NO serialize, NO FlipperFormat, NO preset. The callback does the
+ * minimum and queues primitives; the MAIN thread builds msgpack + broadcasts (P1).
+ */
+static void cfc_subghz_rx_cb(
+    SubGhzReceiver* receiver,
+    SubGhzProtocolDecoderBase* decoder_base,
+    void* context) {
+    UNUSED(receiver);
+    CfcSubghzWorker* w = (CfcSubghzWorker*)context;
+    if(!decoder_base || !decoder_base->protocol || !decoder_base->protocol->name) return;
+
+    const char* name = decoder_base->protocol->name; /* universal (all protocols) */
+    bool is_princeton = (strcmp(name, CFC_SUBGHZ_PRINCETON_NAME) == 0);
+
+    uint32_t bits = 0;
+    uint64_t key = 0;
+    if(is_princeton) {
+        /* P0: allowlist passed -> safe to read the embedded generic directly. */
+        const CfcSubghzDecoderHead* head = (const CfcSubghzDecoderHead*)decoder_base;
+        key = head->generic.data;
+        bits = (uint32_t)head->generic.data_count_bit;
+    }
+
+    /* G5 frame validation: a plausible fixed-code key, before anything is queued. */
+    bool accepted =
+        is_princeton && key != 0 && bits >= CFC_SUBGHZ_MIN_BITS && bits <= CFC_SUBGHZ_MAX_BITS;
+
+    /* 0x5F diag seam — emit on EVERY decode, BEFORE the gate, best-effort. Lets a
+     * silent live-fire self-triage in one run. bits is 0 for non-allowlisted
+     * (we never cast a foreign struct prefix). */
+    CfcSubghzDiag d = {0};
+    strncpy(d.protocol, name, sizeof(d.protocol) - 1);
+    d.bits = bits;
+    d.accepted = accepted;
+    furi_message_queue_put(w->diag, &d, 0); /* drop silently on full */
+
+    if(!accepted) return;
+
+    /* P1: copy primitives only — no msgpack here. */
+    CfcSubghzResult r = {0};
+    strncpy(r.protocol, name, sizeof(r.protocol) - 1);
+    r.bits = bits;
+    r.key = key;
+    r.frequency = CFC_SUBGHZ_FREQUENCY;
+    r.timestamp_ms = furi_get_tick(); /* ticks == ms on Momentum (configTICK_RATE_HZ=1000), P6 */
+
+    /* G1: NON-BLOCKING put; drop + count on a full queue. NEVER FuriWaitForever —
+     * a full queue + worker_stop's thread-join would hard-deadlock -> reboot. */
+    if(furi_message_queue_put(w->events, &r, 0) != FuriStatusOk) {
+        w->drops++;
+    }
+}
+
+/*
+ * App-start (HEAVY, one-time): alloc env + receiver + worker + queues, wire the
+ * decode pipeline, devices_init ONCE (G2) and resolve the CC1101 handle. NO HAL
+ * claim — begin()/the radio is deferred to arm so the radio is released whenever
+ * no one is subscribed. Mirrors subghz_txrx_alloc's ordering. Main thread only.
+ */
+static void cfc_subghz_app_start(CfcSubghzWorker* w) {
+    w->state = CfcSubghzStateIdle;
+    w->drops = 0;
+
+    w->environment = subghz_environment_alloc();
+    /* Fixed-code only: set the registry, NO keystore load (P0/§5.1). */
+    subghz_environment_set_protocol_registry(w->environment, (void*)&subghz_protocol_registry);
+
+    w->receiver = subghz_receiver_alloc_init(w->environment);
+    subghz_receiver_set_filter(w->receiver, SubGhzProtocolFlag_Decodable);
+    subghz_receiver_set_rx_callback(w->receiver, cfc_subghz_rx_cb, w);
+
+    w->worker = subghz_worker_alloc();
+    subghz_worker_set_overrun_callback(w->worker, (SubGhzWorkerOverrunCallback)subghz_receiver_reset);
+    subghz_worker_set_pair_callback(w->worker, (SubGhzWorkerPairCallback)subghz_receiver_decode);
+    subghz_worker_set_context(w->worker, w->receiver);
+
+    w->events = furi_message_queue_alloc(CFC_SUBGHZ_EVENT_QUEUE_DEPTH, sizeof(CfcSubghzResult));
+    w->diag = furi_message_queue_alloc(CFC_SUBGHZ_DIAG_QUEUE_DEPTH, sizeof(CfcSubghzDiag));
+
+    /* G2: devices_init ONCE. Resolve the internal CC1101 now; begin() (the actual
+     * HAL/SPI claim) is paired with arm/disarm so it never latches when idle. */
+    subghz_devices_init();
+    w->devices_inited = true;
+    w->device = subghz_devices_get_by_name(SUBGHZ_DEVICE_CC1101_INT_NAME);
+    if(!w->device) FURI_LOG_E(TAG, "subghz: CC1101 internal device not found");
+}
+
+/*
+ * Arm (LIGHT subscribe, §7 + P2). Claims the radio and starts the decode chain.
+ * begin()<->end() is paired with arm<->disarm (NOT app-start/exit) so a second
+ * subscribe can never double-begin (the spec's §7 placement of begin in Subscribe
+ * with end only in App-exit would double-claim on re-subscribe — corrected here
+ * to the mirror-canonical pairing, subghz_txrx radio_device_set/power_off).
+ *
+ * The setup sequence is mirror-verified (weather_station / subghz_txrx); the
+ * spec's §5.1 omitted subghz_devices_start_async_rx (THE capture link) and named
+ * a non-existent subghz_worker_set_context_to_pair / subghz_devices_set_idle —
+ * all corrected from source. Every failure after charge-suppress-enter unwinds
+ * through `fail:` so the charge-suppress can never latch (G4). Returns true iff
+ * fully armed (state == RUNNING). Main thread; holds subghz_lock at the call site.
+ */
+static int cfc_subghz_arm(CfcSubghzWorker* w) {
+    if(!w->device) {
+        FURI_LOG_E(TAG, "subghz arm: no device");
+        return 1;
+    }
+    if(!subghz_devices_is_frequency_valid(w->device, CFC_SUBGHZ_FREQUENCY)) {
+        FURI_LOG_E(TAG, "subghz arm: 433.92 invalid");
+        return 2;
+    }
+
+    w->state = CfcSubghzStateStarting;
+    w->drops = 0;                       /* G6: reset per-subscribe, never realloc */
+    subghz_receiver_reset(w->receiver); /* clear any stale partial decode */
+
+    /* ROOT-CAUSE FIX (live-fire): the INTERNAL CC1101 has interconnect->begin == NULL,
+     * so subghz_devices_begin() returns false BY DESIGN (begin is the power-on
+     * handshake for EXTERNAL radios only: extended_range / amp_and_leds / region
+     * bypass). The internal radio needs no begin — its bring-up is the
+     * reset/load_preset/set_frequency/set_rx sequence below, and its teardown is
+     * subghz_devices_end (furi_hal_subghz_shutdown). So we CALL begin for external-
+     * device forward-compat but DO NOT gate arm on its return. All calls after this
+     * point are void (no failure signal), so there is no early-return path and thus
+     * no in-arm charge-suppress unwind needed (G4); disarm pairs the exit (G7). */
+    subghz_devices_begin(w->device);
+
+    subghz_devices_reset(w->device);
+    subghz_devices_idle(w->device);
+    subghz_devices_load_preset(w->device, FuriHalSubGhzPresetOok650Async, NULL);
+    subghz_devices_set_frequency(w->device, CFC_SUBGHZ_FREQUENCY);
+    subghz_devices_flush_rx(w->device);
+
+    furi_hal_power_suppress_charge_enter(); /* paired with disarm's exit (G7) */
+
+    subghz_devices_set_rx(w->device);
+    /* THE capture link (mirror-confirmed; absent from the spec's §5.1): the device
+     * pushes captured level/duration pairs into the worker via the worker's own
+     * callback, and the worker thread feeds them to the receiver's pair callback
+     * (subghz_receiver_decode). Without this the worker gets zero data and nothing
+     * ever decodes. */
+    subghz_devices_start_async_rx(w->device, subghz_worker_rx_callback, w->worker);
+
+    subghz_worker_start(w->worker);
+
+    w->state = CfcSubghzStateRunning;
+    return 0;
+}
+
+/*
+ * Disarm (LIGHT unsubscribe). State-guarded (G7): no-op unless RUNNING, so an
+ * exit-after-unsubscribe or a double-disarm can never double-exit charge-suppress
+ * or stop an unstarted worker. worker_stop joins the decode thread FIRST (no rx
+ * callback fires after it returns), then the device stops pushing durations
+ * (mirror order, subghz_txrx_rx_end). end() releases the HAL/SPI (G3). Main thread;
+ * holds subghz_lock at the call site (except the post-RPC-detach app-exit path).
+ */
+static void cfc_subghz_disarm(CfcSubghzWorker* w) {
+    if(w->state != CfcSubghzStateRunning) return; /* G7 */
+    w->state = CfcSubghzStateStopping;
+
+    if(subghz_worker_is_running(w->worker)) subghz_worker_stop(w->worker);
+    subghz_devices_stop_async_rx(w->device);
+    subghz_devices_idle(w->device);
+    furi_hal_power_suppress_charge_exit(); /* G7: paired with arm's enter */
+    subghz_devices_sleep(w->device);
+    subghz_devices_end(w->device); /* release HAL/SPI (paired with begin) */
+
+    w->state = CfcSubghzStateIdle;
+}
+
+/*
+ * App-exit teardown. Guarded disarm covers exit-while-subscribed (G3): the main
+ * loop has ended and RPC is detached, so this is the sole teardown — no race with
+ * unsubscribe. receiver_free BEFORE env_free (spec §5.3.2, STANDS post-P0): each
+ * decoder slot was alloc'd against the environment, so freeing env first could
+ * dangle a decoder that retained it. Main thread only.
+ */
+static void cfc_subghz_app_exit(CfcSubghzWorker* w) {
+    cfc_subghz_disarm(w); /* no-op unless RUNNING */
+
+    if(w->devices_inited) {
+        subghz_devices_deinit();
+        w->devices_inited = false;
+    }
+    if(w->worker) {
+        subghz_worker_free(w->worker);
+        w->worker = NULL;
+    }
+    if(w->receiver) { /* BEFORE env */
+        subghz_receiver_free(w->receiver);
+        w->receiver = NULL;
+    }
+    if(w->environment) {
+        subghz_environment_free(w->environment);
+        w->environment = NULL;
+    }
+    if(w->events) {
+        furi_message_queue_free(w->events);
+        w->events = NULL;
+    }
+    if(w->diag) {
+        furi_message_queue_free(w->diag);
+        w->diag = NULL;
+    }
+}
+
+/*
+ * Encode + send one SUBGHZ_EVENT (0x52) broadcast. MAIN thread only, through
+ * cfc_send_response_frame so it rides the same tx_mutex single-writer wire
+ * discipline as every other message. Payload map (spec §4 / P0 / P4):
+ *   protocol(str) bits(u32) key(u64) frequency(u32) timestamp_ms(u32) drops(u32)
+ * key is a uint64 — high-bit keys (> INT64_MAX) are valid and must round-trip.
+ */
+static void cfc_send_subghz_event(
+    CfcContext* cfc,
+    uint32_t txn,
+    const CfcSubghzResult* r,
+    uint32_t drops) {
+    uint8_t payload[128];
+    CfcWriteBuf wb = {.data = payload, .pos = 0, .cap = sizeof(payload)};
+    cmp_ctx_t cmp;
+    cmp_init(&cmp, &wb, NULL, NULL, cfc_cmp_writer);
+
+    uint32_t name_len = (uint32_t)strlen(r->protocol); /* always NUL-terminated (zero-init) */
+
+    if(!cmp_write_map(&cmp, 6)) return;
+    if(!cmp_write_str(&cmp, "protocol", 8)) return;
+    if(!cmp_write_str(&cmp, r->protocol, name_len)) return;
+    if(!cmp_write_str(&cmp, "bits", 4)) return;
+    if(!cmp_write_uinteger(&cmp, r->bits)) return;
+    if(!cmp_write_str(&cmp, "key", 3)) return;
+    if(!cmp_write_uinteger(&cmp, r->key)) return; /* uint64, P6 */
+    if(!cmp_write_str(&cmp, "frequency", 9)) return;
+    if(!cmp_write_uinteger(&cmp, r->frequency)) return;
+    if(!cmp_write_str(&cmp, "timestamp_ms", 12)) return;
+    if(!cmp_write_uinteger(&cmp, r->timestamp_ms)) return;
+    if(!cmp_write_str(&cmp, "drops", 5)) return;
+    if(!cmp_write_uinteger(&cmp, drops)) return;
+
+    cfc_send_response_frame(cfc, CFC_OP_SUBGHZ_EVENT, txn, payload, wb.pos);
+}
+
+/*
+ * Encode + send one SUBGHZ_DIAG (0x5F) broadcast. MAIN thread only, same wire
+ * discipline. Payload: {event:"decode", protocol:<name>, bits:N, accepted:bool}.
+ */
+static void cfc_send_subghz_diag(CfcContext* cfc, uint32_t txn, const CfcSubghzDiag* d) {
+    uint8_t payload[96];
+    CfcWriteBuf wb = {.data = payload, .pos = 0, .cap = sizeof(payload)};
+    cmp_ctx_t cmp;
+    cmp_init(&cmp, &wb, NULL, NULL, cfc_cmp_writer);
+
+    uint32_t name_len = (uint32_t)strlen(d->protocol);
+    if(!cmp_write_map(&cmp, 4)) return;
+    if(!cmp_write_str(&cmp, "event", 5)) return;
+    if(!cmp_write_str(&cmp, "decode", 6)) return;
+    if(!cmp_write_str(&cmp, "protocol", 8)) return;
+    if(!cmp_write_str(&cmp, d->protocol, name_len)) return;
+    if(!cmp_write_str(&cmp, "bits", 4)) return;
+    if(!cmp_write_uinteger(&cmp, d->bits)) return;
+    if(!cmp_write_str(&cmp, "accepted", 8)) return;
+    if(!cmp_write_bool(&cmp, d->accepted)) return;
+
+    cfc_send_response_frame(cfc, CFC_OP_SUBGHZ_DIAG, txn, payload, wb.pos);
+}
+
+/*
+ * Drain the rx-callback -> main result queue and broadcast each on 0x52. MAIN
+ * thread only (the worker never touches the wire). Broadcast txns get the M3
+ * high bit SET so the host reader routes them to the 0x52 subscription buffer.
+ * Each event carries the running `drops` count so the host distinguishes "no
+ * signal" from "dropped everything" (P4).
+ */
+static void cfc_drain_subghz_events(CfcContext* cfc) {
+    CfcSubghzResult r;
+    while(furi_message_queue_get(cfc->subghz.events, &r, 0) == FuriStatusOk) {
+        uint32_t txn = CFC_BROADCAST_TXN_BIT | (cfc->broadcast_txn_counter++ & 0x7FFFFFFFu);
+        cfc_send_subghz_event(cfc, txn, &r, cfc->subghz.drops);
+    }
+}
+
+/* Drain the rx-callback -> main diag queue and broadcast each on 0x5F. MAIN
+ * thread only; same M3 high-bit txn namespace + shared counter. */
+static void cfc_drain_subghz_diag(CfcContext* cfc) {
+    CfcSubghzDiag d;
+    while(furi_message_queue_get(cfc->subghz.diag, &d, 0) == FuriStatusOk) {
+        uint32_t txn = CFC_BROADCAST_TXN_BIT | (cfc->broadcast_txn_counter++ & 0x7FFFFFFFu);
+        cfc_send_subghz_diag(cfc, txn, &d);
+    }
+}
+
+/*
+ * 5-minute idle failsafe (parity with the NFC §5.5 path). If a subscription has
+ * been armed >5 min with no host churn, disarm so a client that walked away stops
+ * holding the radio + charge-suppress (battery won't charge while suppressed).
+ * MAIN thread; the subghz_lock closes the one real race — a concurrent
+ * unsubscribe on the RPC-callback thread — so disarm runs exactly once.
+ */
+static void cfc_check_subghz_idle_timeout(CfcContext* cfc) {
+    if(!cfc->subghz_subscribed) return;
+    if((furi_get_tick() - cfc->subghz_arm_ms) <= furi_ms_to_ticks(CFC_SUBGHZ_IDLE_TIMEOUT_MS))
+        return;
+
+    furi_mutex_acquire(cfc->subghz_lock, FuriWaitForever);
+    if(cfc->subghz_subscribed &&
+       (furi_get_tick() - cfc->subghz_arm_ms) > furi_ms_to_ticks(CFC_SUBGHZ_IDLE_TIMEOUT_MS)) {
+        FURI_LOG_I(TAG, "subghz idle >5min — auto-disarm failsafe");
+        cfc_subghz_disarm(&cfc->subghz);
+        cfc->subghz_subscribed = false;
+    }
+    furi_mutex_release(cfc->subghz_lock);
+}
+
 /* ------- handlers ------- */
 
 static void cfc_handle_ping(CfcContext* cfc, uint32_t txn, const uint8_t* msgpack, size_t mp_len) {
@@ -1093,6 +1569,48 @@ static void cfc_dispatch(CfcContext* cfc, uint8_t op_code, uint32_t txn, const u
         furi_message_queue_put(cfc->worker.worker_in, &disarm, 100);
         cfc->nfc_subscribed = false;
         cfc_send_status_ok(cfc, txn, CFC_OP_NFC_UNSUBSCRIBE);
+        break;
+    }
+    case CFC_OP_SUBGHZ_SUBSCRIBE_CAPTURE: {
+        furi_mutex_acquire(cfc->subghz_lock, FuriWaitForever);
+        if(cfc->subghz_subscribed) {
+            furi_mutex_release(cfc->subghz_lock);
+            cfc_send_error(cfc, txn, CFC_ERR_SUB_BUSY, "already subscribed");
+            break;
+        }
+        /* Sub-GHz arm is SYNCHRONOUS hardware bring-up (unlike NFC's async worker
+         * arm), so we report accurate status: arm first, ack on success / error on
+         * failure. No Q1 ack-race — the host registers its 0x52 buffer BEFORE
+         * sending this arm, and 0x52 broadcasts are deferred to the main-loop
+         * drain, so an event can never beat the ack onto the wire. */
+        int arm_rc = cfc_subghz_arm(&cfc->subghz);
+        if(arm_rc == 0) {
+            cfc->subghz_subscribed = true;
+            cfc->subghz_arm_ms = furi_get_tick();
+        }
+        furi_mutex_release(cfc->subghz_lock);
+        if(arm_rc == 0) {
+            cfc_send_status_ok(cfc, txn, CFC_OP_SUBGHZ_SUBSCRIBE_CAPTURE);
+        } else {
+            const char* arm_msg = (arm_rc == 1) ? "arm fail: no CC1101 device" :
+                                  (arm_rc == 2) ? "arm fail: 433.92 freq invalid" :
+                                  (arm_rc == 3) ? "arm fail: devices_begin (HAL claim)" :
+                                                  "arm fail: unknown";
+            cfc_send_error(cfc, txn, CFC_ERR_INTERNAL, arm_msg);
+        }
+        break;
+    }
+    case CFC_OP_SUBGHZ_UNSUBSCRIBE: {
+        furi_mutex_acquire(cfc->subghz_lock, FuriWaitForever);
+        if(!cfc->subghz_subscribed) {
+            furi_mutex_release(cfc->subghz_lock);
+            cfc_send_error(cfc, txn, CFC_ERR_NOT_SUBSCRIBED, "not subscribed");
+            break;
+        }
+        cfc_subghz_disarm(&cfc->subghz); /* synchronous: joins the decode thread */
+        cfc->subghz_subscribed = false;
+        furi_mutex_release(cfc->subghz_lock);
+        cfc_send_status_ok(cfc, txn, CFC_OP_SUBGHZ_UNSUBSCRIBE);
         break;
     }
     default:
@@ -1362,6 +1880,12 @@ int32_t cfc_app_main(void* p) {
         furi_thread_alloc_ex("CfcWorker", CFC_WORKER_STACK_SIZE, cfc_worker_thread, &cfc.worker);
     furi_thread_start(cfc.worker.thread);
 
+    /* Phase 3 Cook 1 — Sub-GHz vertical: HEAVY one-time setup (env/receiver/
+     * worker/queues/devices_init). No HAL claim until the first subscribe. The
+     * subghz_lock guards the arm/disarm/idle critical sections. */
+    cfc.subghz_lock = furi_mutex_alloc(FuriMutexTypeNormal);
+    cfc_subghz_app_start(&cfc.subghz);
+
     rpc_system_app_set_callback(cfc.rpc_app, cfc_rpc_callback, &cfc);
     rpc_system_app_send_started(cfc.rpc_app);
 
@@ -1380,6 +1904,11 @@ int32_t cfc_app_main(void* p) {
         cfc_drain_worker_diag(&cfc); /* Cook 3.2: broadcast diagnostics (0x4F) */
         cfc_drain_worker_results(&cfc);
         cfc_check_idle_timeout(&cfc);
+        /* Phase 3 Cook 1 — Sub-GHz: drain diag (0x5F) before events (0x52) so a
+         * decode diagnostic tends to surface a tick ahead of its event. */
+        cfc_drain_subghz_diag(&cfc);
+        cfc_drain_subghz_events(&cfc);
+        cfc_check_subghz_idle_timeout(&cfc);
     }
 
     FURI_LOG_I(TAG, "CFC exiting");
@@ -1398,6 +1927,12 @@ int32_t cfc_app_main(void* p) {
         furi_message_queue_free(cfc.worker.worker_out);
         furi_message_queue_free(cfc.worker.worker_out_diag); /* Cook 3.2 */
     }
+
+    /* Phase 3 Cook 1 — Sub-GHz teardown: guarded disarm (covers exit-while-armed,
+     * G3/G7) + devices_deinit + free env/receiver/worker/queues (receiver BEFORE
+     * env, §5.3.2). RPC is already detached, so no unsubscribe can race this. */
+    cfc_subghz_app_exit(&cfc.subghz);
+    furi_mutex_free(cfc.subghz_lock);
 
     /* Worker is joined and the RPC callback detached, so no further sends can
      * occur — safe to drop the wire mutex and the notification record. */
