@@ -277,3 +277,16 @@ Real NFC capture live-fired on AmorPoee. NFC vertical slice + host-listener asyn
 **Live-fire harness:** `D:\Dev\scratch\live_fire_subghz.py` (EXPECTED_KEY=0x00A34E44 wired). FAP deployed via `uvx ufbt launch` (full path `C:\Users\N01\.local\bin\uvx.exe` from non-interactive shells; cfc.fap 28KB→/ext/apps/Tools/).
 
 **ENVIRONMENTAL BUG FOUND (ship-blocker, see 03-active #1):** orphaned `flipper_mcp.cli.main` reader processes busy-spin a full core each (4.16% on a 24-thread box = 1 core at 100%); one had burned 1967 CPU-sec. They cooked the CPU for 8h AND caused the COM9 "Access is denied" + MCP wedging all night. Killed all this session. ROOT cause likely the Cook 1.5 reader loop not blocking/backing-off + no orphan cleanup on exit (R7). A fresh git-clone user would hit this immediately.
+
+
+---
+
+## Reader CPU-spin (R7 heat) — FIXED (2026-05-28, Day 12)
+
+**Was:** the §13.1 single-reader loop did `if main is None: continue` with no backoff. A healthy idle port makes `_receive_main_message` block ~READER_POLL_S (0.1s) → light. A dead/closed/grabbed port makes the underlying `serial.read` fast-fail → None returns instantly → the loop spins at 100% of a CORE. Orphaned readers (port died after unplug / session end) each pegged a full core for hours (one had 1967 CPU-sec). This cooked the operator's CPU for 8h AND was a hidden contributor to the COM9 "Access is denied" + MCP-wedge churn. A fresh git-clone user would hit this immediately = reputation/ship-blocker.
+
+**Fix (`flipper_mcp/core/protobuf_rpc.py`):** `_reader_loop` now measures poll elapsed; if a None came back FASTER than READER_POLL_S (fast-fail signature), it sleeps the remainder → loop rate capped at ~10/s regardless of how fast the read failed. Same backoff added to the `except Exception` path (port-closed-under-us). `import time` added (was only a local import elsewhere). Zero healthy-path cost (a live idle port already blocks the full window).
+
+**Verified:** tests/phase3 41/41 green AND runtime collapsed 34.4s→2.5s (the 32s WAS the spin); tests/cfc_phase2 27/27 green on live AmorPoee (no healthy-read regression). Post-fix: 0 flipper_mcp processes spinning; CPU calm.
+
+**Residual (NOT urgent, R7 follow-up):** the fix stops the HEAT, not the LINGER — orphaned readers can still survive a dead session as idle (near-zero-CPU) processes. A clean shutdown hook (stop reader + close port) or a `python -m flipper_mcp.tools.kill_stale` helper would stop them piling up. Side-task, queued.

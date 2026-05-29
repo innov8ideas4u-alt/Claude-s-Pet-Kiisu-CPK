@@ -12,6 +12,7 @@ import logging
 import os
 import struct
 import sys
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
@@ -387,10 +388,23 @@ class ProtobufRPC:
         frame must not starve subsequent calls (§10.2).
         """
         while not self._reader_stop.is_set():
+            poll_start = time.monotonic()
             try:
                 main = await self._receive_main_message(timeout=READER_POLL_S)
                 if main is None:
                     # No frame in the poll window; loop and check stop flag.
+                    # CPU-SPIN GUARD (R7 / "CPU cooking" bug): a healthy idle port
+                    # makes _receive_main_message BLOCK ~READER_POLL_S before
+                    # returning None. But a dead/closed/grabbed port makes the
+                    # underlying serial read fast-FAIL, so None comes back almost
+                    # instantly — an unguarded `continue` then spins this loop at
+                    # 100% of a core (orphaned readers were each pegging a full core
+                    # for hours, cooking the CPU and masquerading as a mystery load).
+                    # Sleep out the remainder of the poll window so the loop rate is
+                    # capped at ~1/READER_POLL_S no matter how fast the read failed.
+                    elapsed = time.monotonic() - poll_start
+                    if elapsed < READER_POLL_S:
+                        await asyncio.sleep(READER_POLL_S - elapsed)
                     continue
                 self._dispatch_main(main)
             except asyncio.CancelledError:
@@ -408,6 +422,9 @@ class ProtobufRPC:
                         f"[reader-loop] exception (continuing): {type(e).__name__}: {e}",
                         file=sys.stderr,
                     )
+                # CPU-SPIN GUARD: if the read keeps raising (e.g. the port closed
+                # under us), back off so the error path can't spin a core either.
+                await asyncio.sleep(READER_POLL_S)
 
     def _dispatch_main(self, main: Any) -> None:
         """Route one inbound Main message to the right waiter.
