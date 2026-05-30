@@ -1,3 +1,0 @@
-[submodule "flipperzero-protobuf"]
-	path = flipperzero_protobuf/flipperzero-protobuf
-	url = https://github.com/flipperdevices/flipperzero-protobuf
