@@ -176,3 +176,34 @@ CPK reads real fixed-code Sub-GHz off-air end-to-end. Don't re-architect; build 
 - **Host** (`flipper_mcp/modules/cfc/module.py`): `flipper_cfc_subscribe(0x52)`/`_listen`/`_unsubscribe`; reuses Cook 1.5 reader + 0x80000000 broadcast routing.
 - **PROVEN:** live-fire Princeton key 0xA34E44 / 24-bit, 20 parcels one subscription, clean disarm. Allowlist = Princeton only (gate on protocol name before the cast; extend allowlist for more protocols — never blind-cast a foreign decoder prefix).
 - **Rolling-code (KeeLoq etc.) NOT done** — needs keystore; deferred by design.
+
+
+---
+
+## BluetoothTransport / BLE transport (Day 13, branch experiment/ble-transport — uncommitted)
+
+**Location:** `flipper_mcp/core/transport/bluetooth.py` (filled from stub). Drop-in `FlipperTransport` sibling to USBTransport, speaking protobuf RPC over the Flipper BLE Serial GATT service.
+**What it does:** bleak 3.0.1 BLE link to AmorPoee; OVERFLOW byte-credit flow control; send chunked at min(max_write,486); receive via asyncio.Queue; b"" on timeout. The base class's `receive_exact()` does the framing — transport only implements the 5 primitives.
+**Don't:** re-derive a BLE transport, reimplement framing, or add signal/reconnect logic (reconnect + 0x08 handling is deferred v1-plus). Don't think BLE needs the CLI — captures are RPC opcodes (dispatch parity with USB confirmed).
+**Ladder:** `experiments/ble_ladder/ladder.py` — 3 rungs (link → ping → CFC OP_PING), run with the .venv python from repo root. Results → LADDER_RESULTS.md (S13 format). PENDING live AmorPoee (powered + BT advertising).
+**NotebookLM BLE corpus:** `notebooklm/cfc/_upload/notebook7_ble_firmware/` (3 txt bundles — firmware serial/rpc, host probes, host API+gotchas).
+
+
+---
+
+## Local "NotebookLM" for Kiisu/Momentum firmware EXISTS (Day 13, 2026-05-29) — don't rebuild
+
+Two local, sovereign tools now answer firmware/CPK questions WITHOUT cloud round-trips (Gemini/NotebookLM). Kept on their own shelf — NOT folded into pgvector conversational memory.
+
+**1. AnythingLLM workspace `kiisu-firmware`** (the "explain / how does this work" notebook)
+- Instance: `http://192.168.50.135:3001` (Ironside). 692 docs embedded = 7 NotebookLM `_upload` bundles + 559 curated firmware sources (`notebooklm/cfc/tight/`) + 32 CPK docs.
+- Ingest tool: `D:\Dev\scripts\anythingllm_ingest.py` (resumable, raw-text uploader; manifest at `D:\Dev\scripts\.anythingllm_kiisu_manifest.json`). Re-run = idempotent (skips manifest, re-embeds). SHERPA PROMOTION CANDIDATE.
+- Retrieval tuned generous (topN=12, similarityThreshold=0.15) to surface deep-in-file details NotebookLM-style.
+- **MCP exposure:** bridge (`memorycore-mcp-bridges\anythingllm_bridge\server.py`) auto-registers a tool per live workspace; hint added to `domains.py`. After a Claude Desktop restart it appears as **`ask_kiisu-firmware`** (no code change needed). Until restart, query via REST or the AnythingLLM UI.
+- **Don't:** bulk-dump the 22k-file `_reference\Momentum-dev` mirror into it (substrate pollution). Curated corpus only.
+
+**2. Librarian code graph now includes CPK** (the "who-calls / where-defined / call-graph" blueprint)
+- `D:\Dev\scripts\librarian_refresh.py` REPOS_TO_INDEX now lists `Claude-s-Pet-Kiisu-CPK`; `notebooklm` added to EXCLUDE_DIRS (drops vendored host-client copies). Output: `D:\Dev\.librarian\graph.json`; MCP hot-reloads.
+- Verified: `BluetoothTransport` -> `flipper_mcp\core\transport\bluetooth.py:L65` (host Python); `cfc_subghz_arm()` -> `cfc\cfc.c:L1168` (FAP C). Both Python and C parse.
+- **Don't:** expect nested class methods (e.g. `_reader_loop`) to resolve — graphify indexes module-level classes/functions only ("call edges sparse" by design). Use class/function-level symbols.
+- Re-run `librarian_refresh.py` after significant CPK code changes (AST cached, fast).

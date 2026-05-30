@@ -12,9 +12,22 @@
 
 ## 🔥 Currently in flight (active work)
 
-### 1. Phase 4 — "Clawd walks Kiisu" companion UI
+### 1. RFID Cook 1 — LF 125 kHz capture vertical (CFC opcode 0x62)
 
-**Status:** NOT STARTED. Phase 3 closed GREEN (real NFC capture live-fired, committed 425b62e). This is the next thing to work on.
+**Status:** SPEC CLEARED TO FIRE (Day 13), CODE NOT STARTED. Spec at `D:\Dev\scratch\day13_rfid_cook1_recon.md`; review trail `..._REVIEW.md`. Third RF capture vertical after NFC (0x42) + Sub-GHz (0x52). Reviewed by cc + NotebookLM (converged).
+
+**Next action:** fire the cook (FAP build order: busy-guard FIRST → alloc → start_thread → read_start(Auto) → value-only queue → DEFERRED re-arm → verify stock RFID app reads post-test). No COM9 needed for the cook (files-only); build/deploy I drive from PowerShell.
+
+**⛔ LIVE-FIRE BLOCKED:** operator has NO LF card/fob. Cook + build + deploy can proceed; the real-card live-fire waits for an EM4100/HID-Prox tag. Do NOT mark shipped or touch README until a real card reads.
+
+**Locked decision:** global single-active RF worker (decision 027) — busy-guard is crash-prevention (furi_hal_bus furi_check → bluescreen).
+
+### 2. IR Cook — RX-learn + TX vertical (recon done, spec unwritten)
+**Status:** RECON DONE at `D:\Dev\scratch\ir_cook_recon.md`. IR is TX + RX = TWO opcodes (first host→device ACTION opcode, not just capture). Pairs with the `app_load_file` "replay saved .ir via stock app" idea. Spec it after RFID.
+
+### 3. Phase 4 — "Clawd walks Kiisu" companion UI
+
+**Status:** NOT STARTED. Deferred behind the RFID + IR verticals. Phase 3 closed GREEN (real NFC capture live-fired).
 
 **Concept:** Crab (Claude Code mascot) + cat (Kiisu) on the Flipper screen. Ideas doc at `D:\Dev\scratch\cfc_companion_ui_ideas.md`. The PHASE4-UI-HOOK comment marker is already placed in the FAP worker (Cook 2 left the seam).
 

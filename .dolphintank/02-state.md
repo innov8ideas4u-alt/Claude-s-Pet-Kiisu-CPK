@@ -300,3 +300,42 @@ Real NFC capture live-fired on AmorPoee. NFC vertical slice + host-listener asyn
 - `phase3-cook1-host-refactor` also pushed and equal to main (2d9ecd6).
 - The earlier "operator review pending / NOT pushed" posture is CLOSED — operator (Victor) approved the push. README "What works today" now advertises the Companion app + live NFC + live Sub-GHz; architecture table lists `cfc/`.
 - Public progress-update post written (D:\Dev\scratch or chat artifact "CPK progress update") — describes the same milestones.
+
+
+---
+
+## Day 13 — BLE transport written + mock-green; hardware ladder PENDING device (2026-05-29)
+
+**Branch `experiment/ble-transport` (off main `4501fab`, NO commit/push yet).** `BluetoothTransport` stub → filled body.
+- **Strategic unlock:** CPK's NFC + Sub-GHz captures are RPC AppDataExchange opcodes, and BLE speaks Flipper RPC natively, so the old "CLI-not-over-BLE" wall (which killed JS missions) does NOT apply. NotebookLM confirmed **dispatch parity**: BLE RX → serial_service.c → bt.c `rpc_session_open(RpcOwnerBle)` → the SAME `RpcHandlerDict`/`rpc_systems[]` as USB. app_start + AppDataExchange are transport-agnostic. Rung 2 is therefore low-risk.
+- **Firmware truths to keep (from NotebookLM 5-Q pass against the Momentum corpus + notebook7):**
+  - **BLE single-write hard cap = 486 bytes** (`BLE_SVC_SERIAL_DATA_LEN_MAX`). send() chunk = min(max_write_without_response_size, 486). Non-negotiable.
+  - **OVERFLOW credit is per-BYTE**, decremented by `Attr_Data_Length` per write; replenished only when the RPC worker DRAINS the buffer (buffer-empty → notify on …63fe0000). A busy FAP not draining can stall credit mid-exchange; firmware doesn't rule out deadlock → #1 Rung-3 watch item.
+  - RPC_BUFFER_SIZE = 1024. BLE is instantly RPC-ready (no CLI handshake). Conn params (incl. supervision timeout) are negotiated at runtime, not hardcoded; 0x08 drop-while-sending is real, host-side reconnect is the only mitigation (deferred to v1-plus).
+- **Built:** `flipper_mcp/core/transport/bluetooth.py` (filled), `experiments/ble_ladder/ladder.py` (3-rung), `tests/ble/test_bluetooth.py` (16 mock tests, GREEN — re-verified independently). Forbidden files (usb/wifi/auto/base/protobuf_rpc) zero-diff = additive.
+- **Hardware ladder ATTEMPTED 2026-05-29 while Victor away — HALTED clean at Rung 1:** AmorPoee `not found` (BT off / powered down / out of range). Software path validated (imports, instantiate, clean connect-fail per S7, bounded retry, S13 logging all work); only the radio link was missing. Ladder run: `D:\Dev\Projects\Kiisu\.venv\Scripts\python.exe -m experiments.ble_ladder.ladder` from repo root. Needs AmorPoee powered + BT advertising (+ possible screen toggle; first connect needs a physical pairing press).
+- **Open nits for Victor:** (1) cc imports `bleak` at module-top, not lazily — works in-env (bleak installed) but a bleak-less clone can't import the transport package; 2-line lazy-import fix pending his OK. (2) Spec file `D:\Dev\scratch\day13_ble_transport_spec.md` on disk holds only the Sherpa S-layer (an earlier append overwrote the base + NotebookLM layers); durable firmware facts preserved here + in notebook7 corpus. (3) Cook is uncommitted — awaiting "let her rip" to commit, after the hardware ladder passes.
+- **NEXT:** power on AmorPoee + enable BT, re-run the ladder. Rungs 1+2 expected to pass (dispatch parity confirmed); Rung 3 (live CFC OP_PING over BLE) is the cordless-CPK proof.
+
+
+---
+
+## Day 13 (later) — Local sovereign NotebookLM + Librarian; RFID Cook 1 SPEC'D (NOT built) (2026-05-29)
+
+**Tooling shipped (Claude-side reference infra, NOT product code, mostly OUTSIDE the CPK repo):**
+- AnythingLLM workspace `kiisu-firmware` (Ironside 192.168.50.135:3001): ~769 docs = 7 NotebookLM bundles + curated firmware src (lib-nfc/subghz/lfrfid/toolbox) + furi_hal + CPK docs. Queryable via REST now; `ask_kiisu-firmware` MCP tool appears AFTER a Claude Desktop restart (bridge `domains.py` hint added — lives in the `memorycore-mcp-bridges` repo, not CPK).
+- Librarian graph now indexes CPK (host Python + FAP C). Verified: `cfc_subghz_arm`→cfc.c:1168, `BluetoothTransport`→bluetooth.py:65. Refresh script `D:\Dev\scripts\librarian_refresh.py` (notebooklm/ excluded from graph).
+- Reusable tools (Sherpa promotion candidates, in D:\Dev\scripts): `anythingllm_ingest.py`, `bundle_for_notebooklm.py`, `current_state_bundle.py`.
+- NotebookLM source-count fix: 105 `_upload` files → 15 bundles at `notebooklm/cfc/_upload_bundled/` (UNTRACKED — see AGPL flag).
+- Empirical boundary learned: kiisu-firmware workspace = great for conceptual "how does it work"; exact signatures/enums deep in big files still need a direct mirror grep (RAG top-k misses them). Use both.
+
+**RFID Cook 1 (LF 125 kHz capture vertical) — SPEC CLEARED TO FIRE, CODE NOT STARTED:**
+- Spec: `D:\Dev\scratch\day13_rfid_cook1_recon.md` (fire-ready). Review trail: `day13_rfid_cook1_recon_REVIEW.md`.
+- Recon via kiisu-firmware (10-Q battery) + direct mirror grep; adversarially reviewed by BOTH cc (source-grounded, line-cited) AND NotebookLM — they converged on the key findings.
+- Verified facts: `LFRFIDWorker` own FuriThread (2048 stack); `read_cb(LFRFIDWorkerReadResult, ProtocolId, ctx)`; success = `LFRFIDWorkerReadDone` (lfrfid_worker_modes.c:392-393); `ProtocolDict` fully opaque accessors (`protocol_dict_get_data` COPIES → NO struct cast → immune to the SubGhz-style ABI-drift trap); 26 protocols (`LFRFIDProtocolMax`); worker self-resets to Idle (lfrfid_worker.c:190) so continuous = DEFERRED main-tick re-arm (not inline in ReadDone — race); HAL teardown capture_stop→read_stop→pins_reset (lockup guard, verify stock RFID app post-test).
+- Proposed CFC: new opcode **0x62** (capture) + **0x6F** diag. Reuses Cook 1.5 reader + 0x80000000 broadcast routing UNCHANGED.
+- **LIVE-FIRE BLOCKED: operator has NO LF card/fob.** Build/deploy can proceed; live-fire deferred until an EM4100/HID-Prox card is in hand.
+
+**IR Cook (next vertical after RFID) — RECON DONE, spec not written:** `D:\Dev\scratch\ir_cook_recon.md`. IR is TX + RX (TWO opcodes) — different shape from the pure-capture verticals.
+
+**⚠️ AGPL/GPL license flag (PRE-EXISTING, needs operator decision):** `notebooklm/` is TRACKED (2433 files) and PUBLIC on the MIT repo, including verbatim GPLv3 Momentum firmware source. Copyleft source in an MIT public repo is a license-incompatibility risk. New bundles deliberately NOT git-added pending this decision. Options: gitignore + `git rm --cached notebooklm/` (keep local), or move corpus out of the repo entirely.

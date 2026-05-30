@@ -239,3 +239,20 @@ For any incoming frame with `tag == 'app_data_exchange_request'`, the reader par
 **Alternative considered:** (b-alt) Extract bits/key via the layout-safe `subghz_protocol_decoder_base_serialize` (function-ABI-stable, version-independent) instead of a struct cast. Rejected for Cook 1 because it requires constructing a non-NULL `SubGhzRadioPreset` and running FlipperFormat on the ~2KB worker thread (heavier); the firmware-pinned cast is light and CPK targets Momentum mntm-dev only. **If CPK ever supports multiple firmware families, switch to the serialize path — the cast is inherently firmware-version-coupled.**
 **Reasoning:** Both bugs were invisible to 49 mock tests (mocks don't touch the radio) and only surfaced at live-fire. The ABI-drift is the load-bearing lesson: **the ufbt SDK headers are stock/upstream and do NOT reflect Momentum's struct extensions. Never trust an SDK struct's field offsets for a private FAP cast — verify against the mirror (d3ba597).** Diagnosed by byte-comparing SDK vs mirror generic.h (SDK data_count_bit@20, firmware@28; the 8-byte gap = Momentum's inserted `data_2`).
 **Captured in:** `cfc/cfc.c` (CfcMtmGeneric + cfc_subghz_arm), `D:\Dev\scratch\day12_subghz_cook1_log.md` (to write), live-fire `key=0xA34E44 bits=24`.
+
+
+### 027 — RFID Cook 1: global single-active RF worker (not an adjacency matrix)
+**Date:** 2026-05-29 (Day 13)
+**Status:** ACTIVE — spec rule, pre-cook
+**Pick:** Only ONE RF vertical (NFC | Sub-GHz | RFID | future IR) may be subscribed at a time; a second subscribe returns `CFC_ERR_BUSY`, enforced FAP-side BEFORE `read_start`.
+**Alternative considered:** per-pair adjacency matrix (allow NFC∥Sub-GHz, forbid RFID∥anything).
+**Reasoning:** `furi_hal_bus_enable` does `furi_check(!already_enabled)` on the shared timers (TIM1/APB2, TIM2/APB1) — a collision is a HARD CRASH (`furi_crash` → bluescreen → physical power-cycle), not graceful failure. RFID read uses BOTH TIM1+TIM2, so it collides with NFC (TIM1) and Sub-GHz (TIM2). cc judged NFC∥Sub-GHz timer-legal; NotebookLM warned they'd contend on the shared SPI1 bus. Single-active sidesteps that unresolved disagreement, is crash-safe by construction, and costs nothing (no concurrent-RF need in Cook 1). A documented simplification, not an accident. The busy-guard is therefore crash-PREVENTION, not politeness.
+**Captured in:** `day13_rfid_cook1_recon.md` §2; independent convergence of cc + NotebookLM reviewers on the crash-not-graceful finding.
+
+### 028 — Local sovereign NotebookLM (AnythingLLM `kiisu-firmware`) + Librarian-on-CPK
+**Date:** 2026-05-29 (Day 13)
+**Status:** ACTIVE
+**Pick:** Stand up a local AnythingLLM workspace over the firmware/CFC corpus for "how does it work" Q&A, and add CPK to Librarian's graph for who-calls/where-defined. Kept on its own shelf — NOT folded into pgvector conversational memory.
+**Alternative considered:** keep round-tripping to cloud Gemini + NotebookLM for every firmware question.
+**Reasoning:** removes the cloud round-trip for firmware Q&A; gives a fast local first-pass. Cloud NotebookLM retained as an INDEPENDENT adversarial reviewer (different model, same source — caught the RFID crash-vs-graceful finding alongside cc). Empirical boundary: workspace = conceptual/explain; exact signatures/enums deep in big files still need direct mirror grep.
+**Captured in:** `05-dont-rebuild.md` "Local NotebookLM" block; D:\Dev\scripts ingest/bundle tools.
